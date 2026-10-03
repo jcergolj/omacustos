@@ -32,6 +32,11 @@ private slots:
     void folderPathUsesBackupIdentityAndWorkerNaming();
     void deletedCopyDisappearsFromRecentBackupsButKeepsItsSet();
     void exportsSavedSetsAndImportsTheirSettings();
+    void importsAnnotatedTemplate();
+    void savesBundledTemplateWithoutChangingConfiguration();
+    void templateCannotOverwriteLocalStateOrReportFailedWritesAsSuccess();
+    void mergesSetsByIdAndPreservesOtherSets();
+    void emptyMergeKeepsExistingSets();
     void invalidImportLeavesExistingSetsUntouched_data();
     void invalidImportLeavesExistingSetsUntouched();
     void emptyImportDoesNotRestoreLegacySources();
@@ -512,16 +517,67 @@ void BackupSetControllerTest::exportsSavedSetsAndImportsTheirSettings()
 void BackupSetControllerTest::invalidImportLeavesExistingSetsUntouched_data()
 {
     QTest::addColumn<QByteArray>("contents");
-    QTest::newRow("invalid JSON") << QByteArray("{");
-    QTest::newRow("not an export") << QByteArray(R"({"sets":[]})");
-    QTest::newRow("unknown version") << QByteArray(R"({"application":"omacustos","version":2,"sets":[]})");
-    QTest::newRow("invalid sources") << QByteArray(R"({"application":"omacustos","version":1,"sets":[{"id":"a","name":"A","remote_root":"/my-files/backups","source_directories":[]}]})");
-    QTest::newRow("duplicate identities") << QByteArray(R"({"application":"omacustos","version":1,"sets":[{"id":"a","name":"A","remote_root":"/my-files/backups","source_directories":["/safe/a"]},{"id":"a","name":"B","remote_root":"/my-files/backups","source_directories":["/safe/b"]}]})");
+    QTest::addColumn<QString>("errorField");
+    QTest::addColumn<bool>("merge");
+    const auto addRow = [](const char *name, const QByteArray &contents, const QString &field) {
+        QTest::newRow(qPrintable(QStringLiteral("%1 replace").arg(name))) << contents << field << false;
+        QTest::newRow(qPrintable(QStringLiteral("%1 merge").arg(name))) << contents << field << true;
+    };
+    addRow("invalid JSON", "{", "invalid JSON at byte");
+    addRow("not an object", "[]", "JSON object");
+    addRow("not an export", R"({"sets":[]})", "application");
+    addRow("unknown version", R"({"application":"omacustos","version":2,"sets":[]})", "version");
+    addRow("boolean version", R"({"application":"omacustos","version":true,"sets":[]})", "version");
+    addRow("wrong sets type", R"({"application":"omacustos","version":1,"sets":{}})", "sets");
+    addRow("wrong set type", R"({"application":"omacustos","version":1,"sets":[null]})", "sets[0]");
+    addRow("invalid sources", R"({"application":"omacustos","version":1,"sets":[{"id":"a","name":"A","remote_root":"/my-files/backups","source_directories":[]}]})", "sets[0].source_directories");
+    addRow("duplicate identities", R"({"application":"omacustos","version":1,"sets":[{"id":"a","name":"A","remote_root":"/my-files/backups","source_directories":["/safe/a"]},{"id":"a","name":"B","remote_root":"/my-files/backups","source_directories":["/safe/b"]}]})", "sets[1].id");
+
+    const QJsonObject validSet = QJsonDocument::fromJson(R"({"id":"a","name":"A","remote_root":"/my-files/backups","source_directories":["/safe/a"]})").object();
+    const auto addField = [&](const char *name, const QString &field, const QJsonValue &value) {
+        QJsonObject set = validSet;
+        set.insert(field, value);
+        const QJsonObject document {{"application", "omacustos"}, {"version", 1}, {"sets", QJsonArray {set}}};
+        addRow(name, QJsonDocument(document).toJson(), "sets[0]." + field);
+    };
+    addField("blank id", "id", " ");
+    addField("wrong name type", "name", 12);
+    addField("blank remote root", "remote_root", "");
+    addField("wrong sources type", "source_directories", "/safe/a");
+    addField("blank source", "source_directories", QJsonArray {" "});
+    addField("wrong source item type", "source_directories", QJsonArray {42});
+    addField("wrong exclusions type", "exclusions", "node_modules");
+    addField("wrong exclusion item type", "exclusions", QJsonArray {false});
+    addField("wrong schedule type", "schedule", QJsonValue::Null);
+    addField("zero retention", "retention", 0);
+    addField("string retention", "retention", "3");
+    addField("fractional retention", "retention", 3.5);
+    addField("overflow retention", "retention", 2147483648.0);
+    addField("wrong AC power type", "only_on_ac_power", "false");
+
+    const auto addSchedule = [&](const char *name, const QString &field, const QJsonValue &value) {
+        QJsonObject set = validSet;
+        set.insert("schedule", QJsonObject {{field, value}});
+        const QJsonObject document {{"application", "omacustos"}, {"version", 1}, {"sets", QJsonArray {set}}};
+        addRow(name, QJsonDocument(document).toJson(), "sets[0].schedule." + field);
+    };
+    addSchedule("unknown frequency", "frequency", "hourly");
+    addSchedule("wrong frequency type", "frequency", false);
+    addSchedule("wrong hour type", "hour", "2");
+    addSchedule("boolean hour", "hour", true);
+    addSchedule("fractional hour", "hour", 2.5);
+    addSchedule("negative hour", "hour", -1);
+    addSchedule("hour out of range", "hour", 24);
+    addSchedule("minute out of range", "minute", 60);
+    addSchedule("weekday out of range", "weekday", 0);
+    addSchedule("monthly day out of range", "day_of_month", 32);
 }
 
 void BackupSetControllerTest::invalidImportLeavesExistingSetsUntouched()
 {
     QFETCH(QByteArray, contents);
+    QFETCH(QString, errorField);
+    QFETCH(bool, merge);
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
     const QString configPath = directory.filePath(QStringLiteral("settings.json"));
@@ -540,11 +596,157 @@ void BackupSetControllerTest::invalidImportLeavesExistingSetsUntouched()
     BackupEngine engine;
     BackupSetController controller(engine, configPath);
     QSignalSpy failure(&controller, &BackupSetController::failed);
-    QVERIFY(!controller.importSets(invalid.fileName()));
+    QSignalSpy changed(&controller, &BackupSetController::setsChanged);
+    QSignalSpy savedConfiguration(&controller, &BackupSetController::configurationSaved);
+    QVERIFY(!controller.importSets(invalid.fileName(), merge));
     QCOMPARE(failure.count(), 1);
+    QVERIFY2(failure.first().first().toString().contains(errorField), qPrintable(failure.first().first().toString()));
+    QVERIFY(changed.isEmpty());
+    QVERIFY(savedConfiguration.isEmpty());
     QCOMPARE(controller.setNames(), QStringList {QStringLiteral("Documents")});
     QVERIFY(saved.open(QIODevice::ReadOnly));
     QCOMPARE(saved.readAll(), before);
+}
+
+void BackupSetControllerTest::importsAnnotatedTemplate()
+{
+    const QString templatePath = QFINDTESTDATA("../../backup-sets.template.json");
+    QVERIFY(!templatePath.isEmpty());
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString configPath = directory.filePath("settings.json");
+    BackupEngine engine;
+    BackupSetController controller(engine, configPath);
+    QVERIFY(controller.importSets(templatePath));
+    QCOMPARE(controller.setNames(), QStringList {"Personal files"});
+    QCOMPARE(controller.currentSources().size(), 3);
+    QCOMPARE(controller.currentScheduleFrequency(), QString("daily"));
+    QCOMPARE(controller.currentScheduleHour(), 2);
+    QCOMPARE(controller.currentScheduleMinute(), 0);
+    QCOMPARE(controller.currentRetention(), 3);
+    QVERIFY(!controller.currentOnlyOnAcPower());
+    QFile persisted(configPath);
+    QVERIFY(persisted.open(QIODevice::ReadOnly));
+    QVERIFY(!persisted.readAll().contains("_comment"));
+}
+
+void BackupSetControllerTest::savesBundledTemplateWithoutChangingConfiguration()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString configPath = directory.filePath("settings.json");
+    QVERIFY(BackupConfigStore(configPath).save(BackupConfig {}));
+    QFile configuration(configPath);
+    QVERIFY(configuration.open(QIODevice::ReadOnly));
+    const QByteArray before = configuration.readAll();
+    configuration.close();
+    BackupEngine engine;
+    BackupSetController controller(engine, configPath);
+    QVERIFY(controller.setNames().isEmpty());
+    QSignalSpy saved(&controller, &BackupSetController::configurationSaved);
+    QSignalSpy changed(&controller, &BackupSetController::setsChanged);
+    QSignalSpy status(&controller, &BackupSetController::statusChanged);
+    const QString outputPath = directory.filePath("downloaded template.json");
+    QVERIFY(controller.saveTemplate(outputPath));
+    QCOMPARE(status.count(), 1);
+    QVERIFY(saved.isEmpty());
+    QVERIFY(changed.isEmpty());
+    QVERIFY(controller.setNames().isEmpty());
+    QVERIFY(configuration.open(QIODevice::ReadOnly));
+    QCOMPARE(configuration.readAll(), before);
+
+    QFile downloaded(outputPath);
+    QVERIFY(downloaded.open(QIODevice::ReadOnly));
+    QFile original(QFINDTESTDATA("../../backup-sets.template.json"));
+    QVERIFY(original.open(QIODevice::ReadOnly));
+    QCOMPARE(downloaded.readAll(), original.readAll());
+    BackupConfig imported;
+    QString error;
+    QVERIFY2(BackupConfigStore(outputPath).importSets(&imported, &error), qPrintable(error));
+    QCOMPARE(imported.sets.first().schedule.frequency, QString("daily"));
+    QCOMPARE(imported.sets.first().schedule.hour, 2);
+}
+
+void BackupSetControllerTest::templateCannotOverwriteLocalStateOrReportFailedWritesAsSuccess()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString configPath = directory.filePath("settings.json");
+    QVERIFY(BackupConfigStore(configPath).save(BackupConfig {}));
+    BackupEngine engine;
+    BackupSetController controller(engine, configPath);
+    QSignalSpy failure(&controller, &BackupSetController::failed);
+    QSignalSpy success(&controller, &BackupSetController::statusChanged);
+    for (const QString &path : {configPath, directory.filePath("omacustos-backup-runs.json"),
+        directory.filePath("omacustos-backup-cleanup.json"), directory.path(), directory.filePath("missing/template.json")}) {
+        QVERIFY(!controller.saveTemplate(path));
+    }
+    QCOMPARE(failure.count(), 5);
+    QVERIFY(success.isEmpty());
+    BackupConfig reloaded;
+    QVERIFY(BackupConfigStore(configPath).load(&reloaded));
+    QVERIFY(reloaded.sets.isEmpty());
+}
+
+void BackupSetControllerTest::mergesSetsByIdAndPreservesOtherSets()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString configPath = directory.filePath("settings.json");
+    BackupConfig original;
+    original.protonBinary = "/this-machine/proton-drive";
+    original.sets = {
+        {"documents", "Documents", "/my-files/backups", {"/safe/documents"}, {}},
+        {"photos", "Photos", "/my-files/backups", {"/safe/photos"}, {}},
+    };
+    QVERIFY(BackupConfigStore(configPath).save(original));
+    // Omitted optional fields use defaults. Matching names do not merge distinct IDs.
+    QFile imported(directory.filePath("import.json"));
+    QVERIFY(imported.open(QIODevice::WriteOnly));
+    imported.write(R"({"application":"omacustos","version":1,"sets":[
+        {"id":"documents","name":"Updated documents","remote_root":"/my-files/new","source_directories":["/safe/new-documents"],"schedule":{"frequency":"daily","hour":2}},
+        {"id":"new-photos","name":"Photos","remote_root":"/my-files/backups","source_directories":["/safe/new-photos"]}
+    ]})");
+    imported.close();
+    BackupEngine engine;
+    BackupSetController controller(engine, configPath);
+    QSignalSpy saved(&controller, &BackupSetController::configurationSaved);
+    QVERIFY(controller.importSets(imported.fileName(), true));
+    QCOMPARE(saved.count(), 1);
+    QCOMPARE(controller.setIds(), (QStringList {"documents", "photos", "new-photos"}));
+    QCOMPARE(controller.setNames(), (QStringList {"Updated documents", "Photos", "Photos"}));
+    BackupConfig reloaded;
+    QVERIFY(BackupConfigStore(configPath).load(&reloaded));
+    QCOMPARE(reloaded.protonBinary, original.protonBinary);
+    QCOMPARE(reloaded.sets.at(0).sourceDirectories, QStringList {"/safe/new-documents"});
+    QCOMPARE(reloaded.sets.at(0).remoteRoot, QString("/my-files/new"));
+    QCOMPARE(reloaded.sets.at(0).schedule.frequency, QString("daily"));
+    QCOMPARE(reloaded.sets.at(0).schedule.hour, 2);
+    QCOMPARE(reloaded.sets.at(1).sourceDirectories, original.sets.at(1).sourceDirectories);
+    QCOMPARE(reloaded.sets.at(2).schedule.frequency, QString("disabled"));
+    QCOMPARE(reloaded.sets.at(2).retention, 3);
+    QVERIFY(reloaded.sets.at(2).exclusions.isEmpty());
+    QVERIFY(!reloaded.sets.at(2).onlyOnAcPower);
+}
+
+void BackupSetControllerTest::emptyMergeKeepsExistingSets()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString configPath = directory.filePath("settings.json");
+    BackupConfig original;
+    original.sets = {{"documents", "Documents", "/my-files/backups", {"/safe/documents"}, {}}};
+    QVERIFY(BackupConfigStore(configPath).save(original));
+    const QString importPath = directory.filePath("empty.json");
+    QVERIFY(BackupConfigStore(importPath).exportSets(BackupConfig {}));
+    BackupEngine engine;
+    BackupSetController controller(engine, configPath);
+    QVERIFY(controller.importSets(importPath, true));
+    QCOMPARE(controller.setIds(), QStringList {"documents"});
+    BackupConfig reloaded;
+    QVERIFY(BackupConfigStore(configPath).load(&reloaded));
+    QCOMPARE(reloaded.sets.size(), 1);
+    QCOMPARE(reloaded.sets.first().sourceDirectories, original.sets.first().sourceDirectories);
 }
 
 void BackupSetControllerTest::emptyImportDoesNotRestoreLegacySources()

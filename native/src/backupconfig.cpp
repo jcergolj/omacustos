@@ -9,6 +9,8 @@
 #include <QSet>
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
 
 namespace {
 
@@ -22,6 +24,116 @@ bool validSchedule(const BackupSchedule &schedule)
         && schedule.minute >= 0 && schedule.minute <= 59
         && schedule.weekday >= 1 && schedule.weekday <= 7
         && schedule.dayOfMonth >= 1 && schedule.dayOfMonth <= 31;
+}
+
+bool invalidImportField(const QString &field, const QString &reason, QString *error)
+{
+    if (error != nullptr) {
+        *error = QStringLiteral("Cannot import backup sets: %1 %2.").arg(field, reason);
+    }
+    return false;
+}
+
+bool importString(const QJsonValue &value, const QString &field, QString *error)
+{
+    return (value.isString() && !value.toString().trimmed().isEmpty())
+        || invalidImportField(field, QStringLiteral("must be a nonempty string"), error);
+}
+
+bool importInteger(const QJsonValue &value, const QString &field, int minimum, int maximum, QString *error)
+{
+    const double number = value.toDouble();
+    return (value.isDouble() && number >= minimum && number <= maximum && std::floor(number) == number)
+        || invalidImportField(field, QStringLiteral("must be a whole number from %1 to %2").arg(minimum).arg(maximum), error);
+}
+
+bool validateImport(const QJsonObject &document, QString *error)
+{
+    if (document.value(QStringLiteral("application")).toString() != QStringLiteral("omacustos")) {
+        return invalidImportField(QStringLiteral("application"), QStringLiteral("must be \"omacustos\""), error);
+    }
+    if (!importInteger(document.value(QStringLiteral("version")), QStringLiteral("version"), 1, 1, error)) {
+        return false;
+    }
+    if (!document.value(QStringLiteral("sets")).isArray()) {
+        return invalidImportField(QStringLiteral("sets"), QStringLiteral("must be an array of backup-set objects"), error);
+    }
+    if (document.contains(QStringLiteral("proton_binary"))
+        && !importString(document.value(QStringLiteral("proton_binary")), QStringLiteral("proton_binary"), error)) {
+        return false;
+    }
+
+    QSet<QString> ids;
+    const QJsonArray sets = document.value(QStringLiteral("sets")).toArray();
+    for (qsizetype index = 0; index < sets.size(); ++index) {
+        const QString path = QStringLiteral("sets[%1]").arg(index);
+        if (!sets.at(index).isObject()) {
+            return invalidImportField(path, QStringLiteral("must be a backup-set object"), error);
+        }
+        const QJsonObject set = sets.at(index).toObject();
+        for (const QString &field : {QStringLiteral("id"), QStringLiteral("name"), QStringLiteral("remote_root")}) {
+            if (!importString(set.value(field), path + '.' + field, error)) {
+                return false;
+            }
+        }
+        const QString id = set.value(QStringLiteral("id")).toString();
+        if (ids.contains(id)) {
+            return invalidImportField(path + QStringLiteral(".id"), QStringLiteral("duplicates another set's ID (%1)").arg(id), error);
+        }
+        ids.insert(id);
+
+        const QJsonValue sources = set.value(QStringLiteral("source_directories"));
+        if (!sources.isArray() || sources.toArray().isEmpty()) {
+            return invalidImportField(path + QStringLiteral(".source_directories"), QStringLiteral("must be a nonempty array of path strings"), error);
+        }
+        const QJsonArray sourceArray = sources.toArray();
+        for (qsizetype source = 0; source < sourceArray.size(); ++source) {
+            if (!importString(sourceArray.at(source), path + QStringLiteral(".source_directories[%1]").arg(source), error)) {
+                return false;
+            }
+        }
+        if (set.contains(QStringLiteral("exclusions"))) {
+            const QJsonValue exclusions = set.value(QStringLiteral("exclusions"));
+            if (!exclusions.isArray()) {
+                return invalidImportField(path + QStringLiteral(".exclusions"), QStringLiteral("must be an array of strings"), error);
+            }
+            const QJsonArray exclusionArray = exclusions.toArray();
+            for (qsizetype exclusion = 0; exclusion < exclusionArray.size(); ++exclusion) {
+                if (!exclusionArray.at(exclusion).isString()) {
+                    return invalidImportField(path + QStringLiteral(".exclusions[%1]").arg(exclusion), QStringLiteral("must be a string"), error);
+                }
+            }
+        }
+        if (set.contains(QStringLiteral("schedule"))) {
+            if (!set.value(QStringLiteral("schedule")).isObject()) {
+                return invalidImportField(path + QStringLiteral(".schedule"), QStringLiteral("must be an object"), error);
+            }
+            const QJsonObject schedule = set.value(QStringLiteral("schedule")).toObject();
+            if (schedule.contains(QStringLiteral("frequency"))) {
+                const QJsonValue frequency = schedule.value(QStringLiteral("frequency"));
+                if (!frequency.isString() || !QStringList {QStringLiteral("disabled"), QStringLiteral("daily"),
+                    QStringLiteral("weekly"), QStringLiteral("monthly")}.contains(frequency.toString())) {
+                    return invalidImportField(path + QStringLiteral(".schedule.frequency"), QStringLiteral("must be disabled, daily, weekly, or monthly"), error);
+                }
+            }
+            for (const QString &field : {QStringLiteral("hour"), QStringLiteral("minute"), QStringLiteral("weekday"), QStringLiteral("day_of_month")}) {
+                const int minimum = field == QStringLiteral("hour") || field == QStringLiteral("minute") ? 0 : 1;
+                const int maximum = field == QStringLiteral("hour") ? 23 : field == QStringLiteral("minute") ? 59
+                    : field == QStringLiteral("weekday") ? 7 : 31;
+                if (schedule.contains(field) && !importInteger(schedule.value(field), path + QStringLiteral(".schedule.") + field, minimum, maximum, error)) {
+                    return false;
+                }
+            }
+        }
+        if (set.contains(QStringLiteral("retention"))
+            && !importInteger(set.value(QStringLiteral("retention")), path + QStringLiteral(".retention"), 1, std::numeric_limits<int>::max(), error)) {
+            return false;
+        }
+        if (set.contains(QStringLiteral("only_on_ac_power")) && !set.value(QStringLiteral("only_on_ac_power")).isBool()) {
+            return invalidImportField(path + QStringLiteral(".only_on_ac_power"), QStringLiteral("must be true or false"), error);
+        }
+    }
+    return true;
 }
 
 }
@@ -83,18 +195,16 @@ bool BackupConfigStore::loadFile(BackupConfig *config, bool setsOnly, QString *e
     const QJsonObject object = document.object();
     if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
         if (error != nullptr) {
-            *error = QStringLiteral("The OmaCustos backup configuration is malformed.");
+            *error = !setsOnly ? QStringLiteral("The OmaCustos backup configuration is malformed.")
+                : parseError.error != QJsonParseError::NoError
+                ? QStringLiteral("Cannot import backup sets: invalid JSON at byte %1: %2.").arg(parseError.offset).arg(parseError.errorString())
+                : QStringLiteral("Cannot import backup sets: the file must contain a JSON object.");
         }
 
         return false;
     }
 
-    if (setsOnly && (object.value(QStringLiteral("application")).toString() != QStringLiteral("omacustos")
-        || object.value(QStringLiteral("version")).toInt() != 1
-        || !object.value(QStringLiteral("sets")).isArray())) {
-        if (error != nullptr) {
-            *error = QStringLiteral("Choose a backup-set JSON file exported from OmaCustos.");
-        }
+    if (setsOnly && !validateImport(object, error)) {
         return false;
     }
 

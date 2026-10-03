@@ -6,6 +6,7 @@
 #include <QLockFile>
 #include <QSysInfo>
 #include <QLocale>
+#include <QSaveFile>
 #include <QUuid>
 #include <QtConcurrentRun>
 
@@ -668,16 +669,24 @@ bool BackupSetController::save()
     return true;
 }
 
-bool BackupSetController::exportSets(const QString &filePath)
+bool BackupSetController::isLocalStatePath(const QString &filePath) const
 {
     const QFileInfo destination(filePath);
     for (const QString &statePath : {store.filePath(), runStore.filePath(), cleanupStore.filePath()}) {
         const QFileInfo state(statePath);
         if (QDir::cleanPath(destination.absoluteFilePath()) == QDir::cleanPath(state.absoluteFilePath())
             || (!destination.canonicalFilePath().isEmpty() && destination.canonicalFilePath() == state.canonicalFilePath())) {
-            emit failed(QStringLiteral("Choose a separate file for exporting your backup sets."));
-            return false;
+            return true;
         }
+    }
+    return false;
+}
+
+bool BackupSetController::exportSets(const QString &filePath)
+{
+    if (isLocalStatePath(filePath)) {
+        emit failed(QStringLiteral("Choose a separate file for exporting your backup sets."));
+        return false;
     }
     BackupConfig saved;
     QString error;
@@ -689,7 +698,29 @@ bool BackupSetController::exportSets(const QString &filePath)
     return true;
 }
 
-bool BackupSetController::importSets(const QString &filePath)
+bool BackupSetController::saveTemplate(const QString &filePath)
+{
+    if (isLocalStatePath(filePath)) {
+        emit failed(QStringLiteral("Choose a separate file for saving the backup-set template."));
+        return false;
+    }
+    Q_INIT_RESOURCE(backup_set_template);
+    QFile source(QStringLiteral(":/omacustos/backup-sets.template.json"));
+    if (!source.open(QIODevice::ReadOnly)) {
+        emit failed(QStringLiteral("The bundled backup-set template could not be opened."));
+        return false;
+    }
+    const QByteArray contents = source.readAll();
+    QSaveFile destination(filePath);
+    if (!destination.open(QIODevice::WriteOnly) || destination.write(contents) != contents.size() || !destination.commit()) {
+        emit failed(QStringLiteral("Unable to save the backup-set template: %1").arg(destination.errorString()));
+        return false;
+    }
+    emit statusChanged(QStringLiteral("Backup-set template saved."));
+    return true;
+}
+
+bool BackupSetController::importSets(const QString &filePath, bool merge)
 {
     BackupConfig imported;
     QString error;
@@ -704,7 +735,20 @@ bool BackupSetController::importSets(const QString &filePath)
         return false;
     }
     BackupConfig updated = config;
-    updated.sets = imported.sets;
+    if (merge) {
+        for (const BackupSet &set : imported.sets) {
+            const auto existing = std::find_if(updated.sets.begin(), updated.sets.end(), [&set](const BackupSet &candidate) {
+                return candidate.id == set.id;
+            });
+            if (existing == updated.sets.end()) {
+                updated.sets.append(set);
+            } else {
+                *existing = set;
+            }
+        }
+    } else {
+        updated.sets = imported.sets;
+    }
     updated.sourceDirectory.clear();
     updated.remoteRoot.clear();
     if (!store.save(updated, &error)) {

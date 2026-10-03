@@ -7,7 +7,7 @@
     "Follow the user's requested schedule, exclusions, retention, and AC-power requirement. If no schedule is requested, use disabled. The example below is daily at 02:00.",
     "Return only JSON, without Markdown fences or surrounding prose. These _comment fields may be kept or removed; OmaCustos ignores them.",
     "Use double quotes, JSON booleans, and no trailing commas. Do not use // or /* */ comments.",
-    "Import replaces all configured backup sets. Enabled schedules activate automatic scheduling. Review the generated file before importing."
+    "OmaCustos validates the file automatically before importing. Merge keeps other sets and updates matching IDs; Replace uses only this file's sets. Enabled schedules activate automatic scheduling. Review the generated file before importing."
   ],
   "application": "omacustos",
   "version": 1,

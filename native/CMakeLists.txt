@@ -45,6 +45,11 @@ add_library(omacustos-controllers STATIC
     src/resourceusage.cpp
 )
 target_link_libraries(omacustos-controllers PUBLIC omacustos-core Qt6::Concurrent)
+qt_add_resources(omacustos-controllers backup_set_template
+    PREFIX "/omacustos"
+    BASE "${CMAKE_CURRENT_SOURCE_DIR}/.."
+    FILES "${CMAKE_CURRENT_SOURCE_DIR}/../backup-sets.template.json"
+)
 
 add_library(omacustos-theme STATIC src/themecolors.cpp)
 target_link_libraries(omacustos-theme PUBLIC Qt6::Gui)

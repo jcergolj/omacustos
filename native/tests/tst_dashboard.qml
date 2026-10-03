@@ -51,7 +51,9 @@ TestCase {
         backupSetController.addedCount = 0
         backupSetController.refreshCount = 0
         backupSetController.importedPath = ""
+        backupSetController.importedMerge = false
         backupSetController.exportedPath = ""
+        backupSetController.templatePath = ""
         backupSetController.previewAvailable = false
         backupSetController.previewCount = 0
         backupSetController.saveCount = 0
@@ -792,8 +794,63 @@ TestCase {
         const importDialog = control("importSetsDialog")
         importDialog.selectedFile = dashboardImportFileUrl
         importDialog.accepted()
+        tryCompare(control("importModeDialog"), "opened", true)
+        compare(backupSetController.importedPath, "")
+        mouseClick(control("replaceImportButton"))
         compare(backupSetController.importedPath, dashboardImportFilePath)
+        compare(backupSetController.importedMerge, false)
         compare(app.showEditor, false)
+    }
+
+    function test_importMergeUsesChosenFile() {
+        const dialog = control("importSetsDialog")
+        dialog.selectedFile = dashboardImportFileUrl
+        dialog.accepted()
+        tryCompare(control("importModeDialog"), "opened", true)
+        mouseClick(control("mergeImportButton"))
+        compare(backupSetController.importedPath, dashboardImportFilePath)
+        compare(backupSetController.importedMerge, true)
+    }
+
+    function test_templateDownloadUsesChosenFileWithoutClosingEditor() {
+        mouseClick(control("newBackupSetButton"))
+        compare(control("downloadTemplateButton").text, "Download template")
+        const dialog = control("templateDialog")
+        compare(dialog.fileMode, FileDialog.SaveFile)
+        compare(dialog.defaultSuffix, "json")
+        dialog.selectedFile = "file:///tmp/backup%20template.json"
+        dialog.accepted()
+        compare(backupSetController.templatePath, "/tmp/backup template.json")
+        compare(backupSetController.importedPath, "")
+        compare(backupSetController.exportedPath, "")
+        compare(app.showEditor, true)
+    }
+
+    function test_templateDownloadAvailableWithoutBackupSets() {
+        backupSetController.setNames = []
+        backupSetController.setIds = []
+        const menu = control("backupSetsMenu")
+        mouseClick(control("backupSetsMenuButton"))
+        tryCompare(menu, "opened", true)
+        verify(control("downloadTemplateButton").enabled)
+        mouseClick(control("downloadTemplateButton"))
+        const dialog = control("templateDialog")
+        tryCompare(dialog, "visible", true)
+        dialog.reject()
+        compare(backupSetController.templatePath, "")
+    }
+
+    function test_cancelImportDoesNotImportOrCloseEditor() {
+        mouseClick(control("newBackupSetButton"))
+        const dialog = control("importSetsDialog")
+        dialog.selectedFile = dashboardImportFileUrl
+        dialog.accepted()
+        const mode = control("importModeDialog")
+        tryCompare(mode, "opened", true)
+        mouseClick(mode.standardButton(Dialog.Cancel))
+        tryCompare(mode, "visible", false)
+        compare(backupSetController.importedPath, "")
+        compare(app.showEditor, true)
     }
 
     function test_backupSetOptionsOpenBelowTopRightButtonAndDismissWithEscape() {
@@ -809,6 +866,7 @@ TestCase {
         tryCompare(menu, "opened", true)
         compare(menu.itemAt(0), control("importSetsButton"))
         compare(menu.itemAt(1), control("exportSetsButton"))
+        compare(menu.itemAt(2), control("downloadTemplateButton"))
         const menuTop = menu.contentItem.mapToItem(app.contentItem, 0, 0)
         verify(menuTop.y >= position.y + button.height)
         verify(Math.abs(menuTop.x + menu.contentItem.width - position.x - button.width) < 16)
@@ -825,6 +883,11 @@ TestCase {
         mouseClick(menu.itemAt(1))
         tryCompare(control("exportSetsDialog"), "visible", true)
         control("exportSetsDialog").reject()
+        mouseClick(button)
+        tryCompare(menu, "opened", true)
+        mouseClick(menu.itemAt(2))
+        tryCompare(control("templateDialog"), "visible", true)
+        control("templateDialog").reject()
     }
 
     function test_actionButtonsMatchOverflowButtonAppearance() {
@@ -847,6 +910,9 @@ TestCase {
         const dialog = control("importSetsDialog")
         dialog.selectedFile = dashboardInvalidImportFileUrl
         dialog.accepted()
+        tryCompare(control("importModeDialog"), "opened", true)
+        mouseClick(control("mergeImportButton"))
+        compare(backupSetController.importedPath, app.localPath(dashboardInvalidImportFileUrl))
         compare(app.showEditor, true)
     }
 

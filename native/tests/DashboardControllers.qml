@@ -93,7 +93,9 @@ QtObject {
         property int addedCount: 0
         property int refreshCount: 0
         property string importedPath: ""
+        property bool importedMerge: false
         property string exportedPath: ""
+        property string templatePath: ""
         property bool importSucceeds: true
         signal currentSetChanged()
         signal runStateChanged()
@@ -117,8 +119,9 @@ QtObject {
             return setIds.indexOf(setId) >= 0 ? "/backups/" + setId : ""
         }
         function save() { saveCount++; return true }
-        function importSets(path) { importedPath = path; return importSucceeds }
+        function importSets(path, merge) { importedPath = path; importedMerge = merge; return importSucceeds }
         function exportSets(path) { exportedPath = path; return true }
+        function saveTemplate(path) { templatePath = path; return true }
         function confirmCleanup() { return true }
         function refreshRunState() { refreshCount++ }
         function backupDetails(setId) { return runDetails[setId] || ({}) }

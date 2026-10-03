@@ -114,7 +114,8 @@ public:
     Q_INVOKABLE void refreshRunState();
     Q_INVOKABLE bool save();
     Q_INVOKABLE bool exportSets(const QString &filePath);
-    Q_INVOKABLE bool importSets(const QString &filePath);
+    Q_INVOKABLE bool saveTemplate(const QString &filePath);
+    Q_INVOKABLE bool importSets(const QString &filePath, bool merge = false);
     Q_INVOKABLE bool confirmCleanup();
 
 signals:
@@ -142,6 +143,7 @@ private:
     void clearPreview();
     void startPreview();
     void updateDashboard();
+    bool isLocalStatePath(const QString &filePath) const;
     QStringList calculateRunningSetIds() const;
     QVariantMap calculateRemainingTimes() const;
     QVariantMap calculateTransferProgress() const;

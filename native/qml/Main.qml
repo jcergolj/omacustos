@@ -162,13 +162,52 @@ ApplicationWindow {
     FileDialog {
         id: importSetsDialog
         objectName: "importSetsDialog"
-        title: qsTr("Import backup sets (replace current list)")
+        title: qsTr("Import backup sets")
         fileMode: FileDialog.OpenFile
         nameFilters: [qsTr("OmaCustos backup sets (*.json)")]
         onAccepted: {
-            if (backupSetController.importSets(root.localPath(selectedFile))) {
+            importModeDialog.filePath = root.localPath(selectedFile)
+            importModeDialog.open()
+        }
+    }
+
+    Dialog {
+        id: importModeDialog
+        objectName: "importModeDialog"
+        anchors.centerIn: parent
+        property string filePath: ""
+        title: qsTr("Import backup sets")
+        width: Math.min(root.width - 2 * root.contentPadding, 480)
+        modal: true
+        standardButtons: Dialog.Cancel
+
+        function importFile(merge) {
+            if (backupSetController.importSets(filePath, merge)) {
                 root.showEditor = false
                 root.loadCurrentSet()
+            }
+            close()
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 16
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Merge keeps other existing sets, adds new sets, and updates sets with matching IDs. Replace removes the current list and uses only the imported sets.\n\nOmaCustos validates the file before changing your settings.")
+                wrapMode: Text.WordWrap
+            }
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                Button {
+                    objectName: "mergeImportButton"
+                    text: qsTr("Merge")
+                    onClicked: importModeDialog.importFile(true)
+                }
+                Button {
+                    objectName: "replaceImportButton"
+                    text: qsTr("Replace")
+                    onClicked: importModeDialog.importFile(false)
+                }
             }
         }
     }
@@ -181,6 +220,17 @@ ApplicationWindow {
         defaultSuffix: "json"
         nameFilters: [qsTr("OmaCustos backup sets (*.json)")]
         onAccepted: backupSetController.exportSets(root.localPath(selectedFile))
+    }
+
+    FileDialog {
+        id: templateDialog
+        objectName: "templateDialog"
+        title: qsTr("Download backup-set template")
+        fileMode: FileDialog.SaveFile
+        selectedFile: "backup-sets.template.json"
+        defaultSuffix: "json"
+        nameFilters: [qsTr("OmaCustos backup sets (*.json)")]
+        onAccepted: backupSetController.saveTemplate(root.localPath(selectedFile))
     }
 
     Popup {
@@ -425,6 +475,12 @@ ApplicationWindow {
                         text: qsTr("Export")
                         enabled: backupSetController.setNames.length > 0
                         onTriggered: exportSetsDialog.open()
+                    }
+
+                    MenuItem {
+                        objectName: "downloadTemplateButton"
+                        text: qsTr("Download template")
+                        onTriggered: templateDialog.open()
                     }
                 }
             }

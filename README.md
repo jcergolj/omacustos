@@ -169,15 +169,27 @@ only that file or folder. You can also select a specific path with **+**.
 
 ## Import and export backup sets
 
-Use **Export** in the top-right to save your backup sets as a JSON file.
-Use **Import** to load that file into OmaCustos. Import replaces the configured set list.
+Open the top-right **⋯** menu and choose **Export** to save your backup sets as a
+JSON file, or **Download template** to save an annotated example for editing.
+Use **Import** to select a JSON file, then choose how to apply it:
+
+- **Merge** keeps other existing sets, adds sets with new IDs, and updates sets
+  whose IDs match the imported file. Matching names alone do not combine sets.
+- **Replace** replaces the entire configured set list with the imported sets.
+
+OmaCustos automatically validates the file before applying either choice. If it
+is invalid, the app shows an error and keeps your existing settings.
 
 The file contains sources, exclusions, schedules, and settings. Your backed-up
 files, Proton login, and this computer's global resource preset are not included.
 
 ### Create an import file
 
-Download the [annotated backup-set template](backup-sets.template.json)
+In OmaCustos, open **⋯ → Download template** and choose where to save the file.
+The template is bundled with the app, so this works offline and before you have
+created any backup sets.
+
+You can also download the [annotated backup-set template](backup-sets.template.json)
 ([raw file](https://raw.githubusercontent.com/jcergolj/omacustos/HEAD/backup-sets.template.json))
 and save a copy as `my-backup-sets.json`. On GitHub, open the template and use
 **Download raw file**, or save the raw link from your browser.
@@ -191,10 +203,10 @@ and save a copy as `my-backup-sets.json`. On GitHub, open the template and use
    **daily at 02:00 in your computer's local time**. Set `frequency` to `disabled`
    for manual backups, or use `daily`, `weekly`, or `monthly`. Hours are 0–23 and
    minutes are 0–59; weekdays are 1–7 (Monday–Sunday), and monthly days are 1–31.
-4. Save the file and [validate it](#validate-an-import-file), then press **Import**
-   in OmaCustos and select your file.
-   **Import replaces all configured backup sets**, so export your current sets
-   first if you want to keep a copy. Enabled schedules activate automatic scheduling.
+4. Save the file, press **Import** in OmaCustos, and select your file. Choose
+   **Merge** to keep other existing sets or **Replace** to use only this file's
+   sets. Export your current sets first if you want to keep a copy before replacing
+   them. Enabled schedules activate automatic scheduling.
 5. Open each imported set and use **Preview** to check its sources and exclusions.
 
 The template includes `_comment` fields explaining the format and giving LLMs
@@ -221,33 +233,22 @@ Return only the complete importable JSON, without Markdown code fences.
 ```
 
 Save the response as `my-backup-sets.json`, review the paths and schedule, then
-validate it, import it, and check **Preview** as described above. If you want to
-keep existing sets too, attach an export of those sets and ask the LLM to include
-them in the result while preserving their IDs.
+import it and check **Preview** as described above. Use **Merge** to keep other
+existing sets. To modify an existing set, attach an export and ask the LLM to
+preserve that set's ID so merging updates it.
 
-### Validate an import file
+### Automatic import validation
 
-Download [the validator](tools/validate_backup_sets.py)
-([raw file](https://raw.githubusercontent.com/jcergolj/omacustos/HEAD/tools/validate_backup_sets.py))
-as `validate_backup_sets.py`. It requires Python 3 and no extra packages:
+When you choose **Merge** or **Replace**, OmaCustos checks JSON syntax, the
+application and version, required fields, unique IDs within the file, value
+types, and schedule and retention ranges before saving any changes. Errors point
+to the field to fix, such as `sets[0].schedule.hour`; incorrect values are rejected
+rather than silently replaced with defaults. The template's `_comment` fields
+are accepted.
 
-```bash
-python3 validate_backup_sets.py my-backup-sets.json
-```
-
-From a repository checkout, use
-`python3 tools/validate_backup_sets.py my-backup-sets.json` instead.
-
-The validator checks JSON syntax, the application and version, required fields,
-unique set IDs, value types, and schedule and retention ranges. It accepts the
-template's `_comment` fields and reports errors with field locations, such as
-`sets[0].schedule.hour`. It exits with status **0** for a valid file and **1** for
-an invalid or unreadable file; it does not import or change any settings.
-
-Validation catches incorrectly typed values that the importer might otherwise
-silently replace with defaults. It checks the file's format; use **Preview** in
-OmaCustos to check local source paths and authenticate Proton Drive before running
-a backup. An empty `sets` array is valid and clears the configured set list on import.
+Use **Preview** after importing to check local source paths, and authenticate
+Proton Drive before running a backup. An empty `sets` array is valid: **Replace**
+clears the configured set list, while **Merge** keeps it.
 
 ## Restore
 
@@ -374,12 +375,6 @@ Build and test the native app from the repository root:
 cmake -S native -B build
 cmake --build build
 ctest --test-dir build --output-on-failure
-```
-
-Run the standalone import-validator tests with:
-
-```bash
-python3 -m unittest discover -s tools -p 'test_*.py'
 ```
 
 The main binaries are `build/omacustos` and `build/omacustos-worker`. The Arch package
