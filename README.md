@@ -52,13 +52,18 @@ open a terminal, use the commands above.
 
 ### 3. Create and run a backup
 
-1. Open **OmaCustos** and press **+** beside **Backup sets**.
+1. Open **OmaCustos** and choose **New backup set** from the top-right **⋯** menu,
+   or press **Create your first backup set** on an empty dashboard.
 2. Name the set, such as **Documents** or **Projects**.
 3. Use **+** under **Source files and folders** to choose what to back up.
 4. Select exclusions with **+** under **Exclusions**, or enter names or paths,
    one per line.
 5. Choose a schedule, or leave scheduling disabled for manual backups.
-6. Press **Save**, then open the set's **⋯** menu and choose **Back up now**.
+6. Press **Save**, return to the dashboard, and press **Back up now** on the set's card.
+
+The bottom **Cancel** button returns to the dashboard. When creating a new backup
+set, Cancel discards it unless Save succeeded. Preview alone does not create a
+saved set.
 
 Hidden paths such as `~/.config` are valid sources; select the folder or enter its
 full path in a source field. Folder backups include hidden files and hidden
@@ -76,12 +81,26 @@ Each named backup set has its own files, exclusions, and schedule. Every run
 creates a separate copy. By default, copies are stored under `/my-files/backups`
 in Proton Drive, and the latest three verified successful copies are kept.
 
-**Recent backups** shows the latest run for each saved backup set, rather than
-a row for every copy. Use **Restore** to choose an older remote copy.
+The dashboard shows one full-width card per backup set, stacked vertically in a
+stable order. Each card combines its sources, latest attempt, last successful
+backup when relevant, schedule, next scheduled run, and retention policy.
+**Back up now** starts that set; click its name or **⋯ → Edit settings** to edit it.
+
+A card summarizes the latest run, not every stored copy. **Restore copies…**
+opens the copy picker so you can choose the latest or an older available copy.
+All available files are selected by default. Untick individual files or a parent
+folder to leave them out; a folder checkbox includes its subfolders, and
+**Select all files** selects or clears the whole copy. Your selection is preserved
+when refreshing or returning to the same restore screen.
+“Retention: keep 3 successful copies” is the configured policy, not a live count
+of copies in Proton Drive. Deleting the latest copy keeps the set's card and access
+to older copies. **⋯ → Open latest copy in Proton Drive** and **Delete latest copy**
+refer specifically to the most recently recorded copy.
 
 Results distinguish **Successful**, **Incomplete** (some verified files, with
 failures), and **Failed** (no verified restorable copy). Completed copies show the
-verified-file count and failed-item count. Open **⋯ → View details** for affected
+verified-file count and failed-item count. Press **View issues** or open
+**⋯ → View latest run details** for affected
 paths, failure reasons, and the next automatic retry. An incomplete copy still
 allows restoring its verified files; it does not replace an older successful copy
 for retention purposes. Failed items can include missing or unreadable folders,
@@ -93,8 +112,8 @@ start with an estimate based on their previous successful run. Estimates update
 as files finish and may change with transfer speed. During final checks, the row
 shows **Finalizing backup…**.
 
-The running backup also shows a work-progress bar, processed and verified file
-counts, failures, and the current file's path and size. Its phase distinguishes
+The running backup's card shows a work-progress bar, processed and verified file
+counts, and failures. **⋯ → View latest run details** shows the current file's path. Its phase distinguishes
 reading, uploading, and verification. The bar advances as file attempts finish;
 failed attempts count as processed work, never as verified files. The CLI does not
 expose documented live byte progress, so a large file stays at its current step
@@ -252,15 +271,15 @@ clears the configured set list, while **Merge** keeps it.
 
 ## Restore
 
-1. Press **Restore** on a backup in **Recent backups** that has a recorded run.
+1. Press **Restore copies…** on a backup set's card that has a recorded run.
 2. The restore panel opens immediately and loads copies for that backup in the
-   background. Select a remote copy to load and verify its files. Use the search
-   field to filter the listed copies by computer, backup name, copy, or status.
-3. Tick the verified files you want to restore.
+   background. Select a remote copy to load and verify its files.
+3. All verified files are selected by default. Untick any files or folders you
+   want to leave out.
 4. Use **Choose folder…** to select a separate destination folder, or enter its
    full path.
-5. Press **Start restore** at the bottom. The button is available only after
-   ticking at least one file and specifying the destination folder.
+5. Press **Start restore** at the bottom. The button is available when at least
+   one file is selected and a destination folder is specified.
 
 After a successful restore, the restore panel closes and OmaCustos returns to the
 dashboard. If a restore fails, the panel and your selection stay open for retry.
@@ -269,7 +288,7 @@ Incomplete copies expose only verified entries. Missing, failed, malformed, or
 unverifiable items are not presented as successful restores.
 
 You can close the Restore panel, edit a backup, or open another backup while files
-are restoring. The active restore keeps running; its file-count progress and
+are restoring. The active restore keeps running; its file-count progress bar and
 **View restore** action stay available above the current screen. Returning to a
 backup preserves the Restore destination, valid ticks, and file-list position.
 Cached file information is marked and must be verified again before a new restore.
@@ -278,14 +297,14 @@ Copy discovery and verification may wait for an active restore to finish.
 For a reinstall or move to another computer, keep or transfer `~/.config/omacustos`
 so the backup definitions and run history remain available, then install OmaCustos
 and authenticate `proton-drive` as the new machine's user. The current UI opens
-remote discovery through **Restore** on a recorded backup; it does not yet have
+remote discovery through **Restore copies…** on a recorded backup; it does not yet have
 a standalone remote-root discovery action for a fresh installation.
 
 ## Manage copies
 
-- **↗** opens that copy in Proton Drive in your browser.
-- **⋯ → Delete copy** confirms the exact copy before moving it to Proton Drive Trash.
-- **Delete** on a backup set removes its configuration and schedule; remote copies remain.
+- **⋯ → Open latest copy in Proton Drive** opens the latest recorded copy in your browser.
+- **⋯ → Delete latest copy** confirms the exact copy before moving it to Proton Drive Trash.
+- **⋯ → Delete backup set** removes its configuration and schedule; remote copies remain.
 
 Browser links are prepared in advance and cached, so opening a known copy does not
 download its manifest or wait for a Proton CLI lookup. Older or uncached copies

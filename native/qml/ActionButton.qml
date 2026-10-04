@@ -7,5 +7,11 @@ Button {
     font.family: style.bodyFontFamily
     font.pixelSize: style.bodyTypeSize
     font.weight: Font.Normal
-    Layout.preferredHeight: 36
+    leftPadding: style.buttonHorizontalPadding
+    rightPadding: style.buttonHorizontalPadding
+    topPadding: style.buttonVerticalPadding
+    bottomPadding: style.buttonVerticalPadding
+    implicitHeight: Math.max(style.buttonHeight, implicitBackgroundHeight + topInset + bottomInset,
+        implicitContentHeight + topPadding + bottomPadding)
+    Layout.preferredHeight: implicitHeight
 }

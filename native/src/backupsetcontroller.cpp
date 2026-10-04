@@ -119,6 +119,7 @@ BackupSetController::BackupSetController(BackupEngine &engine, QString configPat
     }
     connect(this, &BackupSetController::setsChanged, this, &BackupSetController::updateDashboard);
     connect(this, &BackupSetController::setsChanged, this, &BackupSetController::runDetailsChanged);
+    connect(this, &BackupSetController::currentSetChanged, this, &BackupSetController::updateDashboard);
     updateDashboard();
     stateTimer.setInterval(cachedRunningSetIds.isEmpty() ? 5000 : 1000);
 }
@@ -471,6 +472,9 @@ QVariantMap BackupSetController::backupDetails(const QString &setId) const
         {QStringLiteral("summary"), record->result.reported && verified ? resultSummary(record->result) : QString()},
         {QStringLiteral("error"), record->lastError},
         {QStringLiteral("copyPath"), record->remoteCopyPath},
+        {QStringLiteral("currentFile"), isRunActive(record->status) && !record->progress.currentFile.isEmpty()
+            ? tr("%1: %2 (%3)").arg(phaseLabel(record->progress.phase), record->progress.currentFile,
+                QLocale().formattedDataSize(record->progress.currentFileBytes)) : QString()},
         {QStringLiteral("issues"), issues},
         {QStringLiteral("nextAttempt"), record->nextAttempt.isValid()
             ? record->nextAttempt.toLocalTime().toString(QStringLiteral("dd/MM/yyyy HH:mm:ss")) : QString()},
@@ -568,10 +572,25 @@ void BackupSetController::addSet()
 {
     config.sets.append(newSet(config.sets.size() + 1));
     selectedIndex = config.sets.size() - 1;
+    unsavedSetIds.insert(currentId());
     emit setsChanged();
     emit currentIndexChanged();
     emit currentSetChanged();
     clearPreview();
+}
+
+void BackupSetController::discardUnsavedSet()
+{
+    if (!unsavedSetIds.remove(currentId())) {
+        return;
+    }
+
+    config.sets.removeAt(selectedIndex);
+    selectedIndex = qMin(selectedIndex, config.sets.size() - 1);
+    clearPreview();
+    emit setsChanged();
+    emit currentIndexChanged();
+    emit currentSetChanged();
 }
 
 void BackupSetController::removeCurrentSet()
@@ -599,6 +618,7 @@ void BackupSetController::removeSet(int index)
     }
 
     config = updated;
+    unsavedSetIds.clear();
     if (selectedIndex > index) {
         --selectedIndex;
     } else if (selectedIndex == index) {
@@ -664,6 +684,7 @@ bool BackupSetController::save()
         return false;
     }
 
+    unsavedSetIds.clear();
     emit statusChanged(QStringLiteral("Backup saved."));
     emit configurationSaved();
     return true;
@@ -736,6 +757,9 @@ bool BackupSetController::importSets(const QString &filePath, bool merge)
     }
     BackupConfig updated = config;
     if (merge) {
+        updated.sets.erase(std::remove_if(updated.sets.begin(), updated.sets.end(), [this](const BackupSet &set) {
+            return unsavedSetIds.contains(set.id);
+        }), updated.sets.end());
         for (const BackupSet &set : imported.sets) {
             const auto existing = std::find_if(updated.sets.begin(), updated.sets.end(), [&set](const BackupSet &candidate) {
                 return candidate.id == set.id;
@@ -756,6 +780,7 @@ bool BackupSetController::importSets(const QString &filePath, bool merge)
         return false;
     }
     config = updated;
+    unsavedSetIds.clear();
     selectedIndex = config.sets.isEmpty() ? -1 : 0;
     clearPreview();
     emit setsChanged();
@@ -879,7 +904,46 @@ void BackupSetController::updateDashboard()
     const auto remaining = calculateRemainingTimes();
     const auto transfer = calculateTransferProgress();
     QStringList summaries, ids, timestamps;
-    QVariantMap runSummaries;
+    QVariantMap runSummaries, setSummaries;
+    const QDateTime now = QDateTime::currentDateTime();
+    const auto timestamp = [](const QDateTime &date) {
+        return date.isValid() ? date.toLocalTime().toString(QStringLiteral("dd/MM/yyyy HH:mm:ss")) : QString();
+    };
+    for (const BackupSet &set : config.sets) {
+        const QString time = QStringLiteral("%1:%2").arg(set.schedule.hour, 2, 10, QChar('0'))
+            .arg(set.schedule.minute, 2, 10, QChar('0'));
+        QString schedule = tr("Manual backups");
+        if (set.schedule.frequency == QStringLiteral("daily")) schedule = tr("Daily at %1").arg(time);
+        if (set.schedule.frequency == QStringLiteral("weekly")) schedule = tr("Every %1 at %2")
+            .arg(QLocale().standaloneDayName(set.schedule.weekday), time);
+        if (set.schedule.frequency == QStringLiteral("monthly")) schedule = tr("Monthly on day %1 at %2")
+            .arg(set.schedule.dayOfMonth).arg(time);
+        const QDateTime next = set.schedule.enabled() ? BackupScheduleCalculator::nextRun(set.schedule, now) : QDateTime();
+        setSummaries.insert(set.id, QVariantMap {
+            {QStringLiteral("sourceCount"), set.sourceDirectories.size()},
+            {QStringLiteral("schedule"), schedule},
+            {QStringLiteral("nextRun"), next.isValid() ? next.toString(QStringLiteral("dd/MM/yyyy HH:mm")) : QString()},
+            {QStringLiteral("retention"), set.retention},
+            {QStringLiteral("onlyOnAcPower"), set.onlyOnAcPower},
+        });
+        const BackupRunRecord *record = runStore.find(set.id);
+        if (record == nullptr) continue;
+        const bool hasActivity = record->lastSuccess.isValid() || record->lastFailure.isValid()
+            || !record->remoteCopyPath.isEmpty() || record->status == QStringLiteral("copy_deleted");
+        const bool latestCopy = record->status != QStringLiteral("copy_deleted")
+            && (!record->remoteCopyPath.isEmpty() || record->lastSuccess.isValid());
+        runSummaries.insert(set.id, QVariantMap {
+            {QStringLiteral("status"), statusLabel(record->status)},
+            {QStringLiteral("statusCode"), record->status},
+            {QStringLiteral("summary"), record->result.reported && record->result.manifestVerified
+                && record->status != QStringLiteral("copy_deleted") ? resultSummary(record->result) : QString()},
+            {QStringLiteral("lastAttempt"), timestamp(qMax(record->lastSuccess, record->lastFailure))},
+            {QStringLiteral("lastSuccess"), timestamp(record->lastSuccess)},
+            {QStringLiteral("error"), record->lastError},
+            {QStringLiteral("hasActivity"), hasActivity},
+            {QStringLiteral("hasLatestCopy"), latestCopy},
+        });
+    }
     // Sort once per refresh, and keep expensive issue conversion out of row bindings.
     for (const int index : recentBackupIndexes()) {
         const BackupSet &set = config.sets.at(index);
@@ -898,17 +962,13 @@ void BackupSetController::updateDashboard()
         const QDateTime latest = qMax(record->lastSuccess, qMax(record->lastFailure, record->lastScheduled));
         timestamps.append(latest.isValid()
             ? latest.toLocalTime().toString(QStringLiteral("dd/MM/yyyy HH:mm:ss")) : QString());
-        runSummaries.insert(set.id, QVariantMap {
-            {QStringLiteral("status"), statusLabel(record->status)},
-            {QStringLiteral("summary"), record->result.reported && record->result.manifestVerified
-                ? resultSummary(record->result) : QString()},
-        });
     }
     const bool runningChanged = running != cachedRunningSetIds;
     const bool remainingChanged = remaining != cachedRemainingTimes;
     const bool transferChanged = transfer != cachedTransferProgress;
     const bool recentChanged = summaries != cachedRecentBackups || ids != cachedRecentSetIds
-        || timestamps != cachedRecentTimestamps || runSummaries != cachedRunSummaries;
+        || timestamps != cachedRecentTimestamps || runSummaries != cachedRunSummaries
+        || setSummaries != cachedSetSummaries;
     cachedRunningSetIds = running;
     cachedRemainingTimes = remaining;
     cachedTransferProgress = transfer;
@@ -916,6 +976,7 @@ void BackupSetController::updateDashboard()
     cachedRecentSetIds = ids;
     cachedRecentTimestamps = timestamps;
     cachedRunSummaries = runSummaries;
+    cachedSetSummaries = setSummaries;
     if (runningChanged) emit runningSetIdsChanged();
     if (remainingChanged) emit remainingTimesChanged();
     if (transferChanged) emit transferProgressChanged();

@@ -37,6 +37,8 @@ private slots:
     void templateCannotOverwriteLocalStateOrReportFailedWritesAsSuccess();
     void mergesSetsByIdAndPreservesOtherSets();
     void emptyMergeKeepsExistingSets();
+    void summarizesIndependentCardSettingsWithoutChangingSelection();
+    void retainsCopyNavigationAfterFailureAndLatestCopyDeletion();
     void invalidImportLeavesExistingSetsUntouched_data();
     void invalidImportLeavesExistingSetsUntouched();
     void emptyImportDoesNotRestoreLegacySources();
@@ -45,6 +47,10 @@ private slots:
     void exportCannotOverwriteLocalState();
     void importIsBlockedWhileWorkerRuns();
     void successfulSaveNotifiesSchedulingButPreviewAndFailedSaveDoNot();
+    void discardingUnsavedSetDoesNotWriteConfiguration_data();
+    void discardingUnsavedSetDoesNotWriteConfiguration();
+    void savedSetIsKeptWhenEditorIsCancelled();
+    void mergingImportDoesNotSaveAnUnfinishedNewSet();
     void remainingTimeIsReportedForTheRunningSetOnly();
     void reportsVerifiedCountsAndFailureDetailsWithoutInventingLegacyCounts();
 };
@@ -287,6 +293,98 @@ void BackupSetControllerTest::successfulSaveNotifiesSchedulingButPreviewAndFaile
     QCOMPARE(saved.count(), 1);
     controller.removeCurrentSet();
     QCOMPARE(saved.count(), 2);
+}
+
+void BackupSetControllerTest::discardingUnsavedSetDoesNotWriteConfiguration_data()
+{
+    QTest::addColumn<bool>("existingSet");
+    QTest::addColumn<bool>("failedSave");
+    QTest::newRow("first set") << false << false;
+    QTest::newRow("existing sets") << true << false;
+    QTest::newRow("failed first save") << false << true;
+    QTest::newRow("failed save with existing sets") << true << true;
+}
+
+void BackupSetControllerTest::discardingUnsavedSetDoesNotWriteConfiguration()
+{
+    QFETCH(bool, existingSet);
+    QFETCH(bool, failedSave);
+    QTemporaryDir directory;
+    const QString settings = directory.filePath("settings.json");
+    QByteArray original;
+    if (existingSet) {
+        BackupConfig config;
+        config.sets = {{"documents", "Documents", "/backups", {"/safe/documents"}, {}}};
+        QVERIFY(BackupConfigStore(settings).save(config));
+        QFile file(settings);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        original = file.readAll();
+    }
+    BackupEngine engine;
+    BackupSetController controller(engine, settings);
+    QSignalSpy saved(&controller, &BackupSetController::configurationSaved);
+    controller.addSet();
+    const QString draftId = controller.currentId();
+    controller.setCurrentScheduleFrequency("daily");
+    controller.setCurrentSources({"/safe/draft"});
+    controller.preview();
+    QTRY_VERIFY(controller.previewAvailable());
+    if (failedSave) {
+        controller.setCurrentName("");
+        QVERIFY(!controller.save());
+    }
+    controller.discardUnsavedSet();
+    QVERIFY(!controller.setIds().contains(draftId));
+    QCOMPARE(controller.setNames(), existingSet ? QStringList {"Documents"} : QStringList {});
+    QCOMPARE(controller.currentIndex(), existingSet ? 0 : -1);
+    QVERIFY(!controller.previewAvailable());
+    QVERIFY(!controller.previewBusy());
+    QVERIFY(saved.isEmpty());
+    QCOMPARE(QFile::exists(settings), existingSet);
+    if (existingSet) {
+        QFile file(settings);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QCOMPARE(file.readAll(), original);
+    }
+    controller.discardUnsavedSet();
+    QCOMPARE(controller.setNames(), existingSet ? QStringList {"Documents"} : QStringList {});
+}
+
+void BackupSetControllerTest::savedSetIsKeptWhenEditorIsCancelled()
+{
+    QTemporaryDir directory;
+    const QString settings = directory.filePath("settings.json");
+    BackupEngine engine;
+    BackupSetController controller(engine, settings);
+    controller.addSet();
+    controller.setCurrentName("Saved documents");
+    controller.setCurrentSources({"/safe/documents"});
+    const QString id = controller.currentId();
+    QVERIFY(controller.save());
+    controller.discardUnsavedSet();
+    QCOMPARE(controller.setIds(), QStringList {id});
+    BackupSetController reopened(engine, settings);
+    QCOMPARE(reopened.setIds(), QStringList {id});
+    QCOMPARE(reopened.setNames(), QStringList {"Saved documents"});
+}
+
+void BackupSetControllerTest::mergingImportDoesNotSaveAnUnfinishedNewSet()
+{
+    QTemporaryDir directory;
+    const QString settings = directory.filePath("settings.json");
+    const QString importedPath = directory.filePath("import.json");
+    BackupConfig imported;
+    imported.sets = {{"documents", "Documents", "/backups", {"/safe/documents"}, {}}};
+    QVERIFY(BackupConfigStore(importedPath).exportSets(imported));
+    BackupEngine engine;
+    BackupSetController controller(engine, settings);
+    controller.addSet();
+    controller.setCurrentSources({"/safe/draft"});
+    QVERIFY(controller.importSets(importedPath, true));
+    controller.discardUnsavedSet();
+    QCOMPARE(controller.setIds(), QStringList {"documents"});
+    BackupSetController reopened(engine, settings);
+    QCOMPARE(reopened.setIds(), QStringList {"documents"});
 }
 
 void BackupSetControllerTest::previewUpdatesFilesWithoutCountMessage_data()
@@ -747,6 +845,72 @@ void BackupSetControllerTest::emptyMergeKeepsExistingSets()
     QVERIFY(BackupConfigStore(configPath).load(&reloaded));
     QCOMPARE(reloaded.sets.size(), 1);
     QCOMPARE(reloaded.sets.first().sourceDirectories, original.sets.first().sourceDirectories);
+}
+
+void BackupSetControllerTest::summarizesIndependentCardSettingsWithoutChangingSelection()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString configPath = directory.filePath("settings.json");
+    BackupConfig config;
+    config.sets = {
+        {"documents", "Documents", "/my-files/backups", {"/safe/documents", "/safe/notes.txt"}, {}},
+        {"photos", "Photos", "/my-files/backups", {"/safe/photos"}, {}},
+    };
+    config.sets[0].schedule = {"daily", 2, 0, 1, 1};
+    config.sets[1].retention = 7;
+    config.sets[1].onlyOnAcPower = true;
+    QVERIFY(BackupConfigStore(configPath).save(config));
+    BackupEngine engine;
+    BackupSetController controller(engine, configPath);
+    const auto documents = controller.setSummaries().value("documents").toMap();
+    const auto photos = controller.setSummaries().value("photos").toMap();
+    QCOMPARE(documents.value("sourceCount").toInt(), 2);
+    QCOMPARE(documents.value("schedule").toString(), QString("Daily at 02:00"));
+    QVERIFY(!documents.value("nextRun").toString().isEmpty());
+    QCOMPARE(photos.value("schedule").toString(), QString("Manual backups"));
+    QVERIFY(photos.value("nextRun").toString().isEmpty());
+    QCOMPARE(photos.value("retention").toInt(), 7);
+    QVERIFY(photos.value("onlyOnAcPower").toBool());
+    QCOMPARE(controller.currentIndex(), 0);
+    controller.setCurrentSources({"/safe/only-one"});
+    QCOMPARE(controller.setSummaries().value("documents").toMap().value("sourceCount").toInt(), 1);
+    controller.setCurrentScheduleFrequency("disabled");
+    QVERIFY(controller.setSummaries().value("documents").toMap().value("nextRun").toString().isEmpty());
+    QCOMPARE(controller.setIds(), (QStringList {"documents", "photos"}));
+}
+
+void BackupSetControllerTest::retainsCopyNavigationAfterFailureAndLatestCopyDeletion()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString configPath = directory.filePath("settings.json");
+    BackupConfig config;
+    config.sets = {{"documents", "Documents", "/my-files/backups", {"/safe/documents"}, {}}};
+    QVERIFY(BackupConfigStore(configPath).save(config));
+    BackupRunStore runs(directory.filePath("omacustos-backup-runs.json"));
+    runs.ensureSet("documents");
+    auto &record = *runs.find("documents");
+    runs.markSuccess(record, QDateTime::currentDateTimeUtc().addDays(-1));
+    runs.markFailed(record, "Upload interrupted", QDateTime::currentDateTimeUtc());
+    QVERIFY(runs.save());
+    BackupEngine engine;
+    BackupSetController controller(engine, configPath);
+    auto summary = controller.runSummaries().value("documents").toMap();
+    QCOMPARE(summary.value("statusCode").toString(), QString("failed"));
+    QVERIFY(summary.value("hasActivity").toBool());
+    QVERIFY(!summary.value("lastSuccess").toString().isEmpty());
+    QVERIFY(summary.value("lastAttempt").toString() != summary.value("lastSuccess").toString());
+    record.status = "copy_deleted";
+    record.remoteCopyPath.clear();
+    QVERIFY(runs.save());
+    controller.refreshRunState();
+    summary = controller.runSummaries().value("documents").toMap();
+    QVERIFY(summary.value("hasActivity").toBool());
+    QVERIFY(!summary.value("hasLatestCopy").toBool());
+    QCOMPARE(summary.value("statusCode").toString(), QString("copy_deleted"));
+    QCOMPARE(controller.setIds(), QStringList {"documents"});
+    QVERIFY(!controller.recentBackupFolderPath("documents").isEmpty());
 }
 
 void BackupSetControllerTest::emptyImportDoesNotRestoreLegacySources()

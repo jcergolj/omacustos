@@ -25,8 +25,12 @@ across copy refreshes. Restore opens in a dedicated scrollable screen, like the
 backup editor; closing it preserves its state, and completion resets the panel
 and returns to the dashboard. The top-right three-dot menu contains backup-set
 import and export actions.
-These components receive controllers and `UiStyle` explicitly. `ActionButton`
-and `PreviewGroup` provide shared presentation, inheriting the window's live
+These components receive controllers and `UiStyle` explicitly. `FormCard` gives
+backup and restore forms the same surface, padding, and typography.
+`TransferProgress` shares the status, file-count text, and progress bar between
+backup cards and the active restore card. Restore progress counts successfully
+restored files, and remains visible across navigation. `ActionButton`
+and `PreviewGroup` also provide shared presentation, inheriting the window's live
 palette. Window state aliases and existing object/accessibility identifiers keep
 the dashboard test interface usable across the extraction.
 

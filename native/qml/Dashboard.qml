@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
-RowLayout {
+ColumnLayout {
     id: dashboard
     required property var style
     required property var controller
@@ -14,352 +14,86 @@ RowLayout {
     signal newSetRequested()
     signal editSetRequested(int index)
     signal removeSetRequested(int index)
-    signal restoreRequested(int index)
-    signal openFolderRequested(int index)
+    signal restoreRequested(string setId)
+    signal openFolderRequested(string setId)
     signal detailsRequested(string setId)
+    readonly property int attentionCount: controller.setIds.filter(function (id) {
+        const status = (controller.runSummaries[id] || {}).statusCode
+        return ["failed", "incomplete", "retrying", "authentication_required"].indexOf(status) >= 0
+    }).length
+    spacing: 12
 
-    Layout.fillWidth: true
-    Layout.preferredHeight: 56 + Math.max(180, Math.min(360,
-        windowHeight - 280,
-        Math.max(dashboardSetsList.contentHeight, recentBackupsList.contentHeight)))
-    spacing: 32
+    function scrollToTop() { dashboardSetsList.contentY = 0 }
 
-    ColumnLayout {
+    Label {
+        objectName: "backupAttentionSummary"
+        visible: dashboard.attentionCount > 0
+        text: dashboard.attentionCount === 1 ? qsTr("1 backup set needs attention")
+            : qsTr("%1 backup sets need attention").arg(dashboard.attentionCount)
+        wrapMode: Text.WordWrap
+        Layout.fillWidth: true
+        Layout.leftMargin: dashboard.style.contentPadding
+        Layout.rightMargin: dashboard.style.contentPadding
+    }
+
+    ListView {
+        id: dashboardSetsList
+        objectName: "dashboardSetsList"
+        model: dashboard.controller.setNames
         Layout.fillWidth: true
         Layout.fillHeight: true
-        Layout.preferredWidth: (dashboard.width - dashboard.spacing) / 3
-        Layout.minimumWidth: 0
+        Layout.leftMargin: dashboard.style.contentPadding
+        Layout.rightMargin: dashboard.style.contentPadding
+        clip: true
         spacing: 16
+        cacheBuffer: height
+        ScrollBar.vertical: ScrollBar {}
+        footer: Item { height: 12 }
 
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 40
+        ColumnLayout {
+            visible: dashboardSetsList.count === 0
+            width: parent.width
+            spacing: 12
 
             Label {
-                objectName: "backupSetsTitle"
-                text: qsTr("Backup sets")
-                font.pixelSize: dashboard.style.sectionTitleSize
-                font.weight: Font.DemiBold
+                objectName: "emptySetsLabel"
+                text: qsTr("No backup sets yet. Create a set to choose your files and schedule, or import an existing configuration from the ⋯ menu.")
+                color: dashboard.style.mutedColor
+                wrapMode: Text.WordWrap
                 Layout.fillWidth: true
             }
-
             ActionButton {
                 style: dashboard.style
-                objectName: "newBackupSetButton"
-                text: "+"
-                Layout.preferredWidth: 36
-                Layout.preferredHeight: 36
-                Accessible.name: qsTr("New backup set")
-                ToolTip.visible: hovered
-                ToolTip.text: Accessible.name
+                objectName: "createFirstBackupSetButton"
+                text: qsTr("Create your first backup set")
+                Layout.alignment: Qt.AlignRight
                 onClicked: dashboard.newSetRequested()
             }
         }
 
-        ListView {
-            id: dashboardSetsList
-            objectName: "dashboardSetsList"
-            model: dashboard.controller.setNames
-            clip: true
-            spacing: 10
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            ScrollBar.vertical: ScrollBar {}
-
-            Label {
-                objectName: "emptySetsLabel"
-                text: qsTr("No backups yet")
-                color: dashboard.style.mutedColor
-                visible: dashboardSetsList.count === 0
-                width: parent.width
-                padding: 16
-            }
-
-            delegate: Frame {
-                id: setRow
-                required property int index
-                required property string modelData
-                readonly property bool runActive: dashboard.controller.runningSetIds.indexOf(dashboard.controller.setIds[index]) >= 0
-                readonly property bool deleting: dashboard.copies.deletingSetId === dashboard.controller.setIds[index]
-                width: dashboardSetsList.width
-                implicitHeight: Math.max(80, setSummary.implicitHeight + 32)
-                padding: 16
-                background: Rectangle {
-                    color: dashboard.style.backgroundColor
-                    radius: 8
-                    border.color: dashboard.style.lineColor
-                }
-
-                RowLayout {
-                    anchors.fill: parent
-                    spacing: 12
-
-                    ColumnLayout {
-                        id: setSummary
-                        Layout.fillWidth: true
-                        Layout.minimumWidth: 0
-                        spacing: 4
-
-                        Label {
-                            text: setRow.modelData
-                            font.pixelSize: dashboard.style.bodyTypeSize
-                            font.weight: Font.DemiBold
-                            elide: Text.ElideRight
-                            Layout.fillWidth: true
-                            Layout.minimumWidth: 0
-                        }
-
-                        Label {
-                            objectName: "setRemainingTime-" + setRow.index
-                            text: setRow.deleting ? qsTr("Deleting backup copy…")
-                                : dashboard.controller.remainingTimes[dashboard.controller.setIds[setRow.index]]
-                                    || qsTr("Estimating time remaining…")
-                            visible: setRow.runActive || setRow.deleting
-                            font.pixelSize: dashboard.style.metadataTypeSize
-                            color: dashboard.style.mutedColor
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                            Layout.minimumWidth: 0
-                        }
-
-                        Label {
-                            objectName: "setTransferProgress-" + setRow.index
-                            text: (dashboard.controller.transferProgress[dashboard.controller.setIds[setRow.index]] || {}).text || ""
-                            visible: setRow.runActive && text.length > 0
-                            textFormat: Text.PlainText
-                            font.pixelSize: dashboard.style.metadataTypeSize
-                            wrapMode: Text.WrapAnywhere
-                            Layout.fillWidth: true
-                            Layout.minimumWidth: 0
-                        }
-
-                        ProgressBar {
-                            objectName: "setProgressBar-" + setRow.index
-                            readonly property var progress: dashboard.controller.transferProgress[dashboard.controller.setIds[setRow.index]] || ({})
-                            visible: setRow.runActive || setRow.deleting
-                            value: setRow.deleting ? 0 : progress.fraction || 0
-                            indeterminate: setRow.deleting || progress.indeterminate === undefined || progress.indeterminate
-                            Accessible.name: setRow.deleting ? qsTr("Deleting backup copy") : qsTr("Backup work processed")
-                            Layout.fillWidth: true
-                        }
-                    }
-
-                    BusyIndicator {
-                        objectName: "setBusy-" + setRow.index
-                        running: setRow.runActive || setRow.deleting
-                        visible: running
-                        Layout.preferredWidth: 24
-                        Layout.preferredHeight: 24
-                    }
-
-                    ActionButton {
-                        id: overflowButton
-                        style: dashboard.style
-                        objectName: "setActions-" + setRow.index
-                        text: "⋯"
-                        Layout.preferredWidth: 40
-                        Accessible.name: qsTr("Actions for %1").arg(setRow.modelData)
-                        ToolTip.visible: hovered
-                        ToolTip.text: Accessible.name
-                        onClicked: setActionsMenu.open()
-
-                        Menu {
-                            id: setActionsMenu
-                            objectName: "setMenu-" + setRow.index
-                            x: overflowButton.width - width
-                            y: overflowButton.height
-
-                            MenuItem {
-                                text: qsTr("Edit")
-                                onTriggered: dashboard.editSetRequested(setRow.index)
-                            }
-
-                            MenuItem {
-                                text: qsTr("Back up now")
-                                enabled: setRow.index < dashboard.controller.setIds.length && !setRow.runActive && !setRow.deleting
-                                onTriggered: dashboard.launcher.startBackup(dashboard.controller.setIds[setRow.index])
-                            }
-
-                            MenuSeparator {}
-
-                            MenuItem {
-                                text: qsTr("Delete")
-                                onTriggered: dashboard.removeSetRequested(setRow.index)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    ColumnLayout {
-        Layout.fillWidth: true
-        Layout.fillHeight: true
-        Layout.preferredWidth: 2 * (dashboard.width - dashboard.spacing) / 3
-        Layout.minimumWidth: 0
-        spacing: 16
-
-        Label {
-            objectName: "recentBackupsTitle"
-            text: qsTr("Recent backups")
-            font.pixelSize: dashboard.style.sectionTitleSize
-            font.weight: Font.DemiBold
-            Layout.fillWidth: true
-            Layout.preferredHeight: 40
-            verticalAlignment: Text.AlignVCenter
-        }
-
-        ListView {
-            id: recentBackupsList
-            objectName: "recentBackupsList"
-            model: dashboard.controller.recentBackups
-            implicitWidth: 0
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            clip: true
-            spacing: 12
-            ScrollBar.vertical: ScrollBar {}
-
-            Label {
-                objectName: "emptyRecentLabel"
-                text: qsTr("No backups yet")
-                color: dashboard.style.mutedColor
-                visible: recentBackupsList.count === 0
-                width: parent.width
-                padding: 16
-            }
-
-            delegate: Frame {
-                id: recentRow
-                required property int index
-                required property string modelData
-                readonly property string timestamp: dashboard.controller.recentBackupTimestamps[index] || ""
-                readonly property var details: dashboard.controller.runSummaries[dashboard.controller.recentBackupSetIds[index]] || ({})
-                readonly property bool deleting: dashboard.copies.deletingSetId === dashboard.controller.recentBackupSetIds[index]
-                width: recentBackupsList.width
-                implicitHeight: Math.max(80, recentText.implicitHeight + 40)
-                padding: 20
-                background: Rectangle {
-                    color: dashboard.style.softColor
-                    radius: 8
-                }
-
-                RowLayout {
-                    anchors.fill: parent
-                    spacing: 16
-
-                    ColumnLayout {
-                        id: recentText
-                        Layout.fillWidth: true
-                        Layout.minimumWidth: 0
-                        spacing: 4
-
-                        Label {
-                            id: recentSummary
-                            objectName: "recentSummary-" + recentRow.index
-                            text: recentRow.modelData.replace(/\s*\r?\n\s*/g, " · ")
-                                + (recentRow.timestamp.length > 0 ? " · " + recentRow.timestamp : "")
-                            textFormat: Text.PlainText
-                            font.pixelSize: dashboard.style.bodyTypeSize
-                            wrapMode: Text.NoWrap
-                            elide: Text.ElideRight
-                            maximumLineCount: 1
-                            Layout.fillWidth: true
-                            Layout.minimumWidth: 0
-                            ToolTip.visible: recentSummaryHover.hovered && truncated
-                            ToolTip.text: text
-                            HoverHandler { id: recentSummaryHover }
-                        }
-
-                        Label {
-                            objectName: "recentResultSummary-" + recentRow.index
-                            text: recentRow.details.summary || ""
-                            visible: text.length > 0
-                            textFormat: Text.PlainText
-                            font.pixelSize: dashboard.style.metadataTypeSize
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                        }
-
-                        Label {
-                            objectName: "recentDeleteStatus-" + recentRow.index
-                            text: qsTr("Deleting backup copy…")
-                            visible: recentRow.deleting
-                            font.pixelSize: dashboard.style.metadataTypeSize
-                            color: dashboard.style.mutedColor
-                            Layout.fillWidth: true
-                        }
-                    }
-
-                    BusyIndicator {
-                        objectName: "recentDeleteBusy-" + recentRow.index
-                        running: recentRow.deleting
-                        visible: running
-                        Layout.preferredWidth: 24
-                        Layout.preferredHeight: 24
-                    }
-
-                    ActionButton {
-                        style: dashboard.style
-                        objectName: "openFolder-" + recentRow.index
-                        text: "↗"
-                        Layout.preferredWidth: 36
-                        Layout.preferredHeight: 36
-                        Accessible.name: qsTr("Open %1 in Proton Drive")
-                            .arg(dashboard.controller.recentBackups[recentRow.index].split("\n")[0])
-                        ToolTip.visible: hovered
-                        ToolTip.text: Accessible.name
-                        enabled: recentRow.timestamp.length > 0 && !dashboard.folderBrowser.busy && !dashboard.copies.busy
-                            && dashboard.controller.setIds.indexOf(dashboard.controller.recentBackupSetIds[recentRow.index]) >= 0
-                        onClicked: dashboard.openFolderRequested(recentRow.index)
-                    }
-
-                    ActionButton {
-                        style: dashboard.style
-                        objectName: "restore-" + recentRow.index
-                        text: qsTr("Restore")
-                        Layout.preferredHeight: 36
-                            enabled: recentRow.timestamp.length > 0
-                            && !recentRow.deleting
-                            && dashboard.controller.setIds.indexOf(dashboard.controller.recentBackupSetIds[recentRow.index]) >= 0
-                        onClicked: dashboard.restoreRequested(recentRow.index)
-                    }
-
-                    ActionButton {
-                        id: recentActionsButton
-                        style: dashboard.style
-                        objectName: "recentActions-" + recentRow.index
-                        text: "⋯"
-                        Layout.preferredWidth: 36
-                        Layout.preferredHeight: 36
-                        Accessible.name: qsTr("Recent backup actions")
-                        onClicked: recentActionsMenu.open()
-
-                        Menu {
-                            id: recentActionsMenu
-                            objectName: "recentMenu-" + recentRow.index
-                            x: recentActionsButton.width - width
-                            y: recentActionsButton.height
-
-                            MenuItem {
-                                text: qsTr("Delete copy")
-                                enabled: recentRow.timestamp.length > 0 && !dashboard.copies.busy
-                                    && dashboard.controller.setIds.indexOf(dashboard.controller.recentBackupSetIds[recentRow.index]) >= 0
-                                    && dashboard.controller.runningSetIds.indexOf(dashboard.controller.recentBackupSetIds[recentRow.index]) < 0
-                                onTriggered: dashboard.copies.requestDelete(dashboard.controller.recentBackupSetIds[recentRow.index])
-                            }
-
-                            MenuItem {
-                                objectName: "viewBackupDetails-" + recentRow.index
-                                text: qsTr("View details")
-                                enabled: (recentRow.details.status || "").length > 0
-                                onTriggered: dashboard.detailsRequested(dashboard.controller.recentBackupSetIds[recentRow.index])
-                            }
-                        }
-                    }
-                }
-            }
+        delegate: BackupSetCard {
+            required property int index
+            required property string modelData
+            objectName: "backupSetCard-" + index
+            width: dashboardSetsList.width
+            cardIndex: index
+            setId: dashboard.controller.setIds[index] || ""
+            setName: modelData
+            style: dashboard.style
+            info: dashboard.controller.setSummaries[setId] || ({})
+            run: dashboard.controller.runSummaries[setId] || ({})
+            runActive: dashboard.controller.runningSetIds.indexOf(setId) >= 0
+            deleting: dashboard.copies.deletingSetId === setId
+            remaining: dashboard.controller.remainingTimes[setId] || qsTr("Estimating time remaining…")
+            progress: dashboard.controller.transferProgress[setId] || ({})
+            copyBusy: dashboard.copies.busy || dashboard.folderBrowser.busy
+            onEditRequested: dashboard.editSetRequested(index)
+            onBackupRequested: dashboard.launcher.startBackup(setId)
+            onRestoreRequested: dashboard.restoreRequested(setId)
+            onOpenFolderRequested: dashboard.openFolderRequested(setId)
+            onDetailsRequested: dashboard.detailsRequested(setId)
+            onDeleteCopyRequested: dashboard.copies.requestDelete(setId)
+            onRemoveRequested: dashboard.removeSetRequested(index)
         }
     }
 }

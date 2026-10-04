@@ -7,6 +7,7 @@
 
 #include <QObject>
 #include <QFutureWatcher>
+#include <QSet>
 #include <QStringList>
 #include <QTimer>
 #include <QVector>
@@ -39,6 +40,7 @@ class BackupSetController final : public QObject
     Q_PROPERTY(QVariantMap transferProgress READ transferProgress NOTIFY transferProgressChanged)
     Q_PROPERTY(QVariantMap runDetails READ runDetails NOTIFY runDetailsChanged)
     Q_PROPERTY(QVariantMap runSummaries READ runSummaries NOTIFY dashboardChanged)
+    Q_PROPERTY(QVariantMap setSummaries READ setSummaries NOTIFY dashboardChanged)
     Q_PROPERTY(QStringList recentBackups READ recentBackups NOTIFY dashboardChanged)
     Q_PROPERTY(QStringList recentBackupSetIds READ recentBackupSetIds NOTIFY dashboardChanged)
     Q_PROPERTY(QStringList recentBackupTimestamps READ recentBackupTimestamps NOTIFY dashboardChanged)
@@ -91,6 +93,7 @@ public:
     QVariantMap transferProgress() const;
     QVariantMap runDetails() const;
     QVariantMap runSummaries() const { return cachedRunSummaries; }
+    QVariantMap setSummaries() const { return cachedSetSummaries; }
     QStringList recentBackups() const;
     QStringList recentBackupSetIds() const;
     QStringList recentBackupTimestamps() const;
@@ -106,6 +109,7 @@ public:
     bool cleanupConfirmationRequired() const;
 
     Q_INVOKABLE void addSet();
+    Q_INVOKABLE void discardUnsavedSet();
     Q_INVOKABLE void removeCurrentSet();
     Q_INVOKABLE void removeSet(int index);
     Q_INVOKABLE void preview();
@@ -153,6 +157,7 @@ private:
     BackupRunStore runStore;
     CleanupStore cleanupStore;
     BackupConfig config;
+    QSet<QString> unsavedSetIds;
     int selectedIndex = -1;
     BackupPreview previewResult;
     bool hasPreview = false;
@@ -175,4 +180,5 @@ private:
     QVariantMap cachedRemainingTimes;
     QVariantMap cachedTransferProgress;
     QVariantMap cachedRunSummaries;
+    QVariantMap cachedSetSummaries;
 };

@@ -73,6 +73,7 @@ QtObject {
         property var remainingTimes: ({})
         property var transferProgress: ({})
         property var runDetails: ({})
+        property var setSummaries: ({})
         readonly property var runSummaries: runDetails
         onRunDetailsChanged: runStateChanged()
         property var recentBackups: ["Photos\nNo backup run yet", "Documents\nsucceeded"]
@@ -97,6 +98,8 @@ QtObject {
         property string exportedPath: ""
         property string templatePath: ""
         property bool importSucceeds: true
+        property bool saveSucceeds: true
+        property var unsavedSetIds: []
         signal currentSetChanged()
         signal runStateChanged()
         signal statusChanged(string status)
@@ -113,13 +116,36 @@ QtObject {
             setIds = setIds.concat(["new-id"])
             setNames = setNames.concat(["New set"])
             currentIndex = setNames.length - 1
+            unsavedSetIds = unsavedSetIds.concat([currentId])
+        }
+        function discardUnsavedSet() {
+            if (unsavedSetIds.indexOf(currentId) < 0) return
+            const id = currentId
+            setIds = setIds.filter(function (candidate) { return candidate !== id })
+            setNames = setNames.filter(function (name, index) { return index !== currentIndex })
+            unsavedSetIds = unsavedSetIds.filter(function (candidate) { return candidate !== id })
+            currentIndex = Math.min(currentIndex, setNames.length - 1)
+            previewBusy = false
+            previewAvailable = false
         }
         function preview() { previewCount++; previewAvailable = true }
         function recentBackupFolderPath(setId) {
             return setIds.indexOf(setId) >= 0 ? "/backups/" + setId : ""
         }
-        function save() { saveCount++; return true }
-        function importSets(path, merge) { importedPath = path; importedMerge = merge; return importSucceeds }
+        function save() {
+            saveCount++
+            if (saveSucceeds) unsavedSetIds = []
+            return saveSucceeds
+        }
+        function importSets(path, merge) {
+            importedPath = path
+            importedMerge = merge
+            if (importSucceeds) {
+                discardUnsavedSet()
+                unsavedSetIds = []
+            }
+            return importSucceeds
+        }
         function exportSets(path) { exportedPath = path; return true }
         function saveTemplate(path) { templatePath = path; return true }
         function confirmCleanup() { return true }
@@ -176,6 +202,7 @@ QtObject {
         readonly property string currentCopyPath: currentCopyIndex >= 0 ? discoveredRoot + "/copy-" + currentCopyIndex : ""
         property string browseError: ""
         property string restoreProgress: ""
+        property real restoreProgressFraction: 0
         property string restoreBackupFolder: ""
         property string restoreBackupId: ""
         property string restoreCopyPath: ""

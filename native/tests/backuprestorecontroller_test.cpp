@@ -253,6 +253,7 @@ void BackupRestoreControllerTest::navigationDuringRestoreKeepsTransferIndependen
     controller.restoreSelected({0}, destination.path());
     QTRY_VERIFY(provider.entered.available() > 0);
     provider.entered.acquire();
+    QCOMPARE(controller.restoreProgressFraction(), 0.0);
     controller.discover(second, "photos");
     QVERIFY(controller.entries().isEmpty());
     QVERIFY(controller.property("restoring").toBool());
@@ -266,6 +267,7 @@ void BackupRestoreControllerTest::navigationDuringRestoreKeepsTransferIndependen
     QCOMPARE(provider.listedPaths.last(), second);
     QVERIFY(controller.entries().isEmpty());
     QCOMPARE(controller.property("restoreProgress").toString(), QString("1 of 1 files restored"));
+    QCOMPARE(controller.restoreProgressFraction(), 1.0);
 }
 
 void BackupRestoreControllerTest::restoresSurvivingFileAfterUploadFailure_data()

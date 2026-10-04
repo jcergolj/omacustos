@@ -4,9 +4,8 @@ import QtQuick.Dialogs
 import QtQuick.Layouts
 import "LocalPaths.js" as LocalPaths
 
-GroupBox {
+FormCard {
     id: panel
-    required property var style
     required property var controller
     property var selectedIndexes: []
     property var selectedPaths: []
@@ -20,26 +19,31 @@ GroupBox {
     property string contextKey: ""
     property real screenScrollY: -1
     property bool restoringContext: false
+    property bool selectionInitialized: false
+    property bool selectionCustomized: false
+    property var folderRows: []
+    property var foldersByPath: ({})
+    property var entryFolders: []
     signal completed()
     signal closeRequested()
 
     objectName: "restorePanel"
-    title: qsTr("Restore")
-    font.family: style.bodyFontFamily
-    font.pixelSize: style.sectionTitleSize
-    font.weight: Font.Bold
-    padding: style.cardPadding
     Layout.fillWidth: true
-    Layout.preferredHeight: Math.max(320, restoreContent.implicitHeight + 32)
     Layout.bottomMargin: style.contentPadding
 
     function reset() {
+        selectionInitialized = false
+        selectionCustomized = false
+        folderRows = []
+        foldersByPath = ({})
+        entryFolders = []
         selectedIndexes = []
         selectedPaths = []
         selectedCopyIndex = -1
         selectedCopyPath = ""
         destinationField.text = ""
         restoreList.contentY = 0
+        restoreFoldersList.contentY = 0
         screenScrollY = -1
     }
 
@@ -48,7 +52,10 @@ GroupBox {
         contextStates[contextKey] = {
             paths: selectedPaths.slice(), indexes: selectedIndexes.slice(),
             copyPath: selectedCopyPath, copyIndex: selectedCopyIndex,
+            selectionInitialized: selectionInitialized,
+            selectionCustomized: selectionCustomized,
             destination: destinationField.text, fileScroll: restoreList.contentY,
+            folderScroll: restoreFoldersList.contentY,
             screenScroll: screenScrollY
         }
     }
@@ -66,10 +73,15 @@ GroupBox {
             selectedIndexes = state.indexes
             selectedCopyPath = state.copyPath
             selectedCopyIndex = state.copyIndex
+            selectionInitialized = state.selectionInitialized
+            selectionCustomized = state.selectionCustomized
             destinationField.text = state.destination
             screenScrollY = state.screenScroll
             Qt.callLater(function () {
-                if (panel && panel.contextKey === key) restoreList.contentY = state.fileScroll
+                if (panel && panel.contextKey === key) {
+                    restoreList.contentY = state.fileScroll
+                    restoreFoldersList.contentY = state.folderScroll
+                }
             })
         }
         restoringContext = false
@@ -86,6 +98,7 @@ GroupBox {
         selectedIndexes.forEach(function (index, position) { lookup[index] = position })
         selectionLookup = lookup
         selectedCount = selectedIndexes.length
+        updateFolderCounts()
         ++selectionRevision
     }
 
@@ -96,9 +109,62 @@ GroupBox {
         updatingSelection = false
     }
 
+    function rebuildFolders(entries) {
+        const folders = Object.create(null)
+        const ancestors = []
+        entries.forEach(function (path) {
+            const paths = []
+            let end = path.lastIndexOf("/")
+            while (end > 0) {
+                const folder = path.slice(0, end)
+                if (!folders[folder]) folders[folder] = { path: folder, total: 0, selected: 0 }
+                ++folders[folder].total
+                paths.push(folder)
+                end = folder.lastIndexOf("/")
+            }
+            ancestors.push(paths)
+        })
+        foldersByPath = folders
+        entryFolders = ancestors
+        folderRows = Object.keys(folders).sort()
+        updateFolderCounts()
+        ++selectionRevision
+    }
+
+    function updateFolderCounts() {
+        for (const path of folderRows) foldersByPath[path].selected = 0
+        for (const index of selectedIndexes) {
+            for (const path of entryFolders[index] || []) ++foldersByPath[path].selected
+        }
+    }
+
+    function folderCheckState(path) {
+        const folder = foldersByPath[path]
+        return !folder || folder.selected === 0 ? Qt.Unchecked
+            : folder.selected === folder.total ? Qt.Checked : Qt.PartiallyChecked
+    }
+
+    function selectFolder(path, checked) {
+        const entries = controller.entries
+        const prefix = path.length > 0 ? path + "/" : ""
+        const indexes = []
+        const paths = []
+        entries.forEach(function (entry, index) {
+            const selected = entry.startsWith(prefix) ? checked : selectionLookup[index] !== undefined
+            if (selected) {
+                indexes.push(index)
+                paths.push(entry)
+            }
+        })
+        selectedPaths = paths
+        selectedIndexes = indexes
+        selectionInitialized = true
+    }
+
     function toggleSelection(index, path, checked) {
         const position = selectionLookup[index]
         if (checked === (position !== undefined)) return
+        selectionCustomized = true
         if (selectedPaths.length !== selectedIndexes.length) {
             // An external bulk assignment may provide only indexes.
             const entries = controller.entries
@@ -120,6 +186,9 @@ GroupBox {
             selectedPaths.pop()
             delete selectionLookup[index]
         }
+        for (const folder of entryFolders[index] || []) {
+            foldersByPath[folder].selected += checked ? 1 : -1
+        }
         selectedCount = selectedIndexes.length
         ++selectionRevision
         // Preserve the public property notifications without rebuilding lookup
@@ -130,7 +199,7 @@ GroupBox {
         updatingSelection = false
     }
 
-    function focusSearch(viewport) {
+    function focusControls(viewport) {
         function inView(control) {
             if (!control.visible || !control.enabled) return false
             const position = control.mapToItem(viewport, 0, 0)
@@ -144,44 +213,29 @@ GroupBox {
             }
             return null
         }
-        const target = inView(restoreCopySearch) ? restoreCopySearch : firstVisibleControl(panel)
+        const target = inView(remoteCopySelector) ? remoteCopySelector : firstVisibleControl(panel)
         if (target) target.forceActiveFocus()
         else viewport.forceActiveFocus()
     }
 
     ColumnLayout {
-        id: restoreContent
-        anchors.fill: parent
-        spacing: 16
+        Layout.fillWidth: true
+        spacing: 20
 
-        ActionButton {
-            style: panel.style
-            objectName: "closeRestoreButton"
-            text: "×"
-            Layout.preferredWidth: 36
-            Layout.alignment: Qt.AlignRight
-            Accessible.name: qsTr("Close restore")
-            ToolTip.visible: hovered
-            ToolTip.text: Accessible.name
-            onClicked: panel.closeRequested()
+        Label {
+            objectName: "restoreTitle"
+            text: qsTr("Restore")
+            font.pixelSize: panel.style.sectionTitleSize
+            Layout.fillWidth: true
         }
 
         Label {
             objectName: "restoreInstructions"
-            text: qsTr("Choose a backup copy, tick the files you want to restore, and choose the folder to restore them to. Then press Start restore below.")
+            text: qsTr("Choose a backup copy and a destination folder. All available files are selected by default. Untick individual files or folders to leave them out, then press Start restore below.")
             font.pixelSize: panel.style.bodyTypeSize
             lineHeight: panel.style.bodyLeading
             lineHeightMode: Text.ProportionalHeight
             wrapMode: Text.WordWrap
-            Layout.fillWidth: true
-        }
-
-        TextField {
-            id: restoreCopySearch
-            objectName: "restoreCopySearch"
-            placeholderText: qsTr("Search computer, backup name, copy, or status")
-            text: panel.controller.copySearch
-            onTextChanged: panel.controller.copySearch = text
             Layout.fillWidth: true
         }
 
@@ -197,23 +251,41 @@ GroupBox {
             // and refreshed/cached selections continue to follow copy identity.
             onModelChanged: currentIndex = Qt.binding(function () { return panel.controller.currentCopyIndex })
             onActivated: {
-                if (panel.selectedCopyIndex !== currentIndex) {
-                    panel.selectedIndexes = []
-                    panel.selectedPaths = []
-                }
                 panel.selectedCopyIndex = currentIndex
                 panel.controller.selectCopy(currentIndex)
             }
             displayText: currentIndex < 0 ? qsTr("Choose a backup copy…") : currentText
         }
 
+        Label {
+            objectName: "restoreCopyCount"
+            visible: !panel.controller.busy && panel.controller.copies.length > 0
+            text: panel.controller.copySearch.trim().length > 0
+                ? (panel.controller.copies.length === 1 ? qsTr("1 matching copy") : qsTr("%1 matching copies").arg(panel.controller.copies.length))
+                : (panel.controller.copies.length === 1 ? qsTr("1 available copy — choose it to restore")
+                    : qsTr("%1 available copies — choose the date you want to restore").arg(panel.controller.copies.length))
+            color: panel.style.mutedColor
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
+        }
+
+        Label {
+            objectName: "restoreNoCopiesMessage"
+            visible: !panel.controller.busy && panel.controller.copies.length === 0
+                && panel.controller.browseError.length === 0
+            text: panel.controller.copySearch.trim().length > 0
+                ? qsTr("No backup copies match your search.") : qsTr("No backup copies found for this set.")
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
+        }
+
         RowLayout {
-            visible: panel.controller.busy
+            visible: panel.controller.browsing
             Layout.fillWidth: true
 
             BusyIndicator {
                 objectName: "restoreLoadingIndicator"
-                running: panel.controller.busy
+                running: panel.controller.browsing
                 Layout.preferredWidth: 28
                 Layout.preferredHeight: 28
             }
@@ -269,12 +341,55 @@ GroupBox {
         }
 
         Label {
-            text: qsTr("1. Tick the files to restore")
+            objectName: "restoreFilesHeading"
+            text: qsTr("1. Choose files and folders")
             font.family: panel.style.bodyFontFamily
             font.pixelSize: panel.style.sectionTitleSize
-            font.weight: Font.Bold
+            font.weight: Font.Normal
             color: panel.style.accentColor
             Layout.fillWidth: true
+        }
+
+        CheckBox {
+            objectName: "restoreSelectAllFiles"
+            text: qsTr("Select all files")
+            visible: panel.controller.entries.length > 0
+            Layout.fillWidth: true
+            checkState: panel.selectedCount === 0 ? Qt.Unchecked
+                : panel.selectedCount === panel.controller.entries.length ? Qt.Checked : Qt.PartiallyChecked
+            nextCheckState: function () { return checkState === Qt.Checked ? Qt.Unchecked : Qt.Checked }
+            onClicked: {
+                panel.selectionCustomized = true
+                panel.selectFolder("", checkState === Qt.Checked)
+            }
+        }
+
+        ListView {
+            id: restoreFoldersList
+            objectName: "restoreFoldersList"
+            model: panel.folderRows
+            visible: count > 0 && panel.controller.entries.length > 0
+            Layout.fillWidth: true
+            Layout.preferredHeight: Math.min(120, contentHeight)
+            clip: true
+            ScrollBar.vertical: ScrollBar {}
+            delegate: CheckBox {
+                required property int index
+                required property string modelData
+                objectName: "restoreFolder-" + index
+                text: modelData
+                width: restoreFoldersList.width
+                Accessible.name: qsTr("Select all files in %1 and its subfolders").arg(modelData)
+                checkState: {
+                    panel.selectionRevision
+                    return panel.folderCheckState(modelData)
+                }
+                nextCheckState: function () { return checkState === Qt.Checked ? Qt.Unchecked : Qt.Checked }
+                onClicked: {
+                    panel.selectionCustomized = true
+                    panel.selectFolder(modelData, checkState === Qt.Checked)
+                }
+            }
         }
 
         ListView {
@@ -317,15 +432,17 @@ GroupBox {
         }
 
         Label {
+            objectName: "restoreDestinationHeading"
             text: qsTr("2. Choose the destination folder")
             font.pixelSize: panel.style.sectionTitleSize
-            font.weight: Font.Bold
+            font.weight: Font.Normal
             color: panel.style.accentColor
             Layout.fillWidth: true
         }
 
         RowLayout {
             Layout.fillWidth: true
+            spacing: panel.style.buttonSpacing
 
             TextField {
                 id: destinationField
@@ -358,13 +475,25 @@ GroupBox {
             Layout.fillWidth: true
         }
 
-        ActionButton {
-            style: panel.style
-            objectName: "startRestoreButton"
-            text: qsTr("Start restore")
-            Layout.alignment: Qt.AlignRight
-            enabled: panel.controller.restoreEligible && panel.selectedCount > 0 && destinationField.text.trim().length > 0
-            onClicked: panel.controller.restoreSelected(panel.selectedIndexes, destinationField.text.trim())
+        RowLayout {
+            objectName: "restoreActionsRow"
+            Layout.fillWidth: true
+            spacing: panel.style.buttonSpacing
+            Item { Layout.fillWidth: true }
+            ActionButton {
+                style: panel.style
+                objectName: "closeRestoreButton"
+                text: qsTr("Cancel")
+                Accessible.name: qsTr("Cancel restore")
+                onClicked: panel.closeRequested()
+            }
+            ActionButton {
+                style: panel.style
+                objectName: "startRestoreButton"
+                text: qsTr("Start restore")
+                enabled: panel.controller.restoreEligible && panel.selectedCount > 0 && destinationField.text.trim().length > 0
+                onClicked: panel.controller.restoreSelected(panel.selectedIndexes, destinationField.text.trim())
+            }
         }
     }
 
@@ -387,6 +516,11 @@ GroupBox {
             if (entries.length === 0 && panel.controller.browsing) {
                 return
             }
+            panel.rebuildFolders(entries)
+            if ((!panel.selectionInitialized || !panel.selectionCustomized) && entries.length > 0) {
+                panel.selectFolder("", true)
+                return
+            }
             const indexesByPath = Object.create(null)
             entries.forEach(function (path, index) { indexesByPath[path] = index })
             panel.selectedIndexes = paths.map(function (path) {
@@ -400,6 +534,8 @@ GroupBox {
             if (panel.restoringContext) return
             const path = panel.controller.currentCopyPath
             if (panel.selectedCopyPath !== path && !(path.length === 0 && panel.controller.browsing)) {
+                panel.selectionInitialized = false
+                panel.selectionCustomized = false
                 panel.selectedIndexes = []
                 panel.selectedPaths = []
                 panel.selectedCopyPath = path

@@ -13,7 +13,11 @@ QtObject {
     property real bodyLeading: 1.4
     property int readableMeasure: 680
     property int contentPadding: 24
-    property int cardPadding: 12
+    property int cardPadding: 20
+    property int buttonHorizontalPadding: 12
+    property int buttonVerticalPadding: 8
+    property int buttonHeight: 36
+    property int buttonSpacing: 12
     readonly property color backgroundColor: colors.background
     readonly property color inkColor: colors.foreground
     readonly property color mutedColor: colors.muted

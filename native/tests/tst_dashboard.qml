@@ -46,7 +46,14 @@ TestCase {
         backupSetController.runningSetIds = []
         backupSetController.remainingTimes = {}
         backupSetController.transferProgress = {}
-        backupSetController.runDetails = {}
+        backupSetController.runDetails = {
+            "documents-id": { status: "Successful", statusCode: "success", hasActivity: true,
+                hasLatestCopy: true, lastAttempt: "01/10/2026 10:00:00", lastSuccess: "01/10/2026 10:00:00" }
+        }
+        backupSetController.setSummaries = {
+            "documents-id": { sourceCount: 3, schedule: "Daily at 02:00", nextRun: "04/10/2026 02:00", retention: 3 },
+            "photos-id": { sourceCount: 1, schedule: "Manual backups", retention: 5 }
+        }
         backupSetController.removedIndex = -1
         backupSetController.addedCount = 0
         backupSetController.refreshCount = 0
@@ -62,6 +69,8 @@ TestCase {
         backupSetController.previewSkipped = []
         backupSetController.previewMissing = []
         backupSetController.importSucceeds = true
+        backupSetController.saveSucceeds = true
+        backupSetController.unsavedSetIds = []
         backupSetController.recentBackups = ["Photos\nNo backup run yet", "Documents\nsucceeded"]
         backupSetController.recentBackupSetIds = ["photos-id", "documents-id"]
         backupSetController.recentBackupTimestamps = ["", "01/10/2026 10:00:00"]
@@ -71,6 +80,7 @@ TestCase {
         restoreController.busy = false
         restoreController.restoring = false
         restoreController.restoreProgress = ""
+        restoreController.restoreProgressFraction = 0
         restoreController.browseError = ""
         restoreController.loadingMessage = ""
         restoreController.showingCachedData = false
@@ -104,7 +114,7 @@ TestCase {
         tryVerify(function () {
             item = findChild(app, name)
             if (item === null) {
-                for (const listName of ["dashboardSetsList", "recentBackupsList", "restoreFilesList"]) {
+                for (const listName of ["dashboardSetsList", "restoreFilesList", "restoreFoldersList"]) {
                     const list = findChild(app, listName)
                     for (let index = 0; list && index < list.count; ++index) {
                         const row = list.itemAtIndex(index)
@@ -123,6 +133,33 @@ TestCase {
             }
             return item !== null
         }, 1000, "Missing UI control: " + name)
+        const list = findChild(app, "dashboardSetsList")
+        let parent = item
+        while (parent && parent !== app) {
+            if (parent.objectName && parent.objectName.startsWith("backupSetCard-") && list.visible) {
+                list.positionViewAtIndex(parent.cardIndex, ListView.Contain)
+                waitForRendering(app.contentItem)
+                break
+            }
+            parent = parent.parent
+        }
+        if ((app.showRestore && (item instanceof CheckBox || item instanceof Button || item instanceof TextField))
+            || (app.showEditor && item instanceof Button)) {
+            const panelName = app.showRestore ? "restorePanel" : "editorScrollView"
+            parent = item.parent
+            while (parent && parent !== app) {
+                if (parent.objectName === panelName) {
+                    const viewport = findChild(app, app.showRestore ? "restoreScrollView" : "editorScrollView")
+                    const position = item.mapToItem(viewport, 0, 0)
+                    if (position.y < 0) viewport.contentItem.contentY += position.y
+                    else if (position.y + item.height > viewport.height)
+                        viewport.contentItem.contentY += position.y + item.height - viewport.height
+                    waitForRendering(app.contentItem)
+                    break
+                }
+                parent = parent.parent
+            }
+        }
         return item
     }
 
@@ -137,19 +174,27 @@ TestCase {
         return texts
     }
 
-    function test_setsAreLeftOfRecentBackups() {
-        compare(control("backupSetsTitle").text, "Backup sets")
-        compare(control("recentBackupsTitle").text, "Recent backups")
-        compare(control("newBackupSetButton").text, "+")
+    function test_setsAreFullWidthCardsStackedVertically() {
+        compare(findChild(app, "backupSetsTitle"), null)
+        compare(findChild(app, "recentBackupsTitle"), null)
+        compare(findChild(app, "recentBackupsList"), null)
+        compare(control("newBackupSetButton").text, "New backup set")
         compare(control("newBackupSetButton").Accessible.name, "New backup set")
         const sets = control("dashboardSetsList")
-        const recent = control("recentBackupsList")
-        const left = sets.mapToItem(app.contentItem, 0, 0)
-        const right = recent.mapToItem(app.contentItem, 0, 0)
-        verify(left.x + sets.width < right.x, "Backup sets must be in the left column")
-        verify(Math.abs(left.y - right.y) < 2, "The two lists must align")
-        verify(Math.abs(recent.width - 2 * sets.width) < 2, "Recent backups must receive two-thirds of the column space")
-        verify(visibleTexts(app.contentItem).indexOf("Backups") < 0)
+        compare(sets.width, app.width - 2 * app.contentPadding)
+        const first = control("backupSetCard-0")
+        const second = control("backupSetCard-1")
+        compare(first.x, second.x)
+        compare(first.width, second.width)
+        verify(second.y >= first.y + first.height + sets.spacing)
+        compare(control("setSchedule-0").text, "Daily at 02:00")
+        compare(control("setSources-0").text, "3 sources")
+        verify(control("setCopyPolicy-0").text.indexOf("keep 3 successful copies") >= 0)
+        sets.positionViewAtBeginning()
+        waitForRendering(app.contentItem)
+        if (dashboardScreenshotPath.length > 0) {
+            grabImage(app.contentItem).save(dashboardScreenshotPath + ".cards.png")
+        }
     }
 
     function openMenu(index) {
@@ -160,9 +205,18 @@ TestCase {
         return menu
     }
 
+    function createNewSet() {
+        mouseClick(control("backupSetsMenuButton"))
+        tryCompare(control("backupSetsMenu"), "opened", true)
+        mouseClick(control("newBackupSetButton"))
+        tryCompare(app, "showEditor", true)
+        tryCompare(control("setNameField"), "text", "New set")
+        waitForRendering(app.contentItem)
+    }
+
     function test_editLoadsTheMenuTarget() {
         const menu = openMenu(1)
-        compare(menu.itemAt(0).text, "Edit")
+        compare(menu.itemAt(0).text, "Edit settings")
         mouseClick(menu.itemAt(0))
         tryCompare(app, "showEditor", true)
         compare(backupSetController.currentIndex, 1)
@@ -170,21 +224,19 @@ TestCase {
         compare(backupLauncher.launchedId, "")
     }
 
-    function test_backupLaunchesTheMenuTargetWithoutChangingSelection() {
-        const menu = openMenu(1)
-        compare(menu.itemAt(1).text, "Back up now")
-        mouseClick(menu.itemAt(1))
+    function test_visibleBackupActionLaunchesItsSetWithoutChangingSelection() {
+        mouseClick(control("backUpNow-1"))
         compare(backupLauncher.launchedId, "photos-id")
         compare(backupSetController.currentIndex, 0)
         compare(app.showEditor, false)
-        compare(control("recentSummary-0").text, "Photos · No backup run yet")
-        compare(control("restore-0").enabled, false)
+        compare(control("setStatus-1").text, "No backup yet")
+        compare(control("restore-1").enabled, false)
     }
 
     function test_deleteRequiresConfirmationAndCancelDoesNotRemove() {
         const menu = openMenu(1)
-        compare(menu.itemAt(3).text, "Delete")
-        mouseClick(menu.itemAt(3))
+        compare(menu.itemAt(5).text, "Delete backup set")
+        mouseClick(menu.itemAt(5))
         const dialog = control("removeSetDialog")
         tryCompare(dialog, "opened", true)
         compare(dialog.setName, "Photos")
@@ -196,7 +248,7 @@ TestCase {
         tryCompare(dialog, "visible", false)
         compare(backupSetController.removedIndex, -1)
 
-        mouseClick(openMenu(1).itemAt(3))
+        mouseClick(openMenu(1).itemAt(5))
         tryCompare(dialog, "opened", true)
         mouseClick(dialog.standardButton(Dialog.Ok))
         compare(backupSetController.removedIndex, 1)
@@ -204,17 +256,15 @@ TestCase {
 
     function test_runningSetCannotLaunchAgain() {
         backupSetController.runningSetIds = ["photos-id"]
-        const indicator = control("setBusy-1")
-        tryCompare(indicator, "visible", true)
-        compare(indicator.running, true)
-        const menu = openMenu(1)
-        compare(menu.itemAt(1).enabled, false)
-        compare(menu.itemAt(0).enabled, true)
-        mouseClick(menu.itemAt(1))
+        compare(findChild(control("backupSetCard-1"), "setBusy-1"), null)
+        compare(control("setStatus-1").visible, false)
+        compare(control("viewIssues-1").visible, false)
+        compare(control("activeRestoreProgress").visible, false)
+        compare(control("returnToRestoreButton").visible, false)
+        compare(control("backUpNow-1").enabled, false)
+        mouseClick(control("backUpNow-1"))
         compare(backupLauncher.launchedId, "")
-        menu.close()
-        tryCompare(menu, "visible", false)
-        compare(openMenu(0).itemAt(1).enabled, true)
+        compare(control("backUpNow-0").enabled, true)
     }
 
     function test_runningBackupShowsItsRemainingTimeAndHidesItWhenFinished() {
@@ -243,7 +293,7 @@ TestCase {
         const progress = control("setTransferProgress-1")
         tryCompare(progress, "visible", true)
         verify(progress.text.indexOf("1 verified · 1 items failed") >= 0)
-        verify(progress.text.indexOf("Uploading: /safe/large file") >= 0)
+        verify(progress.text.indexOf("Uploading: /safe/large file") < 0)
         const bar = control("setProgressBar-1")
         compare(bar.value, 0.5)
         compare(bar.indeterminate, false)
@@ -260,7 +310,9 @@ TestCase {
         backupSetController.recentBackups = ["Photos\nNo backup run yet", "Documents\nIncomplete"]
         backupSetController.runDetails = {
             "documents-id": {
-                status: "Incomplete", summary: "97 files backed up · 3 items failed",
+                status: "Incomplete", statusCode: "incomplete", hasActivity: true, hasLatestCopy: true,
+                lastAttempt: "02/10/2026 02:00:00", lastSuccess: "01/10/2026 02:00:00",
+                summary: "97 files backed up · 3 items failed",
                 copyPath: "/backups/documents-id/copy", error: "Backup incomplete", nextAttempt: "02/10/2026 12:00:00",
                 issues: [
                     { path: "/safe/a", phase: "Uploading", reason: "Connection interrupted" },
@@ -269,13 +321,12 @@ TestCase {
                 ]
             }
         }
-        tryCompare(control("recentResultSummary-1"), "text", "97 files backed up · 3 items failed")
-        verify(control("recentResultSummary-1").visible)
-        verify(control("restore-1").enabled)
-        const menu = openRecentMenu(1)
-        compare(menu.itemAt(1).text, "View details")
-        verify(menu.itemAt(1).enabled)
-        mouseClick(menu.itemAt(1))
+        tryCompare(control("setResultSummary-0"), "text", "97 files backed up · 3 items failed")
+        verify(control("setResultSummary-0").visible)
+        verify(control("restore-0").enabled)
+        verify(control("setLastSuccess-0").visible)
+        compare(control("backupAttentionSummary").text, "1 backup set needs attention")
+        mouseClick(control("viewIssues-0"))
         const dialog = control("backupDetailsDialog")
         tryCompare(dialog, "opened", true)
         compare(dialog.setId, "documents-id")
@@ -295,7 +346,7 @@ TestCase {
     }
 
     function test_setDeletionUsesIdentityAfterListOrderChanges() {
-        mouseClick(openMenu(1).itemAt(3))
+        mouseClick(openMenu(1).itemAt(5))
         const dialog = control("removeSetDialog")
         tryCompare(dialog, "opened", true)
         backupSetController.setNames = ["Photos", "Documents"]
@@ -305,7 +356,7 @@ TestCase {
     }
 
     function test_escapeCancelsDeleteConfirmation() {
-        mouseClick(openMenu(1).itemAt(3))
+        mouseClick(openMenu(1).itemAt(5))
         const dialog = control("removeSetDialog")
         tryCompare(dialog, "opened", true)
         keyClick(Qt.Key_Escape)
@@ -313,13 +364,13 @@ TestCase {
         compare(backupSetController.removedIndex, -1)
     }
 
-    function test_restoreUsesHistorySetIdAndRequiresActivity() {
-        compare(control("restore-0").enabled, false)
-        mouseClick(control("restore-0"))
+    function test_restoreUsesCardSetIdAndRequiresActivity() {
+        compare(control("restore-1").enabled, false)
+        mouseClick(control("restore-1"))
         compare(restoreController.discoveredRoot, "")
         compare(app.showRestore, false)
         backupSetController.currentIndex = 1
-        mouseClick(control("restore-1"))
+        mouseClick(control("restore-0"))
         compare(backupSetController.currentIndex, 1)
         compare(restoreController.discoveredRoot, "/backups/documents-id")
         compare(restoreController.discoveredSetId, "documents-id")
@@ -327,20 +378,33 @@ TestCase {
         compare(control("dashboardScrollView").visible, false)
         compare(control("editorScrollView").visible, false)
         compare(control("restoreScrollView").visible, true)
-        compare(control("closeRestoreButton").text, "×")
-        compare(control("closeRestoreButton").Accessible.name, "Close restore")
-        compare(control("recentSummary-1").text, "Documents · succeeded · 01/10/2026 10:00:00")
+        compare(control("backupSetsMenuButton").visible, false)
+        compare(control("closeRestoreButton").text, "Cancel")
+        compare(control("closeRestoreButton").Accessible.name, "Cancel restore")
+        compare(findChild(app, "restoreCopySearch"), null)
+        compare(control("restoreFilesHeading").color, app.accentColor)
+        compare(control("restoreDestinationHeading").color, app.accentColor)
+        compare(control("closeRestoreButton").parent, control("restoreActionsRow"))
+        const panel = control("restorePanel")
+        const card = control("backupSetCard-0")
+        compare(panel.padding, card.padding)
+        compare(panel.width, app.width - 2 * app.contentPadding)
+        compare(panel.background.radius, card.background.radius)
+        compare(panel.background.color, card.background.color)
+        compare(panel.background.border.color, card.background.border.color)
+        compare(panel.font.weight, Font.Normal)
+        compare(control("setName-0").font.weight, Font.Normal)
+        compare(control("setLastAttempt-0").text, "Last attempt: 01/10/2026 10:00:00")
     }
 
-    function test_unknownHistorySetCannotRestore() {
+    function test_reorderedHistoryDoesNotChangeCardRestoreTarget() {
         backupSetController.recentBackupSetIds = ["photos-id", "removed-id"]
-        compare(control("restore-1").enabled, false)
-        mouseClick(control("restore-1"))
-        compare(restoreController.discoveredRoot, "")
+        mouseClick(control("restore-0"))
+        compare(restoreController.discoveredSetId, "documents-id")
     }
 
     function test_restoreStaysOpenWhileLoadingAndRequiresExplicitCopySelection() {
-        mouseClick(control("restore-1"))
+        mouseClick(control("restore-0"))
         restoreController.busy = true
         restoreController.loadingMessage = "Loading backup copies…"
         compare(app.showRestore, true)
@@ -348,8 +412,8 @@ TestCase {
         verify(control("restoreLoadingIndicator").running)
         compare(control("restoreLoadingMessage").text, "Loading backup copies…")
         compare(control("restoreCopySelector").enabled, false)
-        compare(control("restoreCopySearch").enabled, true)
-        compare(control("restore-1").enabled, true)
+        compare(findChild(app, "restoreCopySearch"), null)
+        compare(control("restore-0").enabled, true)
         compare(control("startRestoreButton").enabled, false)
 
         restoreController.copies = ["Computer / Documents / copy-id"]
@@ -367,34 +431,104 @@ TestCase {
         compare(selector.enabled, true)
     }
 
+    function test_restoreLetsUserChooseAnOlderCopyOfTheSameSet() {
+        mouseClick(control("restore-0"))
+        compare(restoreController.discoveredRoot, "/backups/documents-id")
+        restoreController.copies = ["Documents / newest-copy", "Documents / previous-copy", "Documents / oldest-copy"]
+        const selector = control("restoreCopySelector")
+        compare(selector.count, 3)
+        compare(control("restoreCopyCount").text, "3 available copies — choose the date you want to restore")
+        compare(selector.currentIndex, -1)
+        selector.currentIndex = 2
+        selector.activated(2)
+        compare(restoreController.selectedCopy, 2)
+        compare(selector.currentText, "Documents / oldest-copy")
+    }
+
+    function test_restoreCopyEmptyAndFilteredStatesAreClear() {
+        mouseClick(control("restore-0"))
+        compare(control("restoreNoCopiesMessage").visible, true)
+        compare(control("restoreNoCopiesMessage").text, "No backup copies found for this set.")
+        restoreController.busy = true
+        compare(control("restoreNoCopiesMessage").visible, false)
+        restoreController.busy = false
+        restoreController.copySearch = "older"
+        compare(control("restoreNoCopiesMessage").text, "No backup copies match your search.")
+        restoreController.copies = ["Documents / older-copy"]
+        compare(control("restoreCopyCount").text, "1 matching copy")
+        compare(control("restoreNoCopiesMessage").visible, false)
+    }
+
+    function test_latestCopyDeletionKeepsCardAndOlderCopyNavigation() {
+        backupSetController.runDetails = {
+            "documents-id": { statusCode: "copy_deleted", status: "copy_deleted", hasActivity: true,
+                hasLatestCopy: false, lastSuccess: "01/10/2026 10:00:00" }
+        }
+        compare(control("setStatus-0").text, "Latest copy deleted")
+        compare(control("restore-0").enabled, true)
+        const menu = openMenu(0)
+        compare(menu.itemAt(3).enabled, false)
+        menu.close()
+        mouseClick(control("restore-0"))
+        compare(restoreController.discoveredSetId, "documents-id")
+    }
+
+    function test_failedAttemptKeepsLastSuccessVisibleAndCardOrderStable() {
+        backupSetController.runDetails = {
+            "documents-id": { statusCode: "failed", status: "Failed", hasActivity: true,
+                lastAttempt: "02/10/2026 02:00:00", lastSuccess: "01/10/2026 02:00:00" }
+        }
+        compare(control("setStatus-0").text, "! Failed")
+        compare(control("setLastSuccess-0").text, "Last successful backup: 01/10/2026 02:00:00")
+        compare(control("setName-0").text, "Documents")
+        compare(control("setName-1").text, "Photos")
+        compare(control("restore-0").enabled, true)
+    }
+
     function test_restoreNavigationAndFocusRemainAvailableDuringTransfer() {
-        mouseClick(control("restore-1"))
+        mouseClick(control("restore-0"))
         restoreController.restoring = true
         restoreController.busy = true
         restoreController.restoreProgress = "0 of 2 files restored"
         restoreController.restoreBackupId = "documents-id"
         restoreController.restoreBackupFolder = "/backups/documents-id"
-        verify(control("restore-1").enabled)
+        waitForRendering(app.contentItem)
+        verify(control("restore-0").enabled)
         mouseClick(control("closeRestoreButton"))
         compare(app.showRestore, false)
         compare(control("dashboardScrollView").visible, true)
         compare(control("restoreScrollView").visible, false)
         verify(control("activeRestoreProgress").visible)
+        compare(control("activeRestoreProgress").text, "Restoring Documents…")
+        const bar = control("restoreProgressBar")
+        compare(bar.visible, true)
+        compare(bar.indeterminate, false)
+        compare(bar.value, 0)
+        restoreController.restoreProgress = "1 of 2 files restored"
+        restoreController.restoreProgressFraction = 0.5
+        tryCompare(bar, "value", 0.5)
+        compare(control("restoreTransferProgress").text, "1 of 2 files restored")
         mouseClick(control("returnToRestoreButton"))
         compare(app.showRestore, true)
-        tryCompare(control("restoreCopySearch"), "activeFocus", true)
+        tryVerify(function () {
+            const focused = app.activeFocusItem
+            if (!focused || !focused.enabled) return false
+            const viewport = control("restoreScrollView")
+            const position = focused.mapToItem(viewport, 0, 0)
+            return position.y >= 0 && position.y + focused.height <= viewport.height
+        })
         compare(restoreController.restoring, true)
         compare(control("startRestoreButton").enabled, false)
     }
 
     function test_returningToRestorePreservesDestinationTicksAndScroll() {
         showRestoreFiles()
-        mouseClick(control("restoreFile-0"))
+        mouseClick(control("restoreFile-1"))
         const destination = control("restoreDestinationField")
         destination.text = "/safe/return-here"
         const list = control("restoreFilesList")
         mouseClick(control("closeRestoreButton"))
-        mouseClick(control("restore-1"))
+        mouseClick(control("restore-0"))
         compare(destination.text, "/safe/return-here")
         compare(app.selectedRestoreIndexes, [0])
         compare(control("restoreFile-0").checked, true)
@@ -402,7 +536,7 @@ TestCase {
     }
 
     function test_largeRestoreKeepsOffscreenSelectionsAndScrollAcrossRefreshAndReturn() {
-        mouseClick(control("restore-1"))
+        mouseClick(control("restore-0"))
         const paths = []
         const indexes = []
         const copies = []
@@ -452,7 +586,7 @@ TestCase {
         waitForRendering(app.contentItem)
         const scrollY = list.contentY
         mouseClick(control("closeRestoreButton"))
-        mouseClick(control("restore-1"))
+        mouseClick(control("restore-0"))
         tryCompare(list, "contentY", scrollY)
         verify(!control("restoreFile-5000").checked)
         restoreController.entries = paths.slice().reverse()
@@ -465,7 +599,7 @@ TestCase {
     }
 
     function test_previewLoadingAllowsTypingAndNavigationAndShowsLastGoodData() {
-        mouseClick(control("newBackupSetButton"))
+        createNewSet()
         backupSetController.previewAvailable = true
         backupSetController.previewIncluded = ["/safe/previous.txt"]
         backupSetController.previewBusy = true
@@ -480,7 +614,8 @@ TestCase {
         verify(name.text.endsWith("x"))
         mouseClick(control("closeEditorButton"))
         compare(app.showEditor, false)
-        compare(backupSetController.previewBusy, true)
+        compare(backupSetController.previewBusy, false)
+        compare(backupSetController.setNames.length, 2)
     }
 
     function test_editorReturnPreservesScrollForEachBackup() {
@@ -519,14 +654,15 @@ TestCase {
     }
 
     function showRestoreFiles() {
-        mouseClick(control("restore-1"))
+        mouseClick(control("restore-0"))
         restoreController.copies = ["Computer / Documents / copy-id"]
+        restoreController.currentCopyIndex = 0
         restoreController.entries = ["/safe/documents/notes.txt", "/safe/documents/photo.jpg"]
         restoreController.verified = true
         waitForRendering(app.contentItem)
     }
 
-    function test_restoreRequiresTickedFilesAndDestinationAndHasOneAction() {
+    function test_restoreDefaultsToAllFilesAndRequiresSelectionAndDestination() {
         showRestoreFiles()
         const start = control("startRestoreButton")
         const destination = control("restoreDestinationField")
@@ -536,7 +672,15 @@ TestCase {
         compare(control("chooseRestoreDestinationButton").font.weight, control("backupSetsMenuButton").font.weight)
         compare(start.enabled, false)
         compare(destination.text, "")
-        verify(control("restoreInstructions").text.indexOf("tick the files") >= 0)
+        verify(control("restoreInstructions").text.indexOf("selected by default") >= 0)
+        compare(app.selectedRestoreIndexes, [0, 1])
+        compare(control("restoreSelectAllFiles").checkState, Qt.Checked)
+        destination.text = "/safe/restore"
+        compare(start.enabled, true)
+        mouseClick(control("restoreSelectAllFiles"))
+        compare(app.selectedRestoreIndexes, [])
+        compare(start.enabled, false)
+        destination.text = ""
         mouseClick(control("restoreFile-0"))
         compare(app.selectedRestoreIndexes, [0])
         compare(app.selectedRestorePaths, ["/safe/documents/notes.txt"])
@@ -566,7 +710,7 @@ TestCase {
 
     function test_failedRestoreKeepsThePanelAndSelectionOpenForRetry() {
         showRestoreFiles()
-        mouseClick(control("restoreFile-0"))
+        mouseClick(control("restoreFile-1"))
         restoreController.restoreSucceeds = false
         const destination = control("restoreDestinationField")
         destination.text = "/safe/restore"
@@ -582,7 +726,7 @@ TestCase {
 
     function test_refreshingRestoreFilesPreservesValidTicksAndSelection() {
         showRestoreFiles()
-        mouseClick(control("restoreFile-0"))
+        mouseClick(control("restoreFile-1"))
         compare(control("restoreFile-0").checked, true)
         restoreController.entriesChanged()
         compare(app.selectedRestoreIndexes, [0])
@@ -590,9 +734,78 @@ TestCase {
         compare(control("startRestoreButton").enabled, false)
     }
 
+    function folderControl(path) {
+        const panel = control("restorePanel")
+        const index = panel.folderRows.indexOf(path)
+        verify(index >= 0, "Missing restore folder: " + path)
+        const list = control("restoreFoldersList")
+        list.positionViewAtIndex(index, ListView.Contain)
+        waitForRendering(app.contentItem)
+        return control("restoreFolder-" + index)
+    }
+
+    function test_parentFolderSelectionIncludesDescendantsAndKeepsSiblingFolders() {
+        showRestoreFiles()
+        restoreController.entries = ["/safe/documents/notes.txt", "/safe/documents/nested/photo.jpg",
+            "/safe/documents-other/report.txt", "/safe/music/song.mp3"]
+        // A newly chosen copy starts with every available file selected.
+        restoreController.currentCopyIndex = 1
+        restoreController.entriesChanged()
+        compare(app.selectedRestoreIndexes, [0, 1, 2, 3])
+        mouseClick(folderControl("/safe/documents"))
+        compare(app.selectedRestoreIndexes, [2, 3])
+        compare(folderControl("/safe/documents/nested").checkState, Qt.Unchecked)
+        compare(folderControl("/safe/documents-other").checkState, Qt.Checked)
+        compare(folderControl("/safe").checkState, Qt.PartiallyChecked)
+        mouseClick(folderControl("/safe/documents"))
+        compare(app.selectedRestoreIndexes, [0, 1, 2, 3])
+        mouseClick(control("restoreFile-0"))
+        compare(folderControl("/safe/documents").checkState, Qt.PartiallyChecked)
+        mouseClick(folderControl("/safe/documents"))
+        compare(app.selectedRestoreIndexes, [0, 1, 2, 3])
+        compare(control("restoreSelectAllFiles").checkState, Qt.Checked)
+        mouseClick(folderControl("/safe"))
+        compare(app.selectedRestoreIndexes, [])
+        compare(control("restoreSelectAllFiles").checkState, Qt.Unchecked)
+    }
+
+    function test_clearedSelectionSurvivesRefreshAndReturnButNewCopyDefaultsToAll() {
+        showRestoreFiles()
+        mouseClick(control("restoreSelectAllFiles"))
+        compare(app.selectedRestoreIndexes, [])
+        restoreController.busy = true
+        restoreController.entries = []
+        compare(control("restoreFoldersList").visible, false)
+        restoreController.entries = ["/safe/documents/notes.txt", "/safe/documents/photo.jpg"]
+        restoreController.busy = false
+        compare(app.selectedRestoreIndexes, [])
+        mouseClick(control("closeRestoreButton"))
+        mouseClick(control("restore-0"))
+        restoreController.entriesChanged()
+        compare(app.selectedRestoreIndexes, [])
+        restoreController.copies = ["Documents / first-copy", "Documents / second-copy"]
+        const selector = control("restoreCopySelector")
+        selector.currentIndex = 1
+        selector.activated(1)
+        restoreController.entries = ["/safe/documents/older.txt"]
+        compare(app.selectedRestoreIndexes, [0])
+        compare(app.selectedRestorePaths, ["/safe/documents/older.txt"])
+        compare(control("restoreSelectAllFiles").checkState, Qt.Checked)
+    }
+
+    function test_defaultSelectionIncludesFilesAddedByVerification() {
+        showRestoreFiles()
+        restoreController.entries = ["/safe/documents/notes.txt", "/safe/documents/photo.jpg", "/safe/documents/new.txt"]
+        compare(app.selectedRestoreIndexes, [0, 1, 2])
+        mouseClick(control("restoreFile-0"))
+        restoreController.entriesChanged()
+        compare(app.selectedRestoreIndexes.slice().sort(), [1, 2])
+        compare(folderControl("/safe/documents").checkState, Qt.PartiallyChecked)
+    }
+
     function test_cachedRestoreFilesRequireVerificationAndDisableStartDuringTransfer() {
         showRestoreFiles()
-        mouseClick(control("restoreFile-0"))
+        mouseClick(control("restoreFile-1"))
         control("restoreDestinationField").text = "/safe/restore"
         const start = control("startRestoreButton")
         compare(start.enabled, true)
@@ -634,19 +847,21 @@ TestCase {
         dialog.selectedFolder = dashboardRestoreFolderUrl
         dialog.accept()
         compare(control("restoreDestinationField").text, dashboardRestoreFolderPath)
-        compare(control("startRestoreButton").enabled, false)
-        mouseClick(control("restoreFile-1"))
+        compare(control("startRestoreButton").enabled, true)
+        mouseClick(control("restoreFile-0"))
         compare(app.selectedRestoreIndexes, [1])
         compare(control("startRestoreButton").enabled, true)
     }
 
-    function test_folderLinkUsesHistorySetAndRequiresActivity() {
-        compare(control("openFolder-0").enabled, false)
-        mouseClick(control("openFolder-0"))
+    function test_folderLinkUsesCardSetAndRequiresLatestCopy() {
+        const emptyMenu = openMenu(1)
+        compare(emptyMenu.itemAt(1).enabled, false)
+        emptyMenu.close()
         compare(recentBackupCopies.openedId, "")
         backupSetController.currentIndex = 1
-        const link = control("openFolder-1")
-        compare(link.Accessible.name, "Open Documents in Proton Drive")
+        openMenu(0)
+        const link = control("openFolder-0")
+        compare(link.text, "Open latest copy in Proton Drive")
         mouseClick(link)
         compare(recentBackupCopies.openedId, "documents-id")
         recentBackupCopies.folderResolved("/backups/documents-id/copy-id")
@@ -657,11 +872,10 @@ TestCase {
         compare(link.enabled, false)
     }
 
-    function test_unknownHistorySetCannotOpenFolder() {
+    function test_reorderedHistoryDoesNotChangeCardFolderTarget() {
         backupSetController.recentBackupSetIds = ["photos-id", "removed-id"]
-        compare(control("openFolder-1").enabled, false)
-        mouseClick(control("openFolder-1"))
-        compare(recentBackupCopies.openedId, "")
+        mouseClick(openMenu(0).itemAt(1))
+        compare(recentBackupCopies.openedId, "documents-id")
     }
 
     function test_notificationsAppearTopRight_data() {
@@ -721,17 +935,10 @@ TestCase {
         verify(!control("notificationToast").visible)
     }
 
-    function openRecentMenu(index) {
-        mouseClick(control("recentActions-" + index))
-        const menu = control("recentMenu-" + index)
-        tryCompare(menu, "opened", true)
-        return menu
-    }
-
     function test_deleteRecentCopyRequiresConfirmationAndCancelIsSafe() {
-        compare(openRecentMenu(0).itemAt(0).enabled, false)
-        control("recentMenu-0").close()
-        mouseClick(openRecentMenu(1).itemAt(0))
+        compare(openMenu(1).itemAt(3).enabled, false)
+        control("setMenu-1").close()
+        mouseClick(openMenu(0).itemAt(3))
         const dialog = control("deleteCopyDialog")
         tryCompare(dialog, "opened", true)
         compare(recentBackupCopies.deleteRequestedId, "documents-id")
@@ -745,37 +952,32 @@ TestCase {
         tryCompare(dialog, "visible", false)
         compare(recentBackupCopies.deleteCancelled, true)
         compare(recentBackupCopies.deleteConfirmed, false)
-        mouseClick(openRecentMenu(1).itemAt(0))
+        mouseClick(openMenu(0).itemAt(3))
         tryCompare(dialog, "opened", true)
         mouseClick(dialog.standardButton(Dialog.Ok))
         compare(recentBackupCopies.deleteConfirmed, true)
-        tryCompare(control("setBusy-0"), "running", true)
+        tryCompare(control("setStatus-0"), "text", "Deleting latest copy…")
         compare(control("setProgressBar-0").visible, true)
         compare(control("setProgressBar-0").indeterminate, true)
         compare(control("setRemainingTime-0").text, "Deleting backup copy…")
-        compare(control("recentDeleteBusy-1").running, true)
-        compare(control("recentDeleteStatus-1").visible, true)
-        compare(control("setBusy-1").running, false)
-        compare(control("recentDeleteBusy-0").running, false)
-        compare(control("restore-1").enabled, false)
+        compare(control("setProgressBar-1").visible, false)
+        compare(control("restore-0").enabled, false)
         recentBackupCopies.busy = false
         recentBackupCopies.deletingSetId = ""
         recentBackupCopies.copyDeleted("documents-id")
         compare(backupSetController.refreshCount, 1)
-        tryCompare(control("setBusy-0"), "visible", false)
         compare(control("setProgressBar-0").visible, false)
-        compare(control("recentDeleteBusy-1").visible, false)
     }
 
     function test_runningRecentCopyCannotBeDeleted() {
         backupSetController.runningSetIds = ["documents-id"]
-        const menu = openRecentMenu(1)
-        compare(menu.itemAt(0).enabled, false)
+        const menu = openMenu(0)
+        compare(menu.itemAt(3).enabled, false)
         menu.close()
     }
 
     function test_newSetStillOpensTheEditor() {
-        mouseClick(control("newBackupSetButton"))
+        createNewSet()
         compare(backupSetController.addedCount, 1)
         compare(app.showEditor, true)
         tryCompare(control("setNameField"), "text", "New set")
@@ -789,7 +991,7 @@ TestCase {
         exportDialog.selectedFile = "file:///tmp/backup%20sets.json"
         exportDialog.accepted()
         compare(backupSetController.exportedPath, "/tmp/backup sets.json")
-        mouseClick(control("newBackupSetButton"))
+        createNewSet()
         compare(app.showEditor, true)
         const importDialog = control("importSetsDialog")
         importDialog.selectedFile = dashboardImportFileUrl
@@ -813,7 +1015,7 @@ TestCase {
     }
 
     function test_templateDownloadUsesChosenFileWithoutClosingEditor() {
-        mouseClick(control("newBackupSetButton"))
+        createNewSet()
         compare(control("downloadTemplateButton").text, "Download template")
         const dialog = control("templateDialog")
         compare(dialog.fileMode, FileDialog.SaveFile)
@@ -841,7 +1043,7 @@ TestCase {
     }
 
     function test_cancelImportDoesNotImportOrCloseEditor() {
-        mouseClick(control("newBackupSetButton"))
+        createNewSet()
         const dialog = control("importSetsDialog")
         dialog.selectedFile = dashboardImportFileUrl
         dialog.accepted()
@@ -864,9 +1066,10 @@ TestCase {
         button.forceActiveFocus()
         keyClick(Qt.Key_Space)
         tryCompare(menu, "opened", true)
-        compare(menu.itemAt(0), control("importSetsButton"))
-        compare(menu.itemAt(1), control("exportSetsButton"))
-        compare(menu.itemAt(2), control("downloadTemplateButton"))
+        compare(menu.itemAt(0), control("newBackupSetButton"))
+        compare(menu.itemAt(2), control("importSetsButton"))
+        compare(menu.itemAt(3), control("exportSetsButton"))
+        compare(menu.itemAt(4), control("downloadTemplateButton"))
         const menuTop = menu.contentItem.mapToItem(app.contentItem, 0, 0)
         verify(menuTop.y >= position.y + button.height)
         verify(Math.abs(menuTop.x + menu.contentItem.width - position.x - button.width) < 16)
@@ -875,37 +1078,41 @@ TestCase {
         tryCompare(button, "activeFocus", true)
         mouseClick(button)
         tryCompare(menu, "opened", true)
-        mouseClick(menu.itemAt(0))
+        mouseClick(menu.itemAt(2))
         tryCompare(control("importSetsDialog"), "visible", true)
         control("importSetsDialog").reject()
         mouseClick(button)
         tryCompare(menu, "opened", true)
-        mouseClick(menu.itemAt(1))
+        mouseClick(menu.itemAt(3))
         tryCompare(control("exportSetsDialog"), "visible", true)
         control("exportSetsDialog").reject()
         mouseClick(button)
         tryCompare(menu, "opened", true)
-        mouseClick(menu.itemAt(2))
+        mouseClick(menu.itemAt(4))
         tryCompare(control("templateDialog"), "visible", true)
         control("templateDialog").reject()
     }
 
     function test_actionButtonsMatchOverflowButtonAppearance() {
         const reference = control("backupSetsMenuButton")
-        for (const name of ["newBackupSetButton", "setActions-0",
-                            "openFolder-1", "restore-1", "recentActions-1"]) {
+        for (const name of ["setActions-0",
+                            "backUpNow-0", "restore-0"]) {
             const action = control(name)
             verify(action instanceof Button, name + " must use the same button control")
             compare(action.flat, reference.flat)
             compare(action.height, reference.height)
             compare(action.font.pixelSize, reference.font.pixelSize)
             compare(action.palette.buttonText, reference.palette.buttonText)
+            compare(action.leftPadding, reference.leftPadding)
+            compare(action.rightPadding, reference.rightPadding)
+            compare(action.topPadding, reference.topPadding)
+            compare(action.bottomPadding, reference.bottomPadding)
             verify(action.background !== null)
         }
     }
 
     function test_failedImportKeepsEditorOpen() {
-        mouseClick(control("newBackupSetButton"))
+        createNewSet()
         backupSetController.importSucceeds = false
         const dialog = control("importSetsDialog")
         dialog.selectedFile = dashboardInvalidImportFileUrl
@@ -925,20 +1132,33 @@ TestCase {
 
     function test_editorCloseButtonReturnsToDashboard(data) {
         if (data.creating) {
-            mouseClick(control("newBackupSetButton"))
+            createNewSet()
         } else {
             mouseClick(openMenu(0).itemAt(0))
         }
         tryCompare(app, "showEditor", true)
         waitForRendering(app.contentItem)
+        compare(control("backupSetsMenuButton").visible, false)
+        const card = control("editorCard")
+        compare(card.width, app.width - 2 * app.contentPadding)
+        compare(card.padding, app.cardPadding)
+        compare(control("setNameField").width, card.availableWidth)
         const close = control("closeEditorButton")
-        compare(close.text, "×")
-        compare(close.Accessible.name, "Close editor")
+        compare(close.text, "Cancel")
+        compare(close.Accessible.name, "Cancel backup settings")
         const actions = control("editorActionsRow")
         const buttons = actions.children.filter(function (item) { return item instanceof Button })
-        compare(buttons.length, 2)
+        compare(buttons.length, 3)
         compare(buttons[0].text, "Save")
         compare(buttons[1].text, "Preview")
+        compare(buttons[2], close)
+        verify(buttons[0].x > actions.width / 2)
+        compare(close.x + close.width, actions.width)
+        compare(actions.spacing, control("restoreActionsRow").spacing)
+        for (const button of buttons) {
+            compare(button.leftPadding, control("backUpNow-0").leftPadding)
+            compare(button.rightPadding, control("restore-0").rightPadding)
+        }
         const texts = visibleTexts(app.contentItem)
         verify(!texts.some(function (text) { return text.startsWith("Give your backup a name") }))
         verify(!texts.some(function (text) { return text.startsWith("Included files (") }))
@@ -953,9 +1173,37 @@ TestCase {
         const advancedPanel = control("advancedSettingsPanel")
         verify(save.mapToItem(app.contentItem, 0, 0).y
             > advancedPanel.mapToItem(app.contentItem, 0, advancedPanel.height).y)
-        mouseClick(close)
+        mouseClick(control("closeEditorButton"))
         tryCompare(app, "showEditor", false)
+        compare(control("backupSetsMenuButton").visible, true)
+        compare(backupSetController.setNames.length, 2)
         compare(backupLauncher.launchedId, "")
+    }
+
+    function test_newSetCancelKeepsSuccessfullySavedSet_data() {
+        return [{ tag: "saved", saved: true }, { tag: "failed save", saved: false }]
+    }
+
+    function test_newSetCancelKeepsSuccessfullySavedSet(data) {
+        createNewSet()
+        backupSetController.saveSucceeds = data.saved
+        const id = backupSetController.currentId
+        control("saveBackupSetButton").clicked()
+        compare(backupSetController.saveCount, 1)
+        mouseClick(control("closeEditorButton"))
+        compare(app.showEditor, false)
+        compare(backupSetController.setIds.indexOf(id) >= 0, data.saved)
+        compare(backupSetController.setNames.length, data.saved ? 3 : 2)
+    }
+
+    function test_startingAnotherNewSetDiscardsTheUnfinishedOne() {
+        createNewSet()
+        app.createNewSet()
+        waitForRendering(app.contentItem)
+        compare(backupSetController.addedCount, 2)
+        compare(backupSetController.setNames.length, 3)
+        mouseClick(control("closeEditorButton"))
+        compare(backupSetController.setNames.length, 2)
     }
 
     function test_previewDistinguishesAllGroupsWithoutRunningOrSaving_data() {
@@ -1061,7 +1309,7 @@ TestCase {
     }
 
     function test_sourcePickerMenuOpensBelowPlusButton() {
-        mouseClick(control("newBackupSetButton"))
+        createNewSet()
         tryCompare(app, "showEditor", true)
         waitForRendering(app.contentItem)
         const button = control("addSourceButton")
@@ -1093,34 +1341,28 @@ TestCase {
         backupSetController.recentBackupTimestamps = []
         backupSetController.recentBackups = []
         tryCompare(control("dashboardSetsList"), "count", 0)
-        tryCompare(control("recentBackupsList"), "count", 0)
         verify(control("emptySetsLabel").visible)
-        verify(control("emptyRecentLabel").visible)
         verify(control("newBackupSetButton").enabled)
         verify(control("importSetsButton").enabled)
         verify(!control("exportSetsButton").enabled)
+        mouseClick(control("createFirstBackupSetButton"))
+        compare(app.showEditor, true)
+        compare(backupSetController.addedCount, 1)
     }
 
-    function test_minimumWindowAndLongHistoryStayWithinColumns() {
+    function test_minimumWindowAndLongNamesStayInsideCards() {
         app.width = app.minimumWidth
         app.height = app.minimumHeight
-        backupSetController.recentBackups = ["Photos\nfailed | " + "VeryLongUnbrokenFailureMessage".repeat(8), "Documents: succeeded"]
+        backupSetController.setNames = ["VeryLongBackupName".repeat(8), "Photos"]
         waitForRendering(app.contentItem)
         const sets = control("dashboardSetsList")
-        const recent = control("recentBackupsList")
-        verify(sets.width >= 200)
-        verify(Math.abs(recent.width - 2 * sets.width) < 2)
+        compare(sets.width, app.width - 2 * app.contentPadding)
         const restore = control("restore-0")
         const position = restore.mapToItem(app.contentItem, 0, 0)
         verify(position.x + restore.width <= app.width - app.contentPadding)
         verify(position.y + restore.height <= app.height)
-        const summary = control("recentSummary-0")
-        compare(summary.wrapMode, Text.NoWrap)
-        compare(summary.maximumLineCount, 1)
-        compare(summary.elide, Text.ElideRight)
-        verify(summary.text.indexOf("\n") < 0)
-        verify(summary.implicitHeight < 40)
-        verify(summary.truncated)
+        const name = control("setName-0")
+        verify(name.width <= sets.width - 40)
         if (dashboardScreenshotPath.length > 0) {
             grabImage(app.contentItem).save(dashboardScreenshotPath + ".minimum.png")
         }
@@ -1143,7 +1385,7 @@ TestCase {
         waitForRendering(app.contentItem)
         list.forceLayout()
         verify(list.contentHeight > list.height)
-        verify(list.height <= 360)
+        verify(list.height <= app.height)
         list.positionViewAtIndex(14, ListView.Contain)
         waitForRendering(app.contentItem)
         const button = control("setActions-14")
@@ -1151,7 +1393,7 @@ TestCase {
         verify(position.y >= 0)
         verify(position.y + button.height <= list.height,
             "Last action must fit: y=" + position.y + ", button=" + button.height + ", list=" + list.height)
-        mouseClick(openMenu(14).itemAt(1))
+        mouseClick(control("backUpNow-14"))
         compare(backupLauncher.launchedId, "backup-id-14")
     }
 
@@ -1270,7 +1512,7 @@ TestCase {
         compare(app.palette.windowText, "#19232e")
         compare(app.palette.disabled.buttonText, "#586575")
         compare(control("newBackupSetButton").palette.buttonText, "#19232e")
-        compare(control("restore-0").palette.disabled.buttonText, "#586575")
+        compare(control("restore-1").palette.disabled.buttonText, "#586575")
         const image = grabImage(app.contentItem)
         compare(image.pixel(app.width - 8, app.height - 8), "#ffffff")
         if (dashboardScreenshotPath.length > 0) {
@@ -1287,7 +1529,7 @@ TestCase {
         compare(app.palette.highlightedText, "#060606")
         tryCompare(app.palette.disabled, "buttonText", "#626262")
         compare(control("newBackupSetButton").palette.buttonText, "#f0d4e4")
-        tryCompare(control("restore-0").palette.disabled, "buttonText", "#626262")
+        tryCompare(control("restore-1").palette.disabled, "buttonText", "#626262")
         waitForRendering(app.contentItem)
         const darkImage = grabImage(app.contentItem)
         compare(darkImage.pixel(app.width - 8, app.height - 8), "#060606")

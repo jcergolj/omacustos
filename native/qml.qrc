@@ -5,6 +5,8 @@
         <file>qml/BackupEditor.qml</file>
         <file>qml/RestorePanel.qml</file>
         <file>qml/ActionButton.qml</file>
+        <file>qml/FormCard.qml</file>
+        <file>qml/TransferProgress.qml</file>
         <file>qml/PreviewGroup.qml</file>
         <file>qml/UiStyle.qml</file>
         <file>qml/LocalPaths.js</file>

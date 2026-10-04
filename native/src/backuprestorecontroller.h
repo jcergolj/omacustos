@@ -29,6 +29,7 @@ class BackupRestoreController final : public QObject
     Q_PROPERTY(QString currentCopyPath READ currentCopyPath NOTIFY currentCopyIndexChanged)
     Q_PROPERTY(QString browseError READ browseError NOTIFY busyChanged)
     Q_PROPERTY(QString restoreProgress READ restoreProgress NOTIFY restoreProgressChanged)
+    Q_PROPERTY(double restoreProgressFraction READ restoreProgressFraction NOTIFY restoreProgressChanged)
     Q_PROPERTY(QString restoreBackupFolder READ restoreBackupFolder NOTIFY restoreProgressChanged)
     Q_PROPERTY(QString restoreBackupId READ restoreBackupId NOTIFY restoreProgressChanged)
     Q_PROPERTY(QString restoreCopyPath READ restoreCopyPath NOTIFY restoreProgressChanged)
@@ -56,6 +57,7 @@ public:
     QString currentCopyPath() const;
     QString browseError() const { return refreshError; }
     QString restoreProgress() const;
+    double restoreProgressFraction() const;
     QString restoreBackupFolder() const { return transferBackupFolder; }
     QString restoreBackupId() const { return transferBackupId; }
     QString restoreCopyPath() const { return transferCopyPath; }

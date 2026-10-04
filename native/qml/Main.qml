@@ -49,6 +49,7 @@ ApplicationWindow {
 
     font.family: bodyFontFamily
     font.pixelSize: bodyTypeSize
+    font.weight: Font.Normal
     color: backgroundColor
     palette {
         window: root.backgroundColor
@@ -85,6 +86,7 @@ ApplicationWindow {
     function createNewSet() {
         rememberRestoreContext()
         showRestore = false
+        backupSetController.discardUnsavedSet()
         backupSetController.addSet()
         showAdvanced = false
         showEditor = true
@@ -94,6 +96,7 @@ ApplicationWindow {
     function editSet(index) {
         rememberRestoreContext()
         showRestore = false
+        backupSetController.discardUnsavedSet()
         backupSetController.currentIndex = index
         showEditor = true
         Qt.callLater(function () { backupEditor.focusName() })
@@ -101,6 +104,10 @@ ApplicationWindow {
 
     function restoreRecentBackup(index) {
         const setId = backupSetController.recentBackupSetIds[index]
+        restoreBackupSet(setId)
+    }
+
+    function restoreBackupSet(setId) {
         const setIndex = backupSetController.setIds.indexOf(setId)
         if (setIndex < 0) {
             return
@@ -118,6 +125,7 @@ ApplicationWindow {
 
     function openRestoreContext(folder, setId) {
         rememberRestoreContext()
+        backupSetController.discardUnsavedSet()
         restorePanel.activateContext(folder, setId)
         showEditor = false
         showRestore = true
@@ -126,7 +134,7 @@ ApplicationWindow {
             if (!root || !root.showRestore || root.showEditor
                 || restoreController.backupId !== setId || restoreController.backupFolder !== folder) return
             restoreScrollView.contentItem.contentY = Math.max(0, restorePanel.screenScrollY)
-            restorePanel.focusSearch(restoreScrollView)
+            restorePanel.focusControls(restoreScrollView)
         })
     }
 
@@ -198,12 +206,15 @@ ApplicationWindow {
             }
             RowLayout {
                 Layout.alignment: Qt.AlignRight
-                Button {
+                spacing: uiStyle.buttonSpacing
+                ActionButton {
+                    style: uiStyle
                     objectName: "mergeImportButton"
                     text: qsTr("Merge")
                     onClicked: importModeDialog.importFile(true)
                 }
-                Button {
+                ActionButton {
+                    style: uiStyle
                     objectName: "replaceImportButton"
                     text: qsTr("Replace")
                     onClicked: importModeDialog.importFile(false)
@@ -227,7 +238,6 @@ ApplicationWindow {
         objectName: "templateDialog"
         title: qsTr("Download backup-set template")
         fileMode: FileDialog.SaveFile
-        selectedFile: "backup-sets.template.json"
         defaultSuffix: "json"
         nameFilters: [qsTr("OmaCustos backup sets (*.json)")]
         onAccepted: backupSetController.saveTemplate(root.localPath(selectedFile))
@@ -361,7 +371,7 @@ ApplicationWindow {
                 Label {
                     objectName: "backupDetailsStatus"
                     text: backupDetailsDialog.details.status || ""
-                    font.weight: Font.DemiBold
+                    font.weight: Font.Normal
                     textFormat: Text.PlainText
                 }
                 Label {
@@ -376,6 +386,14 @@ ApplicationWindow {
                     objectName: "backupDetailsError"
                     text: backupDetailsDialog.details.error || ""
                     visible: text.length > 0
+                    textFormat: Text.PlainText
+                    wrapMode: Text.WrapAnywhere
+                    Layout.fillWidth: true
+                }
+                Label {
+                    objectName: "backupDetailsCurrentFile"
+                    text: qsTr("Current file: %1").arg(backupDetailsDialog.details.currentFile || "")
+                    visible: (backupDetailsDialog.details.currentFile || "").length > 0
                     textFormat: Text.PlainText
                     wrapMode: Text.WrapAnywhere
                     Layout.fillWidth: true
@@ -407,7 +425,7 @@ ApplicationWindow {
                             objectName: "backupIssuePath-" + issueRow.index
                             text: issueRow.modelData.path
                             textFormat: Text.PlainText
-                            font.weight: Font.DemiBold
+                            font.weight: Font.Normal
                             wrapMode: Text.WrapAnywhere
                             Layout.fillWidth: true
                         }
@@ -434,13 +452,13 @@ ApplicationWindow {
             Layout.rightMargin: root.contentPadding
             Layout.topMargin: 24
             Layout.bottomMargin: 16
-            spacing: 12
+            spacing: uiStyle.buttonSpacing
 
             Label {
                 text: qsTr("OmaCustos")
                 font.family: root.displayFontFamily
                 font.pixelSize: root.displayTypeSize
-                font.weight: Font.Bold
+                font.weight: Font.Normal
                 font.letterSpacing: 0.4
                 color: root.inkColor
                 Layout.fillWidth: true
@@ -450,18 +468,29 @@ ApplicationWindow {
                 id: backupSetsMenuButton
                 style: uiStyle
                 objectName: "backupSetsMenuButton"
+                visible: !root.showEditor && !root.showRestore
                 text: "⋯"
                 Layout.preferredWidth: 40
                 Accessible.name: qsTr("Backup set options")
                 ToolTip.visible: hovered
                 ToolTip.text: Accessible.name
                 onClicked: backupSetsMenu.open()
+                onVisibleChanged: if (!visible) backupSetsMenu.close()
 
                 Menu {
                     id: backupSetsMenu
                     objectName: "backupSetsMenu"
                     x: backupSetsMenuButton.width - width
                     y: backupSetsMenuButton.height
+
+                    MenuItem {
+                        objectName: "newBackupSetButton"
+                        text: qsTr("New backup set")
+                        Accessible.name: text
+                        onTriggered: root.createNewSet()
+                    }
+
+                    MenuSeparator {}
 
                     MenuItem {
                         objectName: "importSetsButton"
@@ -493,7 +522,7 @@ ApplicationWindow {
             Layout.leftMargin: root.contentPadding
             Layout.rightMargin: root.contentPadding
             Layout.bottomMargin: 12
-            spacing: 12
+            spacing: uiStyle.buttonSpacing
 
             Label {
                 objectName: "protonErrorLabel"
@@ -532,7 +561,7 @@ ApplicationWindow {
             Layout.leftMargin: root.contentPadding
             Layout.rightMargin: root.contentPadding
             Layout.bottomMargin: 12
-            spacing: 12
+            spacing: uiStyle.buttonSpacing
 
             Label {
                 objectName: "schedulingErrorLabel"
@@ -554,34 +583,36 @@ ApplicationWindow {
             }
         }
 
-        RowLayout {
-            visible: restoreController.restoring || backupSetController.runningSetIds.length > 0
+        FormCard {
+            style: uiStyle
+            visible: restoreController.restoring
             Layout.fillWidth: true
             Layout.leftMargin: root.contentPadding
             Layout.rightMargin: root.contentPadding
             Layout.bottomMargin: 12
 
-            Label {
-                objectName: "activeRestoreProgress"
-                text: restoreController.restoring
-                    ? qsTr("Restoring %1 — %2").arg(restoreController.restoreBackupId).arg(restoreController.restoreProgress)
-                    : qsTr("%1 backup(s) running").arg(backupSetController.runningSetIds.length)
-                wrapMode: Text.WordWrap
+            TransferProgress {
+                style: uiStyle
+                statusObjectName: "activeRestoreProgress"
+                detailObjectName: "restoreTransferProgress"
+                barObjectName: "restoreProgressBar"
+                statusText: {
+                    const index = backupSetController.setIds.indexOf(restoreController.restoreBackupId)
+                    const name = index >= 0 ? backupSetController.setNames[index] : restoreController.restoreBackupId
+                    return qsTr("Restoring %1…").arg(name)
+                }
+                detailText: restoreController.restoreProgress
+                fraction: restoreController.restoreProgressFraction
+                indeterminate: false
+                accessibleName: qsTr("Files restored")
                 Layout.fillWidth: true
             }
             ActionButton {
                 style: uiStyle
                 objectName: "returnToRestoreButton"
-                text: restoreController.restoring ? qsTr("View restore") : qsTr("View backups")
-                onClicked: {
-                    if (restoreController.restoring) {
-                        root.openRestoreContext(restoreController.restoreBackupFolder, restoreController.restoreBackupId)
-                    } else {
-                        root.rememberRestoreContext()
-                        root.showRestore = false
-                        root.showEditor = false
-                    }
-                }
+                text: qsTr("View restore")
+                Layout.alignment: Qt.AlignRight
+                onClicked: root.openRestoreContext(restoreController.restoreBackupFolder, restoreController.restoreBackupId)
             }
         }
 
@@ -600,38 +631,26 @@ ApplicationWindow {
             Layout.fillWidth: true
             Layout.fillHeight: true
 
-            ScrollView {
+            Dashboard {
                 id: dashboardScrollView
                 objectName: "dashboardScrollView"
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                contentWidth: availableWidth
-
-                ColumnLayout {
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.leftMargin: root.contentPadding
-                    anchors.rightMargin: root.contentPadding
-                    spacing: 20
-
-                    Dashboard {
-                        style: uiStyle
-                        controller: backupSetController
-                        launcher: backupLauncher
-                        copies: recentBackupCopies
-                        folderBrowser: protonFolderBrowser
-                        restoreState: restoreController
-                        windowHeight: root.height
-                        onNewSetRequested: root.createNewSet()
-                        onEditSetRequested: function(index) { root.editSet(index) }
-                        onRemoveSetRequested: function(index) { root.requestRemoveSet(index) }
-                        onRestoreRequested: function(index) { root.restoreRecentBackup(index) }
-                        onOpenFolderRequested: function(index) { root.openRecentBackupFolder(index) }
-                        onDetailsRequested: function(setId) {
-                            backupDetailsDialog.setId = setId
-                            backupDetailsDialog.open()
-                        }
-                    }
+                style: uiStyle
+                controller: backupSetController
+                launcher: backupLauncher
+                copies: recentBackupCopies
+                folderBrowser: protonFolderBrowser
+                restoreState: restoreController
+                windowHeight: root.height
+                onNewSetRequested: root.createNewSet()
+                onEditSetRequested: function(index) { root.editSet(index) }
+                onRemoveSetRequested: function(index) { root.requestRemoveSet(index) }
+                onRestoreRequested: function(setId) { root.restoreBackupSet(setId) }
+                onOpenFolderRequested: function(setId) { recentBackupCopies.openCopy(setId) }
+                onDetailsRequested: function(setId) {
+                    backupDetailsDialog.setId = setId
+                    backupDetailsDialog.open()
                 }
             }
 
@@ -640,7 +659,10 @@ ApplicationWindow {
                 style: uiStyle
                 controller: backupSetController
                 resources: resourceUsage
-                onCloseRequested: root.showEditor = false
+                onCloseRequested: {
+                    backupSetController.discardUnsavedSet()
+                    root.showEditor = false
+                }
             }
 
             ScrollView {
@@ -662,7 +684,7 @@ ApplicationWindow {
                         controller: restoreController
                         onCompleted: {
                             root.showRestore = false
-                            dashboardScrollView.contentItem.contentY = 0
+                            dashboardScrollView.scrollToTop()
                         }
                         onCloseRequested: {
                             root.rememberRestoreContext()

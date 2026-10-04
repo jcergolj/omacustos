@@ -21,6 +21,7 @@ ScrollView {
     Layout.fillWidth: true
     Layout.fillHeight: true
     contentWidth: availableWidth
+    contentHeight: editorCard.implicitHeight + style.contentPadding
 
     ListModel { id: sourceModel }
 
@@ -155,34 +156,19 @@ ScrollView {
         function onPresetChanged() { editor.loadResourcePreset() }
     }
 
-    ColumnLayout {
+    FormCard {
+        id: editorCard
+        objectName: "editorCard"
+        style: editor.style
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.leftMargin: editor.style.contentPadding
         anchors.rightMargin: editor.style.contentPadding
-        spacing: 20
-
-        RowLayout {
-            Layout.fillWidth: true
-            Item { Layout.fillWidth: true }
-
-            ActionButton {
-                style: editor.style
-                objectName: "closeEditorButton"
-                text: "×"
-                Layout.preferredWidth: 36
-                Layout.preferredHeight: 36
-                Accessible.name: qsTr("Close editor")
-                ToolTip.visible: hovered
-                ToolTip.text: Accessible.name
-                onClicked: editor.closeRequested()
-            }
-        }
 
         Label {
             text: qsTr("Name")
             font.pixelSize: editor.style.sectionTitleSize
-            font.weight: Font.DemiBold
+            font.weight: Font.Normal
             color: editor.style.accentColor
         }
 
@@ -195,11 +181,12 @@ ScrollView {
 
         RowLayout {
             Layout.fillWidth: true
+            spacing: editor.style.buttonSpacing
 
             Label {
                 text: qsTr("Source files and folders")
                 font.pixelSize: editor.style.sectionTitleSize
-                font.weight: Font.DemiBold
+                font.weight: Font.Normal
                 color: editor.style.accentColor
                 wrapMode: Text.WordWrap
                 Layout.fillWidth: true
@@ -275,6 +262,7 @@ ScrollView {
                 required property int index
                 required property string path
                 width: sourceList.width
+                spacing: editor.style.buttonSpacing
 
                 TextField {
                     text: path
@@ -299,11 +287,12 @@ ScrollView {
 
         RowLayout {
             Layout.fillWidth: true
+            spacing: editor.style.buttonSpacing
 
             Label {
                 text: qsTr("Exclusions (optional)")
                 font.pixelSize: editor.style.sectionTitleSize
-                font.weight: Font.DemiBold
+                font.weight: Font.Normal
                 color: editor.style.accentColor
                 Layout.fillWidth: true
             }
@@ -446,6 +435,7 @@ ScrollView {
             text: qsTr("Advanced settings")
             checkable: true
             checked: editor.showAdvanced
+            Layout.alignment: Qt.AlignRight
             onClicked: editor.showAdvanced = checked
         }
 
@@ -462,7 +452,7 @@ ScrollView {
                 Label {
                     text: qsTr("Remote Proton Drive folder")
                     font.pixelSize: editor.style.sectionTitleSize
-                    font.weight: Font.DemiBold
+                    font.weight: Font.Normal
                     color: editor.style.accentColor
                 }
 
@@ -502,7 +492,7 @@ ScrollView {
                 Label {
                     text: qsTr("Resource usage (all backups)")
                     font.pixelSize: editor.style.sectionTitleSize
-                    font.weight: Font.DemiBold
+                    font.weight: Font.Normal
                     color: editor.style.accentColor
                 }
 
@@ -550,7 +540,7 @@ ScrollView {
             Label {
                 text: qsTr("Backup preview")
                 font.pixelSize: editor.style.sectionTitleSize
-                font.weight: Font.DemiBold
+                font.weight: Font.Normal
                 color: editor.style.accentColor
             }
 
@@ -642,13 +632,47 @@ ScrollView {
             style: editor.style
             text: qsTr("Confirm proposed cleanup")
             visible: editor.controller.cleanupConfirmationRequired
+            Layout.alignment: Qt.AlignRight
             onClicked: editor.controller.confirmCleanup()
+        }
+
+        RowLayout {
+            visible: editor.backupRunning
+            Layout.fillWidth: true
+
+            BusyIndicator {
+                running: editor.backupRunning
+                Layout.preferredWidth: 24
+                Layout.preferredHeight: 24
+            }
+
+            Label {
+                text: qsTr("Backup in progress… %1").arg(
+                    editor.controller.remainingTimes[editor.controller.currentId]
+                        || qsTr("Estimating time remaining…"))
+                font.pixelSize: editor.style.metadataTypeSize
+                color: editor.style.accentColor
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+        }
+
+        Label {
+            objectName: "editorTransferProgress"
+            text: (editor.controller.transferProgress[editor.controller.currentId] || {}).text || ""
+            visible: editor.backupRunning && text.length > 0
+            textFormat: Text.PlainText
+            font.pixelSize: editor.style.metadataTypeSize
+            wrapMode: Text.WrapAnywhere
+            Layout.fillWidth: true
         }
 
         RowLayout {
             objectName: "editorActionsRow"
             Layout.fillWidth: true
-            Layout.bottomMargin: editor.style.contentPadding
+            spacing: editor.style.buttonSpacing
+
+            Item { Layout.fillWidth: true }
 
             ActionButton {
                 style: editor.style
@@ -674,33 +698,13 @@ ScrollView {
                 }
             }
 
-            BusyIndicator {
-                running: editor.backupRunning
-                visible: running
-                Layout.preferredWidth: 24
-                Layout.preferredHeight: 24
+            ActionButton {
+                style: editor.style
+                objectName: "closeEditorButton"
+                text: qsTr("Cancel")
+                Accessible.name: qsTr("Cancel backup settings")
+                onClicked: editor.closeRequested()
             }
-
-            Label {
-                text: qsTr("Backup in progress… %1").arg(
-                    editor.controller.remainingTimes[editor.controller.currentId]
-                        || qsTr("Estimating time remaining…"))
-                font.pixelSize: editor.style.metadataTypeSize
-                color: editor.style.accentColor
-                visible: editor.backupRunning
-                wrapMode: Text.WordWrap
-                Layout.fillWidth: true
-            }
-        }
-
-        Label {
-            objectName: "editorTransferProgress"
-            text: (editor.controller.transferProgress[editor.controller.currentId] || {}).text || ""
-            visible: editor.backupRunning && text.length > 0
-            textFormat: Text.PlainText
-            font.pixelSize: editor.style.metadataTypeSize
-            wrapMode: Text.WrapAnywhere
-            Layout.fillWidth: true
         }
     }
 }

@@ -140,6 +140,11 @@ QString BackupRestoreController::restoreProgress() const
     return transferTotal > 0 ? QStringLiteral("%1 of %2 files restored").arg(transferred).arg(transferTotal) : QString();
 }
 
+double BackupRestoreController::restoreProgressFraction() const
+{
+    return transferTotal > 0 ? double(transferred) / transferTotal : 0;
+}
+
 bool BackupRestoreController::showingCachedData() const
 {
     return cachedData;

@@ -219,7 +219,7 @@ private slots:
         QVERIFY(content);
         auto dashboardScroll = root->findChild<QObject *>("dashboardScrollView");
         QVERIFY(dashboardScroll);
-        auto dashboardContent = qobject_cast<QQuickItem *>(dashboardScroll->property("contentItem").value<QObject *>());
+        auto dashboardContent = root->findChild<QQuickItem *>("dashboardSetsList");
         QVERIFY(dashboardContent);
         content->setProperty("contentY", list->mapToItem(content, QPointF()).y());
         QTest::qWait(50);
@@ -325,8 +325,8 @@ private slots:
                 }
                 QVERIFY(root->property("showRestore").toBool());
                 restoreNavigation.append(latency);
-                auto search = item("restoreCopySearch");
-                if (search && search->isEnabled() && search->hasActiveFocus()) ++usefulFocus;
+                auto focused = window->activeFocusItem();
+                if (focused && focused->isEnabled() && focused->hasActiveFocus()) ++usefulFocus;
                 if (workload != "restore") QTRY_VERIFY(!restores.busy());
             }
             report("restore_navigation", restoreNavigation);
