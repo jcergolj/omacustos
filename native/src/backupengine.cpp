@@ -1,4 +1,5 @@
 #include "backupengine.h"
+#include "payloadmetadatapolicy.h"
 #include "remotemetadatacache.h"
 
 #include <QCryptographicHash>
@@ -523,11 +524,8 @@ bool BackupEngine::backup(const QStringList &sourceDirectories, const QString &r
         }
         RemoteFile remoteFile;
         if (!options.freshCopy) reportPhase(QStringLiteral("checking"));
-        // Size-only metadata cannot establish that an existing payload matches
-        // this snapshot, so providers without checksums must upload it again.
         const bool alreadyVerified = !options.freshCopy && provider.inspect(remotePath, &remoteFile, &providerError)
-            && remoteFile.size == snapshot->size
-            && !remoteFile.checksum.isEmpty() && remoteFile.checksum == snapshot->checksum;
+            && PayloadMetadataPolicy::matchesForReuse(remoteFile, snapshot->size, snapshot->checksum);
 
         if (!alreadyVerified) {
             const QString parent = QFileInfo(remotePath).path();
@@ -553,8 +551,7 @@ bool BackupEngine::backup(const QStringList &sourceDirectories, const QString &r
             }
             if (!options.freshCopy) reportPhase(QStringLiteral("verifying"));
             if (!options.freshCopy && (!provider.inspect(remotePath, &remoteFile, &providerError)
-                || remoteFile.size != snapshot->size
-                || (!remoteFile.checksum.isEmpty() && remoteFile.checksum != snapshot->checksum))) {
+                || !PayloadMetadataPolicy::matchesAfterTransfer(remoteFile, snapshot->size, snapshot->checksum))) {
                 failFile(QStringLiteral("verifying"), providerError.isEmpty()
                     ? QStringLiteral("Remote verification failed.")
                     : providerError);
@@ -619,8 +616,7 @@ bool BackupEngine::backup(const QStringList &sourceDirectories, const QString &r
         directoryMetadata.loadDirectory(QFileInfo(entry.remotePath).path(), &verificationError);
         const bool listed = directoryMetadata.lookup(entry.remotePath, &remoteFile);
         if ((!listed && !provider.inspect(entry.remotePath, &remoteFile, &verificationError))
-            || remoteFile.size != entry.size
-            || (!remoteFile.checksum.isEmpty() && remoteFile.checksum != entry.checksum)) {
+            || !PayloadMetadataPolicy::matchesAfterTransfer(remoteFile, entry.size, entry.checksum)) {
             outcome.issues.append({entry.sourcePath, QStringLiteral("verifying"), verificationError.isEmpty()
                 ? QStringLiteral("Remote verification failed.") : verificationError});
             failedItems.append(entry.restorePath);

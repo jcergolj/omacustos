@@ -61,6 +61,7 @@ private slots:
     void verifiesCopiesUsingBulkMetadataWithIndividualFallback_data();
     void verifiesCopiesUsingBulkMetadataWithIndividualFallback();
     void bulkMetadataIgnoresUnsafeAndUnverifiableEntries();
+    void bulkVerificationPreservesRetentionAndCancellationGates_data();
     void bulkVerificationPreservesRetentionAndCancellationGates();
     void inspectParsesVerifiedMetadata();
     void inspectParsesCliMetadataWithoutSha256();
@@ -518,10 +519,14 @@ void ProtonProviderTest::verifiesCopiesUsingBulkMetadataWithIndividualFallback_d
     QTest::addColumn<QString>("mode");
     QTest::addColumn<int>("listCount");
     QTest::addColumn<int>("inspectCount");
-    QTest::newRow("content metadata") << QString("full") << 2 << 0;
-    QTest::newRow("partial content metadata") << QString("partial") << 2 << 2;
-    QTest::newRow("storage metadata only") << QString("storage") << 1 << 100;
-    QTest::newRow("failed listing") << QString("failed") << 1 << 100;
+    QTest::addColumn<bool>("checksum");
+    for (bool checksum : {false, true}) {
+        const QString suffix = checksum ? " checksummed" : " size only";
+        QTest::newRow(qPrintable("content metadata" + suffix)) << QString("full") << 2 << 0 << checksum;
+        QTest::newRow(qPrintable("partial content metadata" + suffix)) << QString("partial") << 2 << 2 << checksum;
+        QTest::newRow(qPrintable("storage metadata only" + suffix)) << QString("storage") << 1 << 100 << checksum;
+        QTest::newRow(qPrintable("failed listing" + suffix)) << QString("failed") << 1 << 100 << checksum;
+    }
 }
 
 void ProtonProviderTest::verifiesCopiesUsingBulkMetadataWithIndividualFallback()
@@ -529,6 +534,7 @@ void ProtonProviderTest::verifiesCopiesUsingBulkMetadataWithIndividualFallback()
     QFETCH(QString, mode);
     QFETCH(int, listCount);
     QFETCH(int, inspectCount);
+    QFETCH(bool, checksum);
     QTemporaryDir source;
     FilesystemRunner runner;
     for (const QString &folder : {QString("one"), QString("two")}) {
@@ -548,7 +554,7 @@ void ProtonProviderTest::verifiesCopiesUsingBulkMetadataWithIndividualFallback()
     const auto cleanup = qScopeGuard([&] { QDir(QFileInfo(manifest).path()).removeRecursively(); });
     runner.calls.clear();
     runner.includeListingContentSize = mode != "storage";
-    runner.includeSha256 = true;
+    runner.includeSha256 = checksum;
     runner.omitListingMetadataName = mode == "partial" ? "file-0" : "";
     runner.failListPath = mode == "failed" ? "/backups/copy/one" : "";
     RemoteCopy copy;
@@ -591,8 +597,19 @@ void ProtonProviderTest::bulkMetadataIgnoresUnsafeAndUnverifiableEntries()
     QCOMPARE(files.last().size, qint64(0));
 }
 
+void ProtonProviderTest::bulkVerificationPreservesRetentionAndCancellationGates_data()
+{
+    QTest::addColumn<bool>("checksum");
+    QTest::addColumn<QByteArray>("damagedContent");
+    QTest::newRow("checksum mismatch") << true << QByteArray("corrupt");
+    QTest::newRow("size mismatch with checksum") << true << QByteArray("x");
+    QTest::newRow("size mismatch without checksum") << false << QByteArray("x");
+}
+
 void ProtonProviderTest::bulkVerificationPreservesRetentionAndCancellationGates()
 {
+    QFETCH(bool, checksum);
+    QFETCH(QByteArray, damagedContent);
     QTemporaryDir source;
     FilesystemRunner runner;
     QFile file(source.filePath("one"));
@@ -609,11 +626,11 @@ void ProtonProviderTest::bulkVerificationPreservesRetentionAndCancellationGates(
         QDir(QFileInfo(manifest).path()).removeRecursively();
     }
     runner.includeListingContentSize = true;
-    runner.includeSha256 = true;
+    runner.includeSha256 = checksum;
     QFile corrupted(runner.remoteFile("/backups/new/one"));
     QVERIFY(corrupted.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner));
     QVERIFY(corrupted.open(QIODevice::WriteOnly));
-    corrupted.write("corrupt"); // Same size; a listing checksum must still reject it.
+    QCOMPARE(corrupted.write(damagedContent), qint64(damagedContent.size()));
     corrupted.close();
     QVector<RemoteCopy> copies;
     QVERIFY(BackupCatalog::discoverCopies(provider, "/backups", "documents", &copies, &error));

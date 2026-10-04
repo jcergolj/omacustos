@@ -1,6 +1,7 @@
 #include "backupcatalog.h"
 
 #include "backupmanifest.h"
+#include "payloadmetadatapolicy.h"
 #include "remotemetadatacache.h"
 
 #include <QDir>
@@ -156,8 +157,7 @@ bool BackupCatalog::verifyCopy(BackupProvider &provider, const QString &copyFold
         if (directoryMetadata.loadDirectory(parent, &providerError) && cancelled && cancelled()) return false;
         const bool listed = directoryMetadata.lookup(entry.remotePath, &remoteFile);
         if ((!listed && !provider.inspect(entry.remotePath, &remoteFile, &providerError))
-            || remoteFile.size != entry.size
-            || (!remoteFile.checksum.isEmpty() && remoteFile.checksum != entry.checksum)) {
+            || !PayloadMetadataPolicy::matchesAfterTransfer(remoteFile, entry.size, entry.checksum)) {
             copy->unavailableItems.append(entry.restorePath);
             continue;
         }

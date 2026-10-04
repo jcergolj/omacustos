@@ -74,6 +74,8 @@ private slots:
     void sourceChangesAfterHashingRestoreStagedContent_data();
     void sourceChangesAfterHashingRestoreStagedContent();
     void sizeOnlyMetadataDoesNotReuseDifferentContent();
+    void verifiesTransferredPayloadMetadata_data();
+    void verifiesTransferredPayloadMetadata();
     void reservesManifestPathForSourceFiles();
     void previewsMultipleSourcesAndExclusions();
     void cancelledPreviewStopsTraversalAndDiscardsPartialResults();
@@ -82,7 +84,8 @@ private slots:
     void absoluteExclusionDoesNotExcludeSameNamedFoldersElsewhere();
     void backsUpMultipleSourcesWithoutCollisions();
     void preservesVerifiedItemsInAnIncompleteCopy();
-    void reusesAnExistingVerifiedCopyOnRetry();
+    void retriesOnlyReuseMatchingChecksummedPayloads_data();
+    void retriesOnlyReuseMatchingChecksummedPayloads();
     void localProviderRejectsUnsafePaths();
     void reportsProgressForIncludedFilesAndFinalization_data();
     void reportsProgressForIncludedFilesAndFinalization();
@@ -708,8 +711,22 @@ void BackupEngineTest::preservesVerifiedItemsInAnIncompleteCopy()
     QCOMPARE(entries.first().sourcePath, file.fileName());
 }
 
-void BackupEngineTest::reusesAnExistingVerifiedCopyOnRetry()
+void BackupEngineTest::retriesOnlyReuseMatchingChecksummedPayloads_data()
 {
+    QTest::addColumn<bool>("omitChecksum");
+    QTest::addColumn<QByteArray>("retryContent");
+    for (bool omitChecksum : {false, true}) {
+        const QString suffix = omitChecksum ? " size only" : " checksummed";
+        QTest::newRow(qPrintable("unchanged" + suffix)) << omitChecksum << QByteArray("retry content");
+        QTest::newRow(qPrintable("same-sized change" + suffix)) << omitChecksum << QByteArray("other content");
+        QTest::newRow(qPrintable("size change" + suffix)) << omitChecksum << QByteArray("short");
+    }
+}
+
+void BackupEngineTest::retriesOnlyReuseMatchingChecksummedPayloads()
+{
+    QFETCH(bool, omitChecksum);
+    QFETCH(QByteArray, retryContent);
     QTemporaryDir source;
     QTemporaryDir remote;
     QVERIFY(source.isValid());
@@ -722,11 +739,87 @@ void BackupEngineTest::reusesAnExistingVerifiedCopyOnRetry()
 
     BackupEngine engine;
     FailingProvider provider(remote.path());
+    provider.omitChecksum = omitChecksum;
     QString manifestPath;
     QString error;
     QVERIFY(engine.backup(source.path(), QStringLiteral("copy"), provider, &manifestPath, &error));
+    QDir(QFileInfo(manifestPath).path()).removeRecursively();
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QCOMPARE(file.write(retryContent), qint64(retryContent.size()));
+    file.close();
     QVERIFY(engine.backup(source.path(), QStringLiteral("copy"), provider, &manifestPath, &error));
-    QCOMPARE(provider.uploadedPayloads.size(), 1);
+    const auto cleanup = qScopeGuard([&] { QDir(QFileInfo(manifestPath).path()).removeRecursively(); });
+    const bool reusable = !omitChecksum && retryContent == "retry content";
+    QCOMPARE(provider.uploadedPayloads.size(), reusable ? 1 : 2);
+    QFile uploaded(remote.filePath("copy/retry.txt"));
+    QVERIFY(uploaded.open(QIODevice::ReadOnly));
+    QCOMPARE(uploaded.readAll(), retryContent);
+}
+
+void BackupEngineTest::verifiesTransferredPayloadMetadata_data()
+{
+    QTest::addColumn<bool>("freshCopy");
+    QTest::addColumn<bool>("omitChecksum");
+    QTest::addColumn<QString>("damage");
+    for (bool fresh : {false, true}) {
+        const QString suffix = fresh ? " deferred" : " immediate";
+        QTest::newRow(qPrintable("matching checksum" + suffix)) << fresh << false << QString();
+        QTest::newRow(qPrintable("size only" + suffix)) << fresh << true << QString();
+        QTest::newRow(qPrintable("size mismatch without checksum" + suffix)) << fresh << true << QString("truncated");
+        QTest::newRow(qPrintable("size mismatch with checksum" + suffix)) << fresh << false << QString("truncated");
+        QTest::newRow(qPrintable("checksum mismatch" + suffix)) << fresh << false << QString("corrupted");
+    }
+}
+
+void BackupEngineTest::verifiesTransferredPayloadMetadata()
+{
+    QFETCH(bool, freshCopy);
+    QFETCH(bool, omitChecksum);
+    QFETCH(QString, damage);
+    QTemporaryDir source, remote;
+    QFile file(source.filePath("notes.txt"));
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QCOMPARE(file.write("payload"), qint64(7));
+    file.close();
+    BackupEngine engine;
+    FailingProvider provider(remote.path());
+    provider.omitChecksum = omitChecksum;
+    const BackupCopyMetadata metadata {"computer", "documents", "Documents", "copy", QDateTime::currentDateTimeUtc()};
+    QString manifest, error;
+    BackupResult result;
+    QVector<BackupProgress> samples;
+    const bool success = damage.isEmpty();
+    QCOMPARE(engine.backup({source.path()}, "copy", {}, metadata, provider, &manifest, &error,
+        [&](const BackupProgress &progress) {
+            samples.append(progress);
+            if (progress.phase != "verifying" || damage.isEmpty()) return;
+            QFile uploaded(remote.filePath("copy/notes.txt"));
+            QVERIFY(uploaded.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner));
+            QVERIFY(uploaded.open(QIODevice::WriteOnly));
+            const QByteArray contents = damage == "truncated" ? QByteArray("x") : QByteArray("corrupt");
+            QCOMPARE(uploaded.write(contents), qint64(contents.size()));
+        }, &result, {freshCopy}), success);
+    const auto cleanup = qScopeGuard([&] { QDir(QFileInfo(manifest).path()).removeRecursively(); });
+    QVERIFY(result.manifestVerified);
+    QCOMPARE(result.verifiedFiles, success ? 1 : 0);
+    QCOMPARE(result.verifiedBytes, qint64(success ? 7 : 0));
+    QCOMPARE(result.issues.size(), success ? 0 : 1);
+    QCOMPARE(samples.last().verifiedFiles, result.verifiedFiles);
+    QCOMPARE(samples.last().failedItems, result.issues.size());
+    QVector<BackupEntry> entries;
+    BackupManifestInfo info;
+    QVERIFY2(BackupManifest::load(manifest, &entries, &info, &error), qPrintable(error));
+    QCOMPARE(entries.size(), result.verifiedFiles);
+    QCOMPARE(info.status, success ? QString("complete") : QString("incomplete"));
+    if (!success) {
+        QCOMPARE(result.issues.first().phase, QString("verifying"));
+        // Immediate verification retains the provider's earlier reuse-lookup
+        // diagnostic; deferred verification starts with a fresh error string.
+        QCOMPARE(result.issues.first().reason, freshCopy ? QString("Remote verification failed.")
+            : QString("The remote file is unavailable."));
+        QCOMPARE(info.failedItems, QStringList {"notes.txt"});
+        QVERIFY(error.startsWith("Backup failed:"));
+    }
 }
 
 void BackupEngineTest::backsUpAndRestoresHiddenContents_data()

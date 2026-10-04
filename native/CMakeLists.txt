@@ -15,6 +15,7 @@ add_library(omacustos-core STATIC
     src/backupengine.cpp
     src/backupmanifest.cpp
     src/backupcatalog.cpp
+    src/payloadmetadatapolicy.h
     src/remotemetadatacache.h
     src/backupecleanup.cpp
     src/backupconfig.cpp
