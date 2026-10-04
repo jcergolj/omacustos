@@ -16,11 +16,31 @@
 
 #include "../src/backupsetcontroller.h"
 
+namespace {
+
+QVariantMap currentDraft(const BackupSetController &controller)
+{
+    return {
+        {"name", controller.currentName()}, {"remoteRoot", controller.currentRemoteRoot()},
+        {"sources", controller.currentSources()}, {"exclusions", controller.currentExclusions()},
+        {"scheduleFrequency", controller.currentScheduleFrequency()},
+        {"scheduleHour", controller.currentScheduleHour()}, {"scheduleMinute", controller.currentScheduleMinute()},
+        {"scheduleWeekday", controller.currentScheduleWeekday()},
+        {"scheduleDayOfMonth", controller.currentScheduleDayOfMonth()},
+        {"retention", controller.currentRetention()}, {"onlyOnAcPower", controller.currentOnlyOnAcPower()},
+    };
+}
+
+}
+
 class BackupSetControllerTest final : public QObject
 {
     Q_OBJECT
 
 private slots:
+    void completeDraftPublishesCoherentStateAndSkipsUnchangedUpdates();
+    void draftPreservesOrInvalidatesInFlightPreview_data();
+    void draftPreservesOrInvalidatesInFlightPreview();
     void previewUpdatesFilesWithoutCountMessage_data();
     void previewUpdatesFilesWithoutCountMessage();
     void previewGroupsAreReadOnlyAndResetWithSelection_data();
@@ -56,6 +76,158 @@ private slots:
     void remainingTimeIsReportedForTheRunningSetOnly();
     void reportsVerifiedCountsAndFailureDetailsWithoutInventingLegacyCounts();
 };
+
+void BackupSetControllerTest::completeDraftPublishesCoherentStateAndSkipsUnchangedUpdates()
+{
+    QTemporaryDir home;
+    const QString settings = home.filePath("settings.json");
+    BackupConfig config;
+    config.protonBinary = "/custom/proton-drive";
+    config.sets = {{"documents", "Documents", "/backups", {"/safe/documents"}, {}},
+                   {"photos", "Photos", "/photos", {"/safe/photos"}, {}}};
+    QVERIFY(BackupConfigStore(settings).save(config));
+    BackupEngine engine;
+    BackupSetController controller(engine, settings);
+    controller.preview();
+    QTRY_VERIFY(controller.previewAvailable());
+
+    const QVariantMap draft {
+        {"name", " Updated documents "}, {"remoteRoot", " /new-backups "},
+        {"sources", QStringList {" /safe/new ", " ", "/safe/notes.txt"}},
+        {"exclusions", QStringList {" cache ", "", " /safe/new/excluded "}},
+        {"scheduleFrequency", "monthly"}, {"scheduleHour", 99}, {"scheduleMinute", -1},
+        {"scheduleWeekday", 99}, {"scheduleDayOfMonth", 99},
+        {"retention", 0}, {"onlyOnAcPower", true},
+    };
+    QVariantMap expected = draft;
+    expected["sources"] = QStringList {"/safe/new", "/safe/notes.txt"};
+    expected["exclusions"] = QStringList {"cache", "/safe/new/excluded"};
+    expected["scheduleHour"] = 23;
+    expected["scheduleMinute"] = 0;
+    expected["scheduleWeekday"] = 7;
+    expected["scheduleDayOfMonth"] = 31;
+    expected["retention"] = 1;
+    QSignalSpy current(&controller, &BackupSetController::currentSetChanged);
+    QSignalSpy sets(&controller, &BackupSetController::setsChanged);
+    QSignalSpy dashboard(&controller, &BackupSetController::dashboardChanged);
+    QSignalSpy preview(&controller, &BackupSetController::previewChanged);
+    QSignalSpy saved(&controller, &BackupSetController::configurationSaved);
+    const auto checkCoherentState = [&] {
+        QCOMPARE(currentDraft(controller), expected);
+        QCOMPARE(controller.currentId(), QString("documents"));
+        QCOMPARE(controller.currentIndex(), 0);
+        QVERIFY(!controller.previewAvailable());
+    };
+    connect(&controller, &BackupSetController::setsChanged, this, checkCoherentState);
+    connect(&controller, &BackupSetController::currentSetChanged, this, checkCoherentState);
+    connect(&controller, &BackupSetController::dashboardChanged, this, checkCoherentState);
+    connect(&controller, &BackupSetController::previewChanged, this, checkCoherentState);
+    // QML arrays arrive as QVariantLists rather than QStringLists.
+    controller.applyCurrentDraft(QJsonObject::fromVariantMap(draft).toVariantMap());
+    QCOMPARE(currentDraft(controller), expected);
+    QCOMPARE(current.count(), 1);
+    QCOMPARE(sets.count(), 1);
+    QCOMPARE(dashboard.count(), 1);
+    QCOMPARE(preview.count(), 1);
+    QVERIFY(saved.isEmpty());
+    BackupConfig persisted;
+    QVERIFY(BackupConfigStore(settings).load(&persisted));
+    QCOMPARE(persisted.sets.first().name, QString("Documents"));
+
+    controller.applyCurrentDraft(draft);
+    controller.applyCurrentDraft(expected);
+    QCOMPARE(current.count(), 1);
+    QCOMPARE(sets.count(), 1);
+    QCOMPARE(dashboard.count(), 1);
+    QCOMPARE(preview.count(), 1);
+    QVERIFY(saved.isEmpty());
+    QVERIFY(controller.save());
+    QCOMPARE(saved.count(), 1);
+    BackupSetController reopened(engine, settings);
+    QCOMPARE(currentDraft(reopened), expected);
+    QVERIFY(BackupConfigStore(settings).load(&persisted));
+    QCOMPARE(persisted.protonBinary, config.protonBinary);
+    QCOMPARE(persisted.sets.at(1).name, config.sets.at(1).name);
+    QCOMPARE(persisted.sets.at(1).sourceDirectories, config.sets.at(1).sourceDirectories);
+}
+
+void BackupSetControllerTest::draftPreservesOrInvalidatesInFlightPreview_data()
+{
+    QTest::addColumn<QString>("change");
+    QTest::newRow("unrelated settings") << QString("settings");
+    QTest::newRow("sources") << QString("sources");
+    QTest::newRow("exclusions") << QString("exclusions");
+    QTest::newRow("sources and exclusions") << QString("both");
+}
+
+void BackupSetControllerTest::draftPreservesOrInvalidatesInFlightPreview()
+{
+    QFETCH(QString, change);
+    QTemporaryDir home;
+    QFile source(home.filePath("notes.txt"));
+    QVERIFY(source.open(QIODevice::WriteOnly));
+    source.write("notes");
+    source.close();
+    BackupEngine engine;
+    BackupSetController controller(engine, home.filePath("settings.json"));
+    controller.addSet();
+    controller.setCurrentSources({source.fileName()});
+    controller.preview();
+    QTRY_VERIFY(controller.previewAvailable());
+    QCOMPARE(controller.previewIncluded(), QStringList {source.fileName()});
+
+    QThreadPool *pool = QThreadPool::globalInstance();
+    const int previousLimit = pool->maxThreadCount();
+    pool->setMaxThreadCount(1);
+    QSemaphore entered, release;
+    auto blocked = QtConcurrent::run([&] { entered.release(); release.acquire(); });
+    entered.acquire();
+    const auto unblock = qScopeGuard([&] {
+        release.release();
+        blocked.waitForFinished();
+        pool->setMaxThreadCount(previousLimit);
+    });
+    controller.preview();
+    QVERIFY(controller.previewBusy());
+    QSignalSpy preview(&controller, &BackupSetController::previewChanged);
+    QSignalSpy busy(&controller, &BackupSetController::previewBusyChanged);
+    QSignalSpy sets(&controller, &BackupSetController::setsChanged);
+    QSignalSpy current(&controller, &BackupSetController::currentSetChanged);
+    QVariantMap draft = currentDraft(controller);
+    draft["remoteRoot"] = "/new-backups";
+    draft["scheduleFrequency"] = "daily";
+    draft["retention"] = 7;
+    draft["onlyOnAcPower"] = true;
+    const bool sourcesChanged = change == "sources" || change == "both";
+    const bool exclusionsChanged = change == "exclusions" || change == "both";
+    const bool inputsChanged = sourcesChanged || exclusionsChanged;
+    if (sourcesChanged) draft["sources"] = QStringList {home.filePath("missing.txt")};
+    if (exclusionsChanged) draft["exclusions"] = QStringList {source.fileName()};
+    controller.applyCurrentDraft(draft);
+    QCOMPARE(current.count(), 1);
+    QVERIFY(sets.isEmpty());
+    QCOMPARE(preview.count(), inputsChanged ? 1 : 0);
+    QCOMPARE(busy.count(), inputsChanged ? 1 : 0);
+    QCOMPARE(controller.previewAvailable(), !inputsChanged);
+    QCOMPARE(controller.previewBusy(), !inputsChanged);
+    controller.applyCurrentDraft(draft);
+    QCOMPARE(current.count(), 1);
+    QCOMPARE(preview.count(), inputsChanged ? 1 : 0);
+    QCOMPARE(busy.count(), inputsChanged ? 1 : 0);
+
+    // A superseded scan must never publish its old selection when it finishes.
+    connect(&controller, &BackupSetController::previewChanged, this, [&] {
+        if (inputsChanged && controller.previewAvailable()) QVERIFY(controller.previewIncluded().isEmpty());
+    });
+    if (inputsChanged) controller.preview();
+    release.release();
+    QTRY_VERIFY(!controller.previewBusy());
+    QVERIFY(controller.previewAvailable());
+    QCOMPARE(preview.count(), inputsChanged ? 2 : 1);
+    QCOMPARE(controller.previewIncluded(), inputsChanged ? QStringList {} : QStringList {source.fileName()});
+    QCOMPARE(controller.previewMissing(), sourcesChanged ? QStringList {home.filePath("missing.txt")} : QStringList {});
+    QCOMPARE(controller.previewExcluded(), !sourcesChanged && exclusionsChanged ? QStringList {source.fileName()} : QStringList {});
+}
 
 void BackupSetControllerTest::unchangedPollingDoesNotResetDashboardAndProgressUpdatesStaySeparate()
 {
@@ -374,12 +546,15 @@ void BackupSetControllerTest::successfulSaveNotifiesSchedulingButPreviewAndFaile
     BackupSetController controller(engine, directory.filePath("settings.json"));
     QSignalSpy saved(&controller, &BackupSetController::configurationSaved);
     controller.addSet();
-    controller.setCurrentScheduleFrequency("daily");
+    QVariantMap draft = currentDraft(controller);
+    draft["scheduleFrequency"] = "daily";
+    controller.applyCurrentDraft(draft);
     controller.preview();
     QVERIFY(saved.isEmpty());
     QVERIFY(!controller.save());
     QVERIFY(saved.isEmpty());
-    controller.setCurrentSources({"/safe/documents"});
+    draft["sources"] = QStringList {"/safe/documents"};
+    controller.applyCurrentDraft(draft);
     QVERIFY(controller.save());
     QCOMPARE(saved.count(), 1);
     controller.removeCurrentSet();
@@ -416,12 +591,15 @@ void BackupSetControllerTest::discardingUnsavedSetDoesNotWriteConfiguration()
     QSignalSpy saved(&controller, &BackupSetController::configurationSaved);
     controller.addSet();
     const QString draftId = controller.currentId();
-    controller.setCurrentScheduleFrequency("daily");
-    controller.setCurrentSources({"/safe/draft"});
+    QVariantMap draft = currentDraft(controller);
+    draft["scheduleFrequency"] = "daily";
+    draft["sources"] = QStringList {"/safe/draft"};
+    controller.applyCurrentDraft(draft);
     controller.preview();
     QTRY_VERIFY(controller.previewAvailable());
     if (failedSave) {
-        controller.setCurrentName("");
+        draft["name"] = "";
+        controller.applyCurrentDraft(draft);
         QVERIFY(!controller.save());
     }
     controller.discardUnsavedSet();
@@ -550,10 +728,11 @@ void BackupSetControllerTest::previewGroupsAreReadOnlyAndResetWithSelection()
 
     BackupEngine engine;
     BackupSetController controller(engine, configPath);
-    controller.setCurrentSources(mixed ? QStringList {included, excluded, skipped, missing}
-                                       : QStringList {skipped, missing});
-    controller.setCurrentExclusions({excluded});
-    controller.setCurrentScheduleFrequency("daily");
+    QVariantMap draft = currentDraft(controller);
+    draft["sources"] = mixed ? QStringList {included, excluded, skipped, missing} : QStringList {skipped, missing};
+    draft["exclusions"] = QStringList {excluded};
+    draft["scheduleFrequency"] = "daily";
+    controller.applyCurrentDraft(draft);
     QSignalSpy saved(&controller, &BackupSetController::configurationSaved);
     controller.preview();
 

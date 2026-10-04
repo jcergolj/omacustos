@@ -112,6 +112,7 @@ public:
     Q_INVOKABLE void discardUnsavedSet();
     Q_INVOKABLE void removeCurrentSet();
     Q_INVOKABLE void removeSet(int index);
+    Q_INVOKABLE void applyCurrentDraft(const QVariantMap &draft);
     Q_INVOKABLE void preview();
     Q_INVOKABLE QString recentBackupFolderPath(const QString &setId) const;
     Q_INVOKABLE QVariantMap backupDetails(const QString &setId) const;

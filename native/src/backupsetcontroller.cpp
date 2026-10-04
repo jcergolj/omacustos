@@ -82,6 +82,16 @@ BackupSet newSet(int number)
     };
 }
 
+QStringList draftPaths(const QVariant &value)
+{
+    QStringList paths;
+    for (const QString &entry : value.toStringList()) {
+        const QString path = entry.trimmed();
+        if (!path.isEmpty()) paths.append(path);
+    }
+    return paths;
+}
+
 }
 
 BackupSetController::BackupSetController(BackupEngine &engine, QString configPath, QObject *parent)
@@ -625,6 +635,44 @@ void BackupSetController::removeSet(int index)
     clearPreview();
     emit statusChanged(QStringLiteral("Backup set removed."));
     emit configurationSaved();
+}
+
+void BackupSetController::applyCurrentDraft(const QVariantMap &draft)
+{
+    BackupSet *set = currentSet();
+    if (set == nullptr) return;
+
+    BackupSet candidate = *set;
+    candidate.name = draft.value(QStringLiteral("name")).toString();
+    candidate.remoteRoot = draft.value(QStringLiteral("remoteRoot")).toString();
+    candidate.sourceDirectories = draftPaths(draft.value(QStringLiteral("sources")));
+    candidate.exclusions = draftPaths(draft.value(QStringLiteral("exclusions")));
+    candidate.schedule.frequency = draft.value(QStringLiteral("scheduleFrequency")).toString();
+    candidate.schedule.hour = qBound(0, draft.value(QStringLiteral("scheduleHour")).toInt(), 23);
+    candidate.schedule.minute = qBound(0, draft.value(QStringLiteral("scheduleMinute")).toInt(), 59);
+    candidate.schedule.weekday = qBound(1, draft.value(QStringLiteral("scheduleWeekday")).toInt(), 7);
+    candidate.schedule.dayOfMonth = qBound(1, draft.value(QStringLiteral("scheduleDayOfMonth")).toInt(), 31);
+    candidate.retention = qMax(1, draft.value(QStringLiteral("retention")).toInt());
+    candidate.onlyOnAcPower = draft.value(QStringLiteral("onlyOnAcPower")).toBool();
+
+    const bool nameChanged = candidate.name != set->name;
+    const bool previewInputsChanged = candidate.sourceDirectories != set->sourceDirectories
+        || candidate.exclusions != set->exclusions;
+    if (!nameChanged && !previewInputsChanged && candidate.remoteRoot == set->remoteRoot
+        && candidate.schedule.frequency == set->schedule.frequency
+        && candidate.schedule.hour == set->schedule.hour
+        && candidate.schedule.minute == set->schedule.minute
+        && candidate.schedule.weekday == set->schedule.weekday
+        && candidate.schedule.dayOfMonth == set->schedule.dayOfMonth
+        && candidate.retention == set->retention && candidate.onlyOnAcPower == set->onlyOnAcPower) {
+        return;
+    }
+
+    // Publish the finished set before notifying any observer, including preview observers.
+    *set = candidate;
+    if (previewInputsChanged) clearPreview();
+    if (nameChanged) emit setsChanged();
+    emit currentSetChanged();
 }
 
 void BackupSetController::preview()

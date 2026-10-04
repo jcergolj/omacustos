@@ -84,6 +84,8 @@ QtObject {
         property string dashboardRefreshError: ""
         property int previewCount: 0
         property int saveCount: 0
+        property int appliedDraftCount: 0
+        property var lastDraft: ({})
         property var previewIncluded: []
         property var previewExcluded: []
         property var previewSkipped: []
@@ -129,6 +131,23 @@ QtObject {
             previewAvailable = false
         }
         function preview() { previewCount++; previewAvailable = true }
+        function applyCurrentDraft(draft) {
+            appliedDraftCount++
+            lastDraft = draft
+            currentName = draft.name
+            currentRemoteRoot = draft.remoteRoot
+            currentSources = draft.sources.map(function (path) { return path.trim() })
+                .filter(function (path) { return path.length > 0 })
+            currentExclusions = draft.exclusions
+            currentScheduleFrequency = draft.scheduleFrequency
+            currentScheduleHour = draft.scheduleHour
+            currentScheduleMinute = draft.scheduleMinute
+            currentScheduleWeekday = draft.scheduleWeekday
+            currentScheduleDayOfMonth = draft.scheduleDayOfMonth
+            currentRetention = draft.retention
+            currentOnlyOnAcPower = draft.onlyOnAcPower
+            currentSetChanged()
+        }
         function recentBackupFolderPath(setId) {
             return setIds.indexOf(setId) >= 0 ? "/backups/" + setId : ""
         }

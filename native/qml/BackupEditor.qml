@@ -116,25 +116,24 @@ ScrollView {
     function syncCurrentSet() {
         syncingCurrentSet = true
         try {
-            controller.currentName = setNameField.text
-            controller.currentRemoteRoot = remoteField.text
             const sources = []
             for (let index = 0; index < sourceModel.count; ++index) {
-                const path = sourceModel.get(index).path.trim()
-                if (path.length > 0) {
-                    sources.push(path)
-                }
+                sources.push(sourceModel.get(index).path)
             }
-            controller.currentSources = sources
-            controller.currentExclusions = lines(exclusionsField.text)
-            controller.currentScheduleFrequency = scheduleFrequency.currentText
             const timeParts = scheduleTimeField.text.split(":")
-            controller.currentScheduleHour = Number(timeParts[0])
-            controller.currentScheduleMinute = Number(timeParts[1])
-            controller.currentScheduleWeekday = scheduleWeekday.currentIndex + 1
-            controller.currentScheduleDayOfMonth = scheduleDay.value
-            controller.currentRetention = retentionSpin.value
-            controller.currentOnlyOnAcPower = acPowerCheck.checked
+            controller.applyCurrentDraft({
+                name: setNameField.text,
+                remoteRoot: remoteField.text,
+                sources: sources,
+                exclusions: lines(exclusionsField.text),
+                scheduleFrequency: scheduleFrequency.currentText,
+                scheduleHour: Number(timeParts[0]),
+                scheduleMinute: Number(timeParts[1]),
+                scheduleWeekday: scheduleWeekday.currentIndex + 1,
+                scheduleDayOfMonth: scheduleDay.value,
+                retention: retentionSpin.value,
+                onlyOnAcPower: acPowerCheck.checked
+            })
         } finally {
             syncingCurrentSet = false
         }
