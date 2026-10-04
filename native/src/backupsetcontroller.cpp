@@ -863,24 +863,34 @@ void BackupSetController::clearPreview()
 
 void BackupSetController::refreshRunState()
 {
-    // Store loaders mutate their snapshots even when parsing fails. Publish a
-    // replacement only on success, retaining last-good display data on failure.
-    BackupRunStore nextRuns(runStore.filePath());
-    CleanupStore nextCleanup(cleanupStore.filePath());
     QString runError, cleanupError;
     QByteArray nextRunContents, nextCleanupContents;
     if (readState(runStore.filePath(), &nextRunContents, &runError)
-        && nextRunContents != runContents && nextRuns.load(&runError, &nextRunContents)) {
-        runStore = std::move(nextRuns);
-        runContents = nextRunContents;
-        emit runStateChanged();
-        emit runDetailsChanged();
+        && nextRunContents != runContents) {
+        bool loaded = true;
+        if (nextRunContents == QByteArray(1, '\0')) {
+            runStore.records().clear();
+        } else {
+            loaded = runStore.loadFromBytes(nextRunContents.mid(1), &runError);
+        }
+        if (loaded) {
+            runContents = nextRunContents;
+            emit runStateChanged();
+            emit runDetailsChanged();
+        }
     }
     if (readState(cleanupStore.filePath(), &nextCleanupContents, &cleanupError)
-        && nextCleanupContents != cleanupContents && nextCleanup.load(&cleanupError, &nextCleanupContents)) {
-        cleanupStore = std::move(nextCleanup);
-        cleanupContents = nextCleanupContents;
-        emit cleanupChanged();
+        && nextCleanupContents != cleanupContents) {
+        bool loaded = true;
+        if (nextCleanupContents == QByteArray(1, '\0')) {
+            cleanupStore.states().clear();
+        } else {
+            loaded = cleanupStore.loadFromBytes(nextCleanupContents.mid(1), &cleanupError);
+        }
+        if (loaded) {
+            cleanupContents = nextCleanupContents;
+            emit cleanupChanged();
+        }
     }
     updateDashboard();
     stateTimer.setInterval(cachedRunningSetIds.isEmpty() ? 5000 : 1000);

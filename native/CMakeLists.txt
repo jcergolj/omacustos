@@ -131,6 +131,7 @@ omacustos_add_test(systemdlauncher-test tests/systemdlauncher_test.cpp omacustos
 omacustos_add_test(serviceinstaller-test tests/serviceinstaller_test.cpp omacustos-core)
 
 omacustos_add_test(reliability-test tests/reliability_test.cpp omacustos-core)
+omacustos_add_test(localstate-store-test tests/localstate_store_test.cpp omacustos-core)
 target_compile_definitions(reliability-test PRIVATE OMACUSTOS_WORKER_BINARY="$<TARGET_FILE:omacustos-worker>")
 add_dependencies(reliability-test omacustos-worker)
 

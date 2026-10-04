@@ -57,6 +57,13 @@ Backup sets are the sole in-memory source/destination representation. Legacy
 on load. Every save writes the modern `sets` array, including an explicit empty
 array, while preserving `proton_binary`. This migration only changes local state.
 
+Run-state and cleanup-state stores parse supplied JSON bytes transactionally:
+malformed documents or failed reads retain the entire last-good snapshot.
+Dashboard polling reads each file once, compares the captured contents, and only
+parses changed bytes. Missing files clear their snapshots; present empty files
+are malformed. Refresh errors remain visible until a successful retry, while
+remaining-time countdowns continue independently of state changes.
+
 ## Remote Layout
 
 Each copy is stored independently below:

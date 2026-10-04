@@ -37,6 +37,7 @@ public:
     explicit BackupRunStore(QString path);
 
     bool load(QString *error = nullptr, QByteArray *contents = nullptr);
+    bool loadFromBytes(const QByteArray &contents, QString *error = nullptr);
     bool save(QString *error = nullptr) const;
     QString filePath() const;
     QVector<BackupRunRecord> &records();

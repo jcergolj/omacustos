@@ -19,6 +19,7 @@ public:
     explicit CleanupStore(QString path);
 
     bool load(QString *error = nullptr, QByteArray *contents = nullptr);
+    bool loadFromBytes(const QByteArray &contents, QString *error = nullptr);
     bool save(QString *error = nullptr) const;
     CleanupState state(const QString &setId) const;
     void setPending(const QString &setId, const QStringList &targets);

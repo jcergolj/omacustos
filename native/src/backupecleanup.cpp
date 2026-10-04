@@ -58,9 +58,9 @@ CleanupStore::CleanupStore(QString path)
 
 bool CleanupStore::load(QString *error, QByteArray *contents)
 {
-    cleanupStates.clear();
     QFile file(path);
     if (!file.exists()) {
+        cleanupStates.clear();
         if (contents) *contents = QByteArray(1, '\0');
         return true;
     }
@@ -70,19 +70,48 @@ bool CleanupStore::load(QString *error, QByteArray *contents)
         }
         return false;
     }
-    QJsonParseError parseError;
     const QByteArray bytes = file.readAll();
-    const QJsonDocument document = QJsonDocument::fromJson(bytes, &parseError);
+    if (file.error() != QFileDevice::NoError) {
+        if (error != nullptr) {
+            *error = QStringLiteral("The cleanup state could not be read.");
+        }
+        return false;
+    }
+    if (!loadFromBytes(bytes, error)) {
+        return false;
+    }
+    if (contents) *contents = QByteArray(1, '\1') + bytes;
+    return true;
+}
+
+bool CleanupStore::loadFromBytes(const QByteArray &contents, QString *error)
+{
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(contents, &parseError);
     if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
         if (error != nullptr) {
             *error = QStringLiteral("The cleanup state is malformed.");
         }
         return false;
     }
-    const QJsonObject sets = document.object().value(QStringLiteral("sets")).toObject();
+    const QJsonValue setsValue = document.object().value(QStringLiteral("sets"));
+    if (!setsValue.isUndefined() && !setsValue.isObject()) {
+        if (error != nullptr) {
+            *error = QStringLiteral("The cleanup state is malformed.");
+        }
+        return false;
+    }
+    QHash<QString, CleanupState> nextStates;
+    const QJsonObject sets = setsValue.toObject();
     for (auto iterator = sets.constBegin(); iterator != sets.constEnd(); ++iterator) {
+        if (iterator.key().isEmpty() || !iterator.value().isObject()) {
+            if (error != nullptr) {
+                *error = QStringLiteral("The cleanup state contains an invalid record.");
+            }
+            return false;
+        }
         const QJsonObject object = iterator.value().toObject();
-        cleanupStates.insert(iterator.key(), {
+        nextStates.insert(iterator.key(), {
             object.value(QStringLiteral("decision")).toString(QStringLiteral("pending")),
             stringList(object.value(QStringLiteral("targets"))),
             stringList(object.value(QStringLiteral("trashed"))),
@@ -90,7 +119,7 @@ bool CleanupStore::load(QString *error, QByteArray *contents)
             object.value(QStringLiteral("last_error")).toString(),
         });
     }
-    if (contents) *contents = QByteArray(1, '\1') + bytes;
+    cleanupStates = std::move(nextStates);
     return true;
 }
 

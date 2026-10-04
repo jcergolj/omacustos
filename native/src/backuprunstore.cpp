@@ -75,9 +75,9 @@ BackupRunStore::BackupRunStore(QString path)
 
 bool BackupRunStore::load(QString *error, QByteArray *contents)
 {
-    runRecords.clear();
     QFile file(path);
     if (!file.exists()) {
+        runRecords.clear();
         if (contents) *contents = QByteArray(1, '\0');
         return true;
     }
@@ -88,9 +88,24 @@ bool BackupRunStore::load(QString *error, QByteArray *contents)
         return false;
     }
 
-    QJsonParseError parseError;
     const QByteArray bytes = file.readAll();
-    const QJsonDocument document = QJsonDocument::fromJson(bytes, &parseError);
+    if (file.error() != QFileDevice::NoError) {
+        if (error != nullptr) {
+            *error = QStringLiteral("The backup run state could not be read.");
+        }
+        return false;
+    }
+    if (!loadFromBytes(bytes, error)) {
+        return false;
+    }
+    if (contents) *contents = QByteArray(1, '\1') + bytes;
+    return true;
+}
+
+bool BackupRunStore::loadFromBytes(const QByteArray &contents, QString *error)
+{
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(contents, &parseError);
     if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
         if (error != nullptr) {
             *error = QStringLiteral("The backup run state is malformed.");
@@ -98,7 +113,15 @@ bool BackupRunStore::load(QString *error, QByteArray *contents)
         return false;
     }
 
-    const QJsonArray records = document.object().value(QStringLiteral("runs")).toArray();
+    const QJsonValue runs = document.object().value(QStringLiteral("runs"));
+    if (!runs.isUndefined() && !runs.isArray()) {
+        if (error != nullptr) {
+            *error = QStringLiteral("The backup run state is malformed.");
+        }
+        return false;
+    }
+    QVector<BackupRunRecord> nextRecords;
+    const QJsonArray records = runs.toArray();
     for (const QJsonValue &value : records) {
         if (!value.isObject()) {
             if (error != nullptr) {
@@ -153,10 +176,10 @@ bool BackupRunStore::load(QString *error, QByteArray *contents)
             }
             return false;
         }
-        runRecords.append(record);
+        nextRecords.append(record);
     }
 
-    if (contents) *contents = QByteArray(1, '\1') + bytes;
+    runRecords = std::move(nextRecords);
     return true;
 }
 
