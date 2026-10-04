@@ -549,8 +549,7 @@ TestCase {
         restoreController.currentCopyIndex = 0
         restoreController.entries = paths
         restoreController.verified = true
-        app.selectedRestorePaths = paths.slice()
-        app.selectedRestoreIndexes = indexes
+        app.setRestoreSelection(indexes)
         const list = control("restoreFilesList")
         tryCompare(list, "count", 10000)
         list.positionViewAtIndex(5000, ListView.Center)
@@ -706,6 +705,12 @@ TestCase {
         compare(app.showRestore, false)
         compare(app.selectedRestoreIndexes, [])
         compare(destination.text, "")
+        const panel = control("restorePanel")
+        compare(panel.selection.initialized, false)
+        compare(panel.selection.customized, false)
+        compare(panel.folderRows, [])
+        compare(panel.screenScrollY, -1)
+        compare(panel.contextStates[panel.contextKey], undefined)
     }
 
     function test_failedRestoreKeepsThePanelAndSelectionOpenForRetry() {
@@ -801,6 +806,90 @@ TestCase {
         restoreController.entriesChanged()
         compare(app.selectedRestoreIndexes.slice().sort(), [1, 2])
         compare(folderControl("/safe/documents").checkState, Qt.PartiallyChecked)
+    }
+
+    function test_selectionNotificationsExposeCoherentArraysCountsAndFolders() {
+        showRestoreFiles()
+        const panel = control("restorePanel")
+        let indexNotifications = 0
+        let pathNotifications = 0
+        function checkState() {
+            compare(panel.selectedCount, app.selectedRestoreIndexes.length)
+            compare(app.selectedRestorePaths.length, app.selectedRestoreIndexes.length)
+            app.selectedRestoreIndexes.forEach(function (index, position) {
+                compare(app.selectedRestorePaths[position], restoreController.entries[index])
+                compare(panel.selectionLookup[index], position)
+            })
+            compare(panel.folderCheckState("/safe/documents"), panel.selectedCount === 0 ? Qt.Unchecked
+                : panel.selectedCount === 2 ? Qt.Checked : Qt.PartiallyChecked)
+        }
+        function indexesChanged() { ++indexNotifications; checkState() }
+        function pathsChanged() { ++pathNotifications; checkState() }
+        app.selectedRestoreIndexesChanged.connect(indexesChanged)
+        app.selectedRestorePathsChanged.connect(pathsChanged)
+        try {
+            app.setRestoreSelection([1, 1, -1, 20000, 0.5])
+            compare(app.selectedRestoreIndexes, [1])
+            compare(indexNotifications, 1)
+            compare(pathNotifications, 1)
+            panel.selection.toggleFile(0, true)
+            compare(indexNotifications, 2)
+            compare(pathNotifications, 2)
+            panel.selection.toggleFile(1, false)
+            compare(indexNotifications, 3)
+            compare(pathNotifications, 3)
+            panel.selection.clear()
+            compare(indexNotifications, 4)
+            compare(pathNotifications, 4)
+        } finally {
+            app.selectedRestoreIndexesChanged.disconnect(indexesChanged)
+            app.selectedRestorePathsChanged.disconnect(pathsChanged)
+        }
+    }
+
+    function test_contextSnapshotsPreserveClearedCustomizedAndDefaultSelection() {
+        showRestoreFiles()
+        const panel = control("restorePanel")
+        const folder = restoreController.backupFolder
+        const setId = restoreController.backupId
+        const originalEntries = restoreController.entries.slice()
+        const destination = control("restoreDestinationField")
+        destination.text = "/safe/context-destination"
+        panel.screenScrollY = 120
+
+        // A second backup's cleared selection must not affect the first backup's
+        // default selection. Neither snapshot can grant verification eligibility.
+        panel.activateContext("/backups/other", "other-id")
+        panel.selection.syncCopy("/backups/other/copy-0", 0, false)
+        panel.selection.reconcileEntries(["/safe/other/file.txt"], false)
+        panel.selection.clear()
+        destination.text = "/safe/other-destination"
+        panel.activateContext(folder, setId)
+        restoreController.verified = false
+        compare(app.selectedRestoreIndexes, [0, 1])
+        compare(destination.text, "/safe/context-destination")
+        compare(panel.screenScrollY, 120)
+        compare(control("startRestoreButton").enabled, false)
+        restoreController.entries = originalEntries.concat(["/safe/documents/added.txt"])
+        compare(app.selectedRestoreIndexes, [0, 1, 2])
+
+        panel.selection.toggleFile(1, false)
+        panel.activateContext("/backups/other", "other-id")
+        compare(app.selectedRestoreIndexes, [])
+        compare(panel.selection.customized, true)
+        compare(destination.text, "/safe/other-destination")
+        panel.selection.reconcileEntries(["/safe/other/file.txt", "/safe/other/new.txt"], false)
+        compare(app.selectedRestoreIndexes, [])
+        panel.activateContext(folder, setId)
+        restoreController.entries = ["/safe/documents/photo.jpg", "/safe/documents/added.txt", "/safe/unrelated.txt"]
+        compare(app.selectedRestoreIndexes, [1])
+        compare(app.selectedRestorePaths, ["/safe/documents/added.txt"])
+        compare(control("startRestoreButton").enabled, false)
+        restoreController.entries = ["/safe/unrelated.txt"]
+        compare(app.selectedRestoreIndexes, [])
+        restoreController.entries = originalEntries
+        compare(app.selectedRestoreIndexes, [])
+        compare(panel.selection.customized, true)
     }
 
     function test_cachedRestoreFilesRequireVerificationAndDisableStartDuringTransfer() {

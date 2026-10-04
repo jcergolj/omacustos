@@ -224,19 +224,17 @@ private slots:
         content->setProperty("contentY", list->mapToItem(content, QPointF()).y());
         QTest::qWait(50);
         QVariantList selection;
-        QStringList selectionPaths;
-        const QStringList entries = restores.entries();
         for (int i = 0; i < 100; ++i) {
             selection.append(i);
-            selectionPaths.append(entries.at(i));
         }
-        root->setProperty("selectedRestoreIndexes", selection);
-        root->setProperty("selectedRestorePaths", selectionPaths);
+        auto setSelection = [&] {
+            QVERIFY(QMetaObject::invokeMethod(root.data(), "setRestoreSelection", Q_ARG(QVariant, selection)));
+        };
+        setSelection();
         for (int i = 0; i < repetitions; ++i) {
             ensureRestore();
             root->setProperty("showRestore", true);
-            root->setProperty("selectedRestoreIndexes", selection);
-            root->setProperty("selectedRestorePaths", selectionPaths);
+            setSelection();
             content->setProperty("contentY", list->mapToItem(content, QPointF()).y());
             QTest::qWait(10);
             QElapsedTimer timer;

@@ -20,8 +20,12 @@ target; `omacustos_add_test` registers tests against the appropriate target.
 `Main.qml` composes the window, navigation, dialogs, and notifications.
 `Dashboard.qml` presents saved sets and recent runs and emits navigation requests.
 `BackupEditor.qml` owns its draft fields and controller synchronization.
-`RestorePanel.qml` owns file selection, destination, and selection reconciliation
-across copy refreshes. Restore opens in a dedicated scrollable screen, like the
+`RestoreSelection.qml` owns restore selection arrays, lookup, counts, folder
+ancestry/counts, default/customization flags, copy identity, and selection snapshots.
+Its operations reconcile refreshed paths, toggle files, select folders/all files,
+clear, and save/restore snapshots. `RestorePanel.qml` owns destination, focus,
+scrolling, and per-context presentation state, and forwards controller changes to
+the selection owner. Restore opens in a dedicated scrollable screen, like the
 backup editor; closing it preserves its state, and completion resets the panel
 and returns to the dashboard. The top-right three-dot menu contains backup-set
 import and export actions.
@@ -339,6 +343,13 @@ Individual checkbox toggles mutate owned selection arrays and update an index-to
 position lookup. Deselection swaps with the last item rather than shifting the
 remaining selection; selection order is not significant. Property notifications
 and visible checkbox state still update without rebuilding the full selection.
+Selection arrays are read-only properties of the owner; bulk replacement uses
+`Main.setRestoreSelection(indexes)` rather than separate index/path assignments.
+Both bulk changes and toggles publish array notifications after paths, lookup,
+counts, folder states, and customization flags agree. Selection snapshots include
+the entry list so returning to another backup can rebuild its folder state before
+the controller publishes refreshed entries. Cached selection does not change the
+controller's restore-eligibility gate.
 
 Source preview scans run asynchronously against captured source/exclusion lists.
 Selection/input changes invalidate obsolete results, and repeated requests coalesce

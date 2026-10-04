@@ -80,6 +80,7 @@ qt_add_qml_module(omacustos
         qml/BackupSetCard.qml
         qml/BackupEditor.qml
         qml/RestorePanel.qml
+        qml/RestoreSelection.qml
         qml/ActionButton.qml
         qml/FormCard.qml
         qml/TransferProgress.qml

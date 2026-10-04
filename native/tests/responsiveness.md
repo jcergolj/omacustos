@@ -274,3 +274,39 @@ metadata is available: 99% fewer payload-verification requests. Uploads and the
 manifest's individual verification remain. In the storage-only case, there is one
 extra attempted listing before the original individual checks; no speedup is
 claimed for that fallback.
+
+## Restore selection extraction — issue #36, 2026-10-04
+
+Compared a detached worktree at `d3dcadc` with the selection-owner extraction on
+that revision. Both used the same desktop hardware/environment described above,
+Qt 6.11.2 / GCC 16.2.1, Wayland/OpenGL (graphics API 3), Fusion controls, and
+disk-backed fixtures with `TMPDIR` set to the workspace `build` directory
+(Btrfs/NVMe). Both CMake builds used the default empty build type and C++ flags.
+There was no CPU restriction or memory-pressure allocation; cgroup high/OOM
+counts were zero. Each run completed all four workloads with 50 samples each.
+
+The existing workload and timing boundary are unchanged: an actual checkbox click
+with 100 ticks in a 10,000-file model, timed to the next Qt `frameSwapped`.
+Only selection setup changed to the coherent `setRestoreSelection(indexes)`
+operation, outside the measured interval, instead of two property assignments.
+The 10,000-tick/offscreen correctness workload remains in `dashboard-test`.
+
+| Workload | Before p95 | Before worst | After p95 | After worst |
+| --- | ---: | ---: | ---: | ---: |
+| Idle | 50.2 ms | 50.2 ms | 50.2 ms | 50.2 ms |
+| Backup | 50.1 ms | 50.2 ms | 50.1 ms | 50.3 ms |
+| Restore | 50.3 ms | 50.8 ms | 50.1 ms | 50.2 ms |
+| Scan | 50.4 ms | 66.8 ms | 50.3 ms | 50.8 ms |
+
+No material selection regression was observed; p95 remains approximately 50 ms
+in every workload. The 0.2 ms increase in Backup worst-case timing is within the
+frame-submission timing variation. Neither run had selection/completion boundary
+crossings or disabled restore navigation, and all 50 navigation samples per
+workload had useful focus. These remain Qt submission proxies rather than
+physical presentation or target-laptop validation for #22.
+
+The native build and all 24 CTest targets pass. Dashboard coverage additionally
+checks coherent array notifications, invalid/duplicate bulk indexes, independent
+default/customized/cleared context snapshots, selection becoming empty after
+removal without reselecting unrelated files, and completion resetting selection
+metadata and the cached context.

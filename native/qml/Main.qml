@@ -20,6 +20,7 @@ ApplicationWindow {
     property alias selectedRestoreIndexes: restorePanel.selectedIndexes
     property alias selectedRestorePaths: restorePanel.selectedPaths
     property alias selectedRestoreCopyIndex: restorePanel.selectedCopyIndex
+
     property alias syncingCurrentSet: backupEditor.syncingCurrentSet
     property alias showAdvanced: backupEditor.showAdvanced
     readonly property bool backupRunning: backupEditor.backupRunning
@@ -115,6 +116,8 @@ ApplicationWindow {
 
         openRestoreContext(backupSetController.recentBackupFolderPath(setId), setId)
     }
+
+    function setRestoreSelection(indexes) { restorePanel.selection.setIndexes(indexes) }
 
     function rememberRestoreContext() {
         if (showRestore) {

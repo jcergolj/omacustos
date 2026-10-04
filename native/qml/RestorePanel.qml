@@ -7,23 +7,19 @@ import "LocalPaths.js" as LocalPaths
 FormCard {
     id: panel
     required property var controller
-    property var selectedIndexes: []
-    property var selectedPaths: []
-    property int selectedCopyIndex: -1
-    property string selectedCopyPath: ""
-    property var selectionLookup: ({})
-    property int selectionRevision: 0
-    property int selectedCount: 0
-    property bool updatingSelection: false
+    readonly property RestoreSelection selection: RestoreSelection { id: selectionState }
+    property alias selectedIndexes: selectionState.selectedIndexes
+    property alias selectedPaths: selectionState.selectedPaths
+    property alias selectedCopyIndex: selectionState.copyIndex
+    property alias selectedCopyPath: selectionState.copyPath
+    property alias selectionLookup: selectionState.selectionLookup
+    property alias selectionRevision: selectionState.selectionRevision
+    property alias selectedCount: selectionState.selectedCount
     property var contextStates: ({})
     property string contextKey: ""
     property real screenScrollY: -1
     property bool restoringContext: false
-    property bool selectionInitialized: false
-    property bool selectionCustomized: false
-    property var folderRows: []
-    property var foldersByPath: ({})
-    property var entryFolders: []
+    property alias folderRows: selectionState.folderRows
     signal completed()
     signal closeRequested()
 
@@ -32,15 +28,7 @@ FormCard {
     Layout.bottomMargin: style.contentPadding
 
     function reset() {
-        selectionInitialized = false
-        selectionCustomized = false
-        folderRows = []
-        foldersByPath = ({})
-        entryFolders = []
-        selectedIndexes = []
-        selectedPaths = []
-        selectedCopyIndex = -1
-        selectedCopyPath = ""
+        selection.reset()
         destinationField.text = ""
         restoreList.contentY = 0
         restoreFoldersList.contentY = 0
@@ -50,10 +38,7 @@ FormCard {
     function rememberContext() {
         if (contextKey.length === 0) return
         contextStates[contextKey] = {
-            paths: selectedPaths.slice(), indexes: selectedIndexes.slice(),
-            copyPath: selectedCopyPath, copyIndex: selectedCopyIndex,
-            selectionInitialized: selectionInitialized,
-            selectionCustomized: selectionCustomized,
+            selection: selection.snapshot(),
             destination: destinationField.text, fileScroll: restoreList.contentY,
             folderScroll: restoreFoldersList.contentY,
             screenScroll: screenScrollY
@@ -69,12 +54,7 @@ FormCard {
         reset()
         const state = contextStates[key]
         if (state) {
-            selectedPaths = state.paths
-            selectedIndexes = state.indexes
-            selectedCopyPath = state.copyPath
-            selectedCopyIndex = state.copyIndex
-            selectionInitialized = state.selectionInitialized
-            selectionCustomized = state.selectionCustomized
+            selection.restoreSnapshot(state.selection)
             destinationField.text = state.destination
             screenScrollY = state.screenScroll
             Qt.callLater(function () {
@@ -87,116 +67,16 @@ FormCard {
         restoringContext = false
     }
 
-    onSelectedIndexesChanged: {
-        if (updatingSelection) return
-        // Bulk assignments (refresh/context restoration) become owned JS arrays,
-        // so ordinary toggles can mutate them without copying a Qt sequence.
-        updatingSelection = true
-        selectedIndexes = selectedIndexes.slice()
-        updatingSelection = false
-        const lookup = Object.create(null)
-        selectedIndexes.forEach(function (index, position) { lookup[index] = position })
-        selectionLookup = lookup
-        selectedCount = selectedIndexes.length
-        updateFolderCounts()
-        ++selectionRevision
-    }
-
-    onSelectedPathsChanged: {
-        if (updatingSelection) return
-        updatingSelection = true
-        selectedPaths = selectedPaths.slice()
-        updatingSelection = false
-    }
-
-    function rebuildFolders(entries) {
-        const folders = Object.create(null)
-        const ancestors = []
-        entries.forEach(function (path) {
-            const paths = []
-            let end = path.lastIndexOf("/")
-            while (end > 0) {
-                const folder = path.slice(0, end)
-                if (!folders[folder]) folders[folder] = { path: folder, total: 0, selected: 0 }
-                ++folders[folder].total
-                paths.push(folder)
-                end = folder.lastIndexOf("/")
-            }
-            ancestors.push(paths)
-        })
-        foldersByPath = folders
-        entryFolders = ancestors
-        folderRows = Object.keys(folders).sort()
-        updateFolderCounts()
-        ++selectionRevision
-    }
-
-    function updateFolderCounts() {
-        for (const path of folderRows) foldersByPath[path].selected = 0
-        for (const index of selectedIndexes) {
-            for (const path of entryFolders[index] || []) ++foldersByPath[path].selected
-        }
-    }
-
     function folderCheckState(path) {
-        const folder = foldersByPath[path]
-        return !folder || folder.selected === 0 ? Qt.Unchecked
-            : folder.selected === folder.total ? Qt.Checked : Qt.PartiallyChecked
+        return selection.folderCheckState(path)
     }
 
     function selectFolder(path, checked) {
-        const entries = controller.entries
-        const prefix = path.length > 0 ? path + "/" : ""
-        const indexes = []
-        const paths = []
-        entries.forEach(function (entry, index) {
-            const selected = entry.startsWith(prefix) ? checked : selectionLookup[index] !== undefined
-            if (selected) {
-                indexes.push(index)
-                paths.push(entry)
-            }
-        })
-        selectedPaths = paths
-        selectedIndexes = indexes
-        selectionInitialized = true
+        selection.selectFolder(path, checked)
     }
 
     function toggleSelection(index, path, checked) {
-        const position = selectionLookup[index]
-        if (checked === (position !== undefined)) return
-        selectionCustomized = true
-        if (selectedPaths.length !== selectedIndexes.length) {
-            // An external bulk assignment may provide only indexes.
-            const entries = controller.entries
-            selectedPaths = selectedIndexes.map(function (selectedIndex) { return entries[selectedIndex] })
-        }
-        if (checked) {
-            selectionLookup[index] = selectedIndexes.length
-            selectedIndexes.push(index)
-            selectedPaths.push(path)
-        } else {
-            // Selection order is immaterial; swap with the last item to avoid
-            // shifting the rest of a large selection on every deselection.
-            const last = selectedIndexes.length - 1
-            const movedIndex = selectedIndexes[last]
-            selectedIndexes[position] = movedIndex
-            selectedPaths[position] = selectedPaths[last]
-            selectionLookup[movedIndex] = position
-            selectedIndexes.pop()
-            selectedPaths.pop()
-            delete selectionLookup[index]
-        }
-        for (const folder of entryFolders[index] || []) {
-            foldersByPath[folder].selected += checked ? 1 : -1
-        }
-        selectedCount = selectedIndexes.length
-        ++selectionRevision
-        // Preserve the public property notifications without rebuilding lookup
-        // or path arrays. Only visible delegates reevaluate their checked state.
-        updatingSelection = true
-        selectedIndexesChanged()
-        selectedPathsChanged()
-        updatingSelection = false
+        selection.toggleFile(index, checked)
     }
 
     function focusControls(viewport) {
@@ -251,7 +131,6 @@ FormCard {
             // and refreshed/cached selections continue to follow copy identity.
             onModelChanged: currentIndex = Qt.binding(function () { return panel.controller.currentCopyIndex })
             onActivated: {
-                panel.selectedCopyIndex = currentIndex
                 panel.controller.selectCopy(currentIndex)
             }
             displayText: currentIndex < 0 ? qsTr("Choose a backup copy…") : currentText
@@ -359,7 +238,6 @@ FormCard {
                 : panel.selectedCount === panel.controller.entries.length ? Qt.Checked : Qt.PartiallyChecked
             nextCheckState: function () { return checkState === Qt.Checked ? Qt.Unchecked : Qt.Checked }
             onClicked: {
-                panel.selectionCustomized = true
                 panel.selectFolder("", checkState === Qt.Checked)
             }
         }
@@ -386,7 +264,6 @@ FormCard {
                 }
                 nextCheckState: function () { return checkState === Qt.Checked ? Qt.Unchecked : Qt.Checked }
                 onClicked: {
-                    panel.selectionCustomized = true
                     panel.selectFolder(modelData, checkState === Qt.Checked)
                 }
             }
@@ -508,39 +385,12 @@ FormCard {
         }
         function onEntriesChanged() {
             if (panel.restoringContext) return
-            const entries = panel.controller.entries
-            const paths = panel.selectedPaths.length > 0
-                ? panel.selectedPaths : panel.selectedIndexes.map(function (index) {
-                    return entries[index]
-                })
-            if (entries.length === 0 && panel.controller.browsing) {
-                return
-            }
-            panel.rebuildFolders(entries)
-            if ((!panel.selectionInitialized || !panel.selectionCustomized) && entries.length > 0) {
-                panel.selectFolder("", true)
-                return
-            }
-            const indexesByPath = Object.create(null)
-            entries.forEach(function (path, index) { indexesByPath[path] = index })
-            panel.selectedIndexes = paths.map(function (path) {
-                return indexesByPath[path] === undefined ? -1 : indexesByPath[path]
-            }).filter(function (index) { return index >= 0 })
-            panel.selectedPaths = panel.selectedIndexes.map(function (index) {
-                return entries[index]
-            })
+            panel.selection.reconcileEntries(panel.controller.entries, panel.controller.browsing)
         }
         function onCurrentCopyIndexChanged() {
             if (panel.restoringContext) return
-            const path = panel.controller.currentCopyPath
-            if (panel.selectedCopyPath !== path && !(path.length === 0 && panel.controller.browsing)) {
-                panel.selectionInitialized = false
-                panel.selectionCustomized = false
-                panel.selectedIndexes = []
-                panel.selectedPaths = []
-                panel.selectedCopyPath = path
-            }
-            panel.selectedCopyIndex = panel.controller.currentCopyIndex
+            panel.selection.syncCopy(panel.controller.currentCopyPath,
+                panel.controller.currentCopyIndex, panel.controller.browsing)
         }
     }
 }
