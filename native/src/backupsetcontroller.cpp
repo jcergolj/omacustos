@@ -606,11 +606,6 @@ void BackupSetController::removeSet(int index)
 
     BackupConfig updated = config;
     updated.sets.removeAt(index);
-    if (updated.sets.isEmpty()) {
-        // Do not save the deleted backup through the legacy single-source fallback.
-        updated.sourceDirectory.clear();
-        updated.remoteRoot.clear();
-    }
     QString error;
     if (!store.save(updated, &error)) {
         emit failed(error);
@@ -773,8 +768,6 @@ bool BackupSetController::importSets(const QString &filePath, bool merge)
     } else {
         updated.sets = imported.sets;
     }
-    updated.sourceDirectory.clear();
-    updated.remoteRoot.clear();
     if (!store.save(updated, &error)) {
         emit failed(error);
         return false;

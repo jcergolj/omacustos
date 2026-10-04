@@ -52,6 +52,11 @@ old schedule.
 Browser links are an optional, bounded cache of private Proton Drive folder URLs,
 keyed by the exact copy path. Losing this cache only requires resolving links again.
 
+Backup sets are the sole in-memory source/destination representation. Legacy
+`source_directory`/`remote_root` configuration is converted to the `default` set
+on load. Every save writes the modern `sets` array, including an explicit empty
+array, while preserving `proton_binary`. This migration only changes local state.
+
 ## Remote Layout
 
 Each copy is stored independently below:

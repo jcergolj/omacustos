@@ -86,11 +86,9 @@ void BackupLauncher::startBackup(const QString &setId)
 
 void BackupLauncher::startBackup(const QString &sourceDirectory, const QString &remoteRoot)
 {
-    BackupConfig config {
-        sourceDirectory,
-        remoteRoot,
-        qEnvironmentVariable("OMACUSTOS_PROTON_BIN", QStringLiteral("proton-drive")),
-    };
+    BackupConfig config;
+    config.protonBinary = qEnvironmentVariable("OMACUSTOS_PROTON_BIN", QStringLiteral("proton-drive"));
+    config.sets = {{QStringLiteral("default"), QStringLiteral("Default backup"), remoteRoot, {sourceDirectory}, {}}};
     const QString configPath = QDir::home().filePath(QStringLiteral(".config/omacustos/omacustos-backup.json"));
     QString error;
     if (!BackupConfigStore(configPath).save(config, &error)) {

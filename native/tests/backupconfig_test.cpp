@@ -12,7 +12,10 @@ class BackupConfigTest final : public QObject
     Q_OBJECT
 
 private slots:
-    void savesAndLoadsConfiguration();
+    void loadsLegacyConfigurationAndSavesModernSets_data();
+    void loadsLegacyConfigurationAndSavesModernSets();
+    void modernSetsOverrideLegacyFields_data();
+    void modernSetsOverrideLegacyFields();
     void savesAndLoadsIndependentSets();
     void savesAndLoadsEmptySetList();
     void ignoresAndDropsLegacyExternalDriveRequirements();
@@ -22,23 +25,102 @@ private slots:
     void rejectsNullOutput();
 };
 
-void BackupConfigTest::savesAndLoadsConfiguration()
+void BackupConfigTest::loadsLegacyConfigurationAndSavesModernSets_data()
 {
+    QTest::addColumn<bool>("customBinary");
+    QTest::newRow("default CLI") << false;
+    QTest::newRow("configured CLI") << true;
+}
+
+void BackupConfigTest::loadsLegacyConfigurationAndSavesModernSets()
+{
+    QFETCH(bool, customBinary);
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
-    BackupConfigStore store(directory.filePath(QStringLiteral("config/settings.json")));
-    const BackupConfig expected {
-        QStringLiteral("/home/user/Documents"),
-        QStringLiteral("/my-files/backups/computer/copy"),
-        QStringLiteral("/usr/bin/proton-drive"),
+    BackupConfigStore store(directory.filePath(QStringLiteral("settings.json")));
+    QJsonObject legacy {
+        {"source_directory", "/home/user/Documents"},
+        {"remote_root", "/my-files/backups/computer/copy"},
     };
+    if (customBinary) legacy.insert("proton_binary", "/custom/proton-drive");
+    QFile file(store.filePath());
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write(QJsonDocument(legacy).toJson());
+    file.close();
 
-    QVERIFY(store.save(expected));
     BackupConfig actual;
     QVERIFY(store.load(&actual));
-    QCOMPARE(actual.sourceDirectory, expected.sourceDirectory);
-    QCOMPARE(actual.remoteRoot, expected.remoteRoot);
-    QCOMPARE(actual.protonBinary, expected.protonBinary);
+    const QString binary = customBinary ? "/custom/proton-drive" : "proton-drive";
+    QCOMPARE(actual.protonBinary, binary);
+    QCOMPARE(actual.sets.size(), 1);
+    QCOMPARE(actual.sets.first().id, QStringLiteral("default"));
+    QCOMPARE(actual.sets.first().name, QStringLiteral("Default backup"));
+    QCOMPARE(actual.sets.first().sourceDirectories, QStringList {QStringLiteral("/home/user/Documents")});
+    QCOMPARE(actual.sets.first().remoteRoot, QStringLiteral("/my-files/backups/computer/copy"));
+    QCOMPARE(actual.sets.first().schedule.frequency, QStringLiteral("disabled"));
+    QCOMPARE(actual.sets.first().retention, 3);
+    QVERIFY(!actual.sets.first().onlyOnAcPower);
+    QVERIFY(actual.sets.first().exclusions.isEmpty());
+
+    QVERIFY(store.save(actual));
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const QJsonObject modern = QJsonDocument::fromJson(file.readAll()).object();
+    file.close();
+    QCOMPARE(modern.value("sets").toArray().size(), 1);
+    QVERIFY(!modern.contains("source_directory"));
+    QVERIFY(!modern.contains("remote_root"));
+    BackupConfig reloaded;
+    QVERIFY(store.load(&reloaded));
+    QCOMPARE(reloaded.protonBinary, binary);
+    QCOMPARE(reloaded.sets.first().id, actual.sets.first().id);
+    QCOMPARE(reloaded.sets.first().name, actual.sets.first().name);
+    QCOMPARE(reloaded.sets.first().sourceDirectories, actual.sets.first().sourceDirectories);
+    QCOMPARE(reloaded.sets.first().remoteRoot, actual.sets.first().remoteRoot);
+}
+
+void BackupConfigTest::modernSetsOverrideLegacyFields_data()
+{
+    QTest::addColumn<bool>("empty");
+    QTest::newRow("modern backup") << false;
+    QTest::newRow("explicitly empty list") << true;
+}
+
+void BackupConfigTest::modernSetsOverrideLegacyFields()
+{
+    QFETCH(bool, empty);
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    BackupConfigStore store(directory.filePath("settings.json"));
+    QJsonArray sets;
+    if (!empty) {
+        sets.append(QJsonObject {
+            {"id", "documents"}, {"name", "Documents"}, {"remote_root", "/modern/backups"},
+            {"source_directories", QJsonArray {"/modern/documents"}},
+        });
+    }
+    QFile file(store.filePath());
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write(QJsonDocument(QJsonObject {
+        {"source_directory", "/legacy/documents"}, {"remote_root", "/legacy/backups"}, {"sets", sets},
+    }).toJson());
+    file.close();
+    BackupConfig config;
+    config.sets = {{"stale", "Stale", "/stale/backups", {"/stale/documents"}, {}}};
+    QVERIFY(store.load(&config));
+    QCOMPARE(config.sets.size(), empty ? 0 : 1);
+    if (!empty) {
+        QCOMPARE(config.sets.first().id, QStringLiteral("documents"));
+        QCOMPARE(config.sets.first().sourceDirectories, QStringList {"/modern/documents"});
+        QCOMPARE(config.sets.first().remoteRoot, QStringLiteral("/modern/backups"));
+    }
+    QVERIFY(store.save(config));
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const QJsonObject modern = QJsonDocument::fromJson(file.readAll()).object();
+    file.close();
+    QVERIFY(!modern.contains("source_directory"));
+    QVERIFY(!modern.contains("remote_root"));
+    QVERIFY(store.load(&config));
+    QCOMPARE(config.sets.size(), empty ? 0 : 1);
 }
 
 void BackupConfigTest::savesAndLoadsIndependentSets()
@@ -73,11 +155,15 @@ void BackupConfigTest::savesAndLoadsIndependentSets()
     QVERIFY(store.load(&actual));
     QCOMPARE(actual.protonBinary, expected.protonBinary);
     QCOMPARE(actual.sets.size(), 2);
+    QCOMPARE(actual.sets.at(0).id, expected.sets.at(0).id);
     QCOMPARE(actual.sets.at(0).name, QStringLiteral("Documents"));
     QCOMPARE(actual.sets.at(0).sourceDirectories, expected.sets.at(0).sourceDirectories);
     QCOMPARE(actual.sets.at(0).exclusions, expected.sets.at(0).exclusions);
     QCOMPARE(actual.sets.at(0).schedule.frequency, QStringLiteral("monthly"));
     QCOMPARE(actual.sets.at(0).schedule.hour, 8);
+    QCOMPARE(actual.sets.at(0).schedule.minute, 45);
+    QCOMPARE(actual.sets.at(0).schedule.weekday, 2);
+    QCOMPARE(actual.sets.at(0).schedule.dayOfMonth, 31);
     QCOMPARE(actual.sets.at(0).retention, 5);
     QCOMPARE(actual.sets.at(0).onlyOnAcPower, true);
     QCOMPARE(actual.sets.at(1).remoteRoot, QStringLiteral("backups/configs"));

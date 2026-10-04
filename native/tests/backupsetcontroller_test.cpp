@@ -918,8 +918,10 @@ void BackupSetControllerTest::emptyImportDoesNotRestoreLegacySources()
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
     const QString configPath = directory.filePath(QStringLiteral("settings.json"));
-    BackupConfig config {QStringLiteral("/safe/legacy"), QStringLiteral("/my-files/backups"), QStringLiteral("proton-drive")};
-    QVERIFY(BackupConfigStore(configPath).save(config));
+    QFile legacyFile(configPath);
+    QVERIFY(legacyFile.open(QIODevice::WriteOnly));
+    legacyFile.write(R"({"source_directory":"/safe/legacy","remote_root":"/my-files/backups","proton_binary":"/custom/proton-drive"})");
+    legacyFile.close();
     const QString exportPath = directory.filePath(QStringLiteral("empty.json"));
     QVERIFY(BackupConfigStore(exportPath).exportSets(BackupConfig {}));
     BackupEngine engine;
@@ -929,6 +931,9 @@ void BackupSetControllerTest::emptyImportDoesNotRestoreLegacySources()
     BackupConfig reloaded;
     QVERIFY(BackupConfigStore(configPath).load(&reloaded));
     QVERIFY(reloaded.sets.isEmpty());
+    QCOMPARE(reloaded.protonBinary, QStringLiteral("/custom/proton-drive"));
+    BackupSetController reopened(engine, configPath);
+    QVERIFY(reopened.setIds().isEmpty());
 }
 
 void BackupSetControllerTest::removingFinalSetPersistsEmptyConfiguration_data()
@@ -957,16 +962,19 @@ void BackupSetControllerTest::removingFinalSetPersistsEmptyConfiguration()
 
     BackupConfig config;
     config.protonBinary = "/custom/proton-drive";
+    BackupConfigStore store(configPath);
     if (legacy) {
-        config.sourceDirectory = source;
-        config.remoteRoot = remote.path();
+        QFile legacyFile(configPath);
+        QVERIFY(legacyFile.open(QIODevice::WriteOnly));
+        legacyFile.write(QJsonDocument(QJsonObject {
+            {"source_directory", source}, {"remote_root", remote.path()}, {"proton_binary", config.protonBinary},
+        }).toJson());
     } else {
         BackupSet set {"documents", "Documents", remote.path(), {source}, {}};
         set.schedule.frequency = "daily";
         config.sets = {set};
+        QVERIFY(store.save(config));
     }
-    BackupConfigStore store(configPath);
-    QVERIFY(store.save(config));
 
     BackupEngine engine;
     BackupSetController controller(engine, configPath);

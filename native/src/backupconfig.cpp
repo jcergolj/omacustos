@@ -274,11 +274,6 @@ bool BackupConfigStore::loadFile(BackupConfig *config, bool setsOnly, QString *e
             config->sets.append(set);
         }
 
-        if (!config->sets.isEmpty()) {
-            config->sourceDirectory = config->sets.first().sourceDirectories.first();
-            config->remoteRoot = config->sets.first().remoteRoot;
-        }
-
         return true;
     }
 
@@ -292,8 +287,6 @@ bool BackupConfigStore::loadFile(BackupConfig *config, bool setsOnly, QString *e
         return false;
     }
 
-    config->sourceDirectory = source;
-    config->remoteRoot = remote;
     config->sets = {
         {
             QStringLiteral("default"),
@@ -335,63 +328,56 @@ bool BackupConfigStore::saveFile(const BackupConfig &config, bool setsOnly, QStr
         object.insert(QStringLiteral("proton_binary"), config.protonBinary);
     }
 
-    if (!config.sets.isEmpty()) {
-        QJsonArray sets;
-        QSet<QString> setIds;
-        for (const BackupSet &set : config.sets) {
-            if (set.id.trimmed().isEmpty() || set.name.trimmed().isEmpty() || set.remoteRoot.trimmed().isEmpty()
-                || set.sourceDirectories.isEmpty() || !validSchedule(set.schedule) || setIds.contains(set.id)) {
+    QJsonArray sets;
+    QSet<QString> setIds;
+    for (const BackupSet &set : config.sets) {
+        if (set.id.trimmed().isEmpty() || set.name.trimmed().isEmpty() || set.remoteRoot.trimmed().isEmpty()
+            || set.sourceDirectories.isEmpty() || !validSchedule(set.schedule) || setIds.contains(set.id)) {
+            if (error != nullptr) {
+                *error = QStringLiteral("The OmaCustos backup configuration is incomplete.");
+            }
+
+            return false;
+        }
+        setIds.insert(set.id);
+
+        QJsonArray sources;
+        for (const QString &source : set.sourceDirectories) {
+            if (source.trimmed().isEmpty()) {
                 if (error != nullptr) {
                     *error = QStringLiteral("The OmaCustos backup configuration is incomplete.");
                 }
 
                 return false;
             }
-            setIds.insert(set.id);
-
-            QJsonArray sources;
-            for (const QString &source : set.sourceDirectories) {
-                if (source.trimmed().isEmpty()) {
-                    if (error != nullptr) {
-                        *error = QStringLiteral("The OmaCustos backup configuration is incomplete.");
-                    }
-
-                    return false;
-                }
-                sources.append(source);
-            }
-
-            QJsonArray exclusions;
-            for (const QString &exclusion : set.exclusions) {
-                exclusions.append(exclusion);
-            }
-
-            const QJsonObject schedule {
-                {QStringLiteral("frequency"), set.schedule.frequency},
-                {QStringLiteral("hour"), set.schedule.hour},
-                {QStringLiteral("minute"), set.schedule.minute},
-                {QStringLiteral("weekday"), set.schedule.weekday},
-                {QStringLiteral("day_of_month"), set.schedule.dayOfMonth},
-            };
-
-            sets.append(QJsonObject {
-                {QStringLiteral("id"), set.id},
-                {QStringLiteral("name"), set.name},
-                {QStringLiteral("remote_root"), set.remoteRoot},
-                {QStringLiteral("source_directories"), sources},
-                {QStringLiteral("exclusions"), exclusions},
-                {QStringLiteral("schedule"), schedule},
-                {QStringLiteral("retention"), qMax(1, set.retention)},
-                {QStringLiteral("only_on_ac_power"), set.onlyOnAcPower},
-            });
+            sources.append(source);
         }
-        object.insert(QStringLiteral("sets"), sets);
-    } else if (!setsOnly && !config.sourceDirectory.isEmpty() && !config.remoteRoot.isEmpty()) {
-        object.insert(QStringLiteral("source_directory"), config.sourceDirectory);
-        object.insert(QStringLiteral("remote_root"), config.remoteRoot);
-    } else {
-        object.insert(QStringLiteral("sets"), QJsonArray());
+
+        QJsonArray exclusions;
+        for (const QString &exclusion : set.exclusions) {
+            exclusions.append(exclusion);
+        }
+
+        const QJsonObject schedule {
+            {QStringLiteral("frequency"), set.schedule.frequency},
+            {QStringLiteral("hour"), set.schedule.hour},
+            {QStringLiteral("minute"), set.schedule.minute},
+            {QStringLiteral("weekday"), set.schedule.weekday},
+            {QStringLiteral("day_of_month"), set.schedule.dayOfMonth},
+        };
+
+        sets.append(QJsonObject {
+            {QStringLiteral("id"), set.id},
+            {QStringLiteral("name"), set.name},
+            {QStringLiteral("remote_root"), set.remoteRoot},
+            {QStringLiteral("source_directories"), sources},
+            {QStringLiteral("exclusions"), exclusions},
+            {QStringLiteral("schedule"), schedule},
+            {QStringLiteral("retention"), qMax(1, set.retention)},
+            {QStringLiteral("only_on_ac_power"), set.onlyOnAcPower},
+        });
     }
+    object.insert(QStringLiteral("sets"), sets);
 
     if (!QDir().mkpath(QFileInfo(path).absolutePath())) {
         if (error != nullptr) {

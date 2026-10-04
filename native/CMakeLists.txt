@@ -101,6 +101,7 @@ omacustos_add_test(qprocessrunner-test tests/qprocessrunner_test.cpp omacustos-c
 set_tests_properties(qprocessrunner-test PROPERTIES TIMEOUT 30)
 
 omacustos_add_test(backupscheduler-test tests/backupscheduler_test.cpp omacustos-controllers)
+omacustos_add_test(backuplauncher-test tests/backuplauncher_test.cpp omacustos-controllers)
 omacustos_add_test(resourceusage-test tests/resourceusage_test.cpp omacustos-controllers)
 omacustos_add_test(protonauthcontroller-test tests/protonauthcontroller_test.cpp omacustos-controllers)
 omacustos_add_test(themecolors-test tests/themecolors_test.cpp omacustos-theme)

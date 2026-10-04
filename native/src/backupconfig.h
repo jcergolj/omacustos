@@ -20,8 +20,6 @@ struct BackupSet {
 };
 
 struct BackupConfig {
-    QString sourceDirectory;
-    QString remoteRoot;
     QString protonBinary = QStringLiteral("proton-drive");
     QVector<BackupSet> sets;
 };
