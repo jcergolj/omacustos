@@ -192,6 +192,7 @@ void ProtonProviderTest::folderUploadFailuresCleanStagingAndKeepVerifiedFiles_da
     QTest::newRow("remote file is truncated") << QString("verification");
     QTest::newRow("manifest upload fails") << QString("manifest");
     QTest::newRow("source disappears while staging") << QString("reading");
+    QTest::newRow("source read fails after snapshot creation") << QString("read-error");
 }
 
 void ProtonProviderTest::folderUploadFailuresCleanStagingAndKeepVerifiedFiles()
@@ -215,8 +216,10 @@ void ProtonProviderTest::folderUploadFailuresCleanStagingAndKeepVerifiedFiles()
     const BackupCopyMetadata metadata {"computer", "documents", "Documents", "copy", QDateTime::currentDateTimeUtc()};
     QVERIFY(!engine.backup({source.path()}, "/backups/copy", {}, metadata, provider, &manifest, &error,
         [&](const BackupProgress &progress) {
-            if (failure == "reading" && progress.phase == "staging" && progress.currentFile.endsWith("b-bad")) {
+            if ((failure == "reading" || failure == "read-error")
+                && progress.phase == "staging" && progress.currentFile.endsWith("b-bad")) {
                 QVERIFY(QFile::remove(source.filePath("b-bad")));
+                if (failure == "read-error") QVERIFY(QDir().mkpath(source.filePath("b-bad")));
             }
             if (progress.finalizing && !runner.uploadedPaths.isEmpty()) {
                 QVERIFY(!QFileInfo::exists(QFileInfo(runner.uploadedPaths.first()).path()));
@@ -229,6 +232,15 @@ void ProtonProviderTest::folderUploadFailuresCleanStagingAndKeepVerifiedFiles()
     QVERIFY(!QFileInfo::exists(QFileInfo(runner.uploadedPaths.first()).path()));
     QCOMPARE(result.manifestVerified, failure != "manifest");
     QCOMPARE(result.verifiedFiles, failure == "folder" ? 0 : failure == "manifest" ? 2 : 1);
+    if (failure == "reading" || failure == "read-error") {
+        QCOMPARE(result.issues.size(), 1);
+        QCOMPARE(result.issues.first().path, source.filePath("b-bad"));
+        QCOMPARE(result.issues.first().phase, QString("reading"));
+        QVERIFY(result.issues.first().reason.startsWith("The source file could not be read:"));
+        // A failed read has already created a staged file. It must be discarded
+        // before recursion, even when it is empty and would otherwise upload.
+        QVERIFY(!QFileInfo::exists(runner.remoteFile("/backups/copy/b-bad")));
+    }
     if (failure != "manifest") {
         QVector<BackupEntry> entries;
         BackupManifestInfo info;

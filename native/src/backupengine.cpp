@@ -110,6 +110,58 @@ bool copyAndHash(QFile &source, QFileDevice &snapshot, QByteArray *checksum)
     return true;
 }
 
+struct StagedPayload {
+    QString path;
+    qint64 size;
+    QByteArray checksum;
+};
+
+// The caller owns the private destination's temporary directory and keeps it
+// alive through upload/retry. Only a complete read-only snapshot is returned;
+// failed snapshots are removed here before any recursive upload can see them.
+std::optional<StagedPayload> stagePayload(const QString &sourcePath, const QString &snapshotPath, BackupIssue *issue)
+{
+    const auto fail = [&](const QString &reason) -> std::optional<StagedPayload> {
+        *issue = {sourcePath, QStringLiteral("reading"), reason};
+        return std::nullopt;
+    };
+    QFile source(sourcePath);
+    if (!source.open(QIODevice::ReadOnly)) {
+        return fail(QStringLiteral("The source file could not be read: %1").arg(source.errorString()));
+    }
+    if (!QDir().mkpath(QFileInfo(snapshotPath).path())) {
+        return fail(QStringLiteral("The backup payload folder could not be staged."));
+    }
+
+    QFile snapshot(snapshotPath);
+    bool ready = false;
+    const auto discardPartialSnapshot = qScopeGuard([&] {
+        if (!ready) {
+            snapshot.close();
+            QFile::remove(snapshotPath);
+        }
+    });
+    if (!snapshot.open(QIODevice::WriteOnly)) {
+        return fail(QStringLiteral("The backup payload could not be staged: %1").arg(snapshot.errorString()));
+    }
+    QByteArray checksum;
+    // Hash exactly the bytes copied into the snapshot, never reopen the source
+    // pathname to calculate metadata or upload content that can change later.
+    if (!copyAndHash(source, snapshot, &checksum)) {
+        return fail(source.error() != QFileDevice::NoError
+            ? QStringLiteral("The source file could not be read: %1").arg(source.errorString())
+            : QStringLiteral("The backup payload could not be staged: %1").arg(snapshot.errorString()));
+    }
+    const qint64 size = snapshot.size();
+    snapshot.close();
+    source.close();
+    if (!snapshot.setPermissions(QFileDevice::ReadOwner)) {
+        return fail(QStringLiteral("The staged backup payload could not be made read-only."));
+    }
+    ready = true;
+    return StagedPayload {snapshotPath, size, checksum};
+}
+
 }
 
 BackupEngine::BackupEngine(QObject *parent)
@@ -444,21 +496,12 @@ bool BackupEngine::backup(const QStringList &sourceDirectories, const QString &r
         };
         reportPhase(uploadFolder ? QStringLiteral("staging") : QStringLiteral("reading"));
 
-        QFile sourceFile(sourcePath);
-        if (!sourceFile.open(QIODevice::ReadOnly)) {
-            failFile(QStringLiteral("reading"), QStringLiteral("The source file could not be read: %1").arg(sourceFile.errorString()));
-            continue;
-        }
-        // Hash the bytes copied into a private snapshot and upload that same
-        // read-only file, never a source pathname that can change afterward.
+        // The orchestrator owns staging lifetime: per-file snapshots survive
+        // upload/retry, while folder snapshots survive the whole-tree transfer.
         std::optional<QTemporaryDir> fileStaging;
         QString snapshotPath;
         if (uploadFolder) {
             snapshotPath = QDir(stagedFolder).filePath(remoteMappedPath);
-            if (!QDir().mkpath(QFileInfo(snapshotPath).path())) {
-                failFile(QStringLiteral("reading"), QStringLiteral("The backup payload folder could not be staged."));
-                continue;
-            }
         } else {
             fileStaging.emplace(QDir::temp().filePath(QStringLiteral("omacustos-payload-XXXXXX")));
             snapshotPath = fileStaging->filePath(QFileInfo(remotePath).fileName());
@@ -467,36 +510,14 @@ bool BackupEngine::backup(const QStringList &sourceDirectories, const QString &r
             failFile(QStringLiteral("reading"), QStringLiteral("The backup staging folder could not be created."));
             continue;
         }
-        QFile snapshot(snapshotPath);
-        bool snapshotReady = false;
-        const auto discardPartialSnapshot = qScopeGuard([&] {
-            // A failed copy must not be picked up by the recursive folder upload.
-            if (uploadFolder && !snapshotReady) {
-                snapshot.close();
-                QFile::remove(snapshotPath);
-            }
-        });
-        if (!snapshot.open(QIODevice::WriteOnly)) {
-            failFile(QStringLiteral("reading"), QStringLiteral("The backup payload could not be staged: %1").arg(snapshot.errorString()));
-            continue;
-        }
-        QByteArray sourceChecksum;
-        if (!copyAndHash(sourceFile, snapshot, &sourceChecksum)) {
-            failFile(QStringLiteral("reading"), sourceFile.error() != QFileDevice::NoError
-                ? QStringLiteral("The source file could not be read: %1").arg(sourceFile.errorString())
-                : QStringLiteral("The backup payload could not be staged: %1").arg(snapshot.errorString()));
-            continue;
-        }
-        const qint64 sourceSize = snapshot.size();
-        snapshot.close();
-        sourceFile.close();
-        if (!snapshot.setPermissions(QFileDevice::ReadOwner)) {
-            failFile(QStringLiteral("reading"), QStringLiteral("The staged backup payload could not be made read-only."));
+        BackupIssue stagingIssue;
+        const auto snapshot = stagePayload(sourcePath, snapshotPath, &stagingIssue);
+        if (!snapshot) {
+            failFile(stagingIssue.phase, stagingIssue.reason);
             continue;
         }
         if (uploadFolder) {
-            pendingVerification.append({sourcePath, remotePath, sourceSize, sourceChecksum, mappedPath});
-            snapshotReady = true;
+            pendingVerification.append({sourcePath, remotePath, snapshot->size, snapshot->checksum, mappedPath});
             stagedForFolder = true;
             continue;
         }
@@ -505,8 +526,8 @@ bool BackupEngine::backup(const QStringList &sourceDirectories, const QString &r
         // Size-only metadata cannot establish that an existing payload matches
         // this snapshot, so providers without checksums must upload it again.
         const bool alreadyVerified = !options.freshCopy && provider.inspect(remotePath, &remoteFile, &providerError)
-            && remoteFile.size == sourceSize
-            && !remoteFile.checksum.isEmpty() && remoteFile.checksum == sourceChecksum;
+            && remoteFile.size == snapshot->size
+            && !remoteFile.checksum.isEmpty() && remoteFile.checksum == snapshot->checksum;
 
         if (!alreadyVerified) {
             const QString parent = QFileInfo(remotePath).path();
@@ -518,12 +539,12 @@ bool BackupEngine::backup(const QStringList &sourceDirectories, const QString &r
             }
             ensuredDirectories.insert(parent);
             reportPhase(QStringLiteral("uploading"));
-            if (!provider.upload(snapshot.fileName(), remotePath, &providerError)) {
+            if (!provider.upload(snapshot->path, remotePath, &providerError)) {
                 // An ensured directory may have been removed remotely. Recheck
                 // it and retry the same immutable snapshot once, then verify.
                 ensuredDirectories.remove(parent);
                 if (!provider.ensureDirectory(parent, &providerError)
-                    || !provider.upload(snapshot.fileName(), remotePath, &providerError)) {
+                    || !provider.upload(snapshot->path, remotePath, &providerError)) {
                     failFile(QStringLiteral("uploading"), providerError.isEmpty()
                         ? QStringLiteral("The file could not be uploaded.") : providerError);
                     continue;
@@ -532,8 +553,8 @@ bool BackupEngine::backup(const QStringList &sourceDirectories, const QString &r
             }
             if (!options.freshCopy) reportPhase(QStringLiteral("verifying"));
             if (!options.freshCopy && (!provider.inspect(remotePath, &remoteFile, &providerError)
-                || remoteFile.size != sourceSize
-                || (!remoteFile.checksum.isEmpty() && remoteFile.checksum != sourceChecksum))) {
+                || remoteFile.size != snapshot->size
+                || (!remoteFile.checksum.isEmpty() && remoteFile.checksum != snapshot->checksum))) {
                 failFile(QStringLiteral("verifying"), providerError.isEmpty()
                     ? QStringLiteral("Remote verification failed.")
                     : providerError);
@@ -541,7 +562,7 @@ bool BackupEngine::backup(const QStringList &sourceDirectories, const QString &r
             }
         }
 
-        const BackupEntry entry {sourcePath, remotePath, sourceSize, sourceChecksum, mappedPath};
+        const BackupEntry entry {sourcePath, remotePath, snapshot->size, snapshot->checksum, mappedPath};
         if (options.freshCopy) {
             // Keep only metadata after a successful upload. The immutable staged
             // bytes remain available through upload retries, then are removed;

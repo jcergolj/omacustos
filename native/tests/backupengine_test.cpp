@@ -150,13 +150,16 @@ void BackupEngineTest::progressPersistenceBoundsWritesAndKeepsFinalSamples()
 void BackupEngineTest::reportsProgressForIncludedFilesAndFinalization_data()
 {
     QTest::addColumn<bool>("removeFile");
-    QTest::newRow("successful files") << false;
-    QTest::newRow("file becomes unreadable") << true;
+    QTest::addColumn<bool>("readError");
+    QTest::newRow("successful files") << false << false;
+    QTest::newRow("file becomes unreadable") << true << false;
+    QTest::newRow("read fails after snapshot creation") << true << true;
 }
 
 void BackupEngineTest::reportsProgressForIncludedFilesAndFinalization()
 {
     QFETCH(bool, removeFile);
+    QFETCH(bool, readError);
     QTemporaryDir source;
     QTemporaryDir remote;
     QVERIFY(source.isValid());
@@ -176,6 +179,9 @@ void BackupEngineTest::reportsProgressForIncludedFilesAndFinalization()
         provider, &manifest, &error, [&](const BackupProgress &progress) {
             if (updates.isEmpty() && removeFile) {
                 QVERIFY(QFile::remove(source.filePath("one")));
+                // Opening a directory for reading succeeds on Linux, but the
+                // first read fails after the staging operation creates a file.
+                if (readError) QVERIFY(QDir().mkpath(source.filePath("one")));
             }
             if (progress.finalizing) {
                 QVERIFY(!QFile::exists(remote.filePath("copy/manifest.json")));
@@ -212,7 +218,8 @@ void BackupEngineTest::reportsProgressForIncludedFilesAndFinalization()
     if (removeFile) {
         QCOMPARE(result.issues.first().path, source.filePath("one"));
         QCOMPARE(result.issues.first().phase, QString("reading"));
-        QVERIFY(!result.issues.first().reason.isEmpty());
+        QVERIFY(result.issues.first().reason.startsWith("The source file could not be read:"));
+        QVERIFY(!QFileInfo::exists(remote.filePath("copy/one")));
     }
     QVector<BackupEntry> verified;
     QVERIFY(BackupManifest::load(manifest, &verified));
@@ -378,13 +385,22 @@ void BackupEngineTest::backsUpStoresVerifiedChecksum()
 void BackupEngineTest::sourceChangesAfterHashingRestoreStagedContent_data()
 {
     QTest::addColumn<bool>("atomicReplacement");
-    QTest::newRow("same-sized in-place edit") << false;
-    QTest::newRow("atomic pathname replacement") << true;
+    QTest::addColumn<bool>("freshCopy");
+    QTest::addColumn<bool>("retryUpload");
+    for (bool fresh : {false, true}) {
+        for (bool retry : {false, true}) {
+            const QString suffix = QString("%1%2").arg(fresh ? " fresh" : " reused namespace", retry ? " retry" : "");
+            QTest::newRow(qPrintable("same-sized in-place edit" + suffix)) << false << fresh << retry;
+            QTest::newRow(qPrintable("atomic pathname replacement" + suffix)) << true << fresh << retry;
+        }
+    }
 }
 
 void BackupEngineTest::sourceChangesAfterHashingRestoreStagedContent()
 {
     QFETCH(bool, atomicReplacement);
+    QFETCH(bool, freshCopy);
+    QFETCH(bool, retryUpload);
     QTemporaryDir source;
     QTemporaryDir remote;
     QTemporaryDir destination;
@@ -398,6 +414,7 @@ void BackupEngineTest::sourceChangesAfterHashingRestoreStagedContent()
     BackupEngine engine;
     FailingProvider provider(remote.path());
     provider.omitChecksum = true; // Proton provides size-only metadata.
+    provider.removeDirectoryOnUpload = retryUpload;
     QString manifest;
     QString error;
     bool changed = false;
@@ -418,7 +435,7 @@ void BackupEngineTest::sourceChangesAfterHashingRestoreStagedContent()
                 QCOMPARE(edited.write("evil"), qint64(4));
             }
             changed = true;
-        });
+        }, nullptr, {freshCopy});
     const auto cleanupManifest = qScopeGuard([&] {
         if (!manifest.isEmpty()) QDir(QFileInfo(manifest).path()).removeRecursively();
     });
@@ -441,7 +458,8 @@ void BackupEngineTest::sourceChangesAfterHashingRestoreStagedContent()
     QCOMPARE(restored.readAll(), QByteArray("good"));
     QVERIFY(original.open(QIODevice::ReadOnly));
     QCOMPARE(original.readAll(), QByteArray("evil"));
-    QCOMPARE(provider.uploadedPayloads.size(), 1);
+    QCOMPARE(provider.uploadedPayloads.size(), retryUpload ? 2 : 1);
+    if (retryUpload) QCOMPARE(provider.uploadedPayloads.at(0), provider.uploadedPayloads.at(1));
     QVERIFY(provider.uploadedPayloads.first() != sourcePath);
     QVERIFY(!QFileInfo::exists(QFileInfo(provider.uploadedPayloads.first()).path()));
 }

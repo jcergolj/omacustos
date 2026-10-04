@@ -117,6 +117,10 @@ The Proton Drive provider uses the official CLI for:
 OmaCustos never calls `empty-trash`. Remote content size is verified after upload and
 download using `size` or `activeRevision.claimedSize`, not encrypted storage size.
 Each payload is copied into a private temporary folder and hashed while copying.
+The engine's private `stagePayload` operation opens the source, creates the mapped
+snapshot, copies and hashes it, makes it read-only, and removes partial snapshots
+on failure. It returns only the staged path, size, and SHA-256; the orchestrator
+owns the temporary directories and controls their lifetime through upload/retry.
 The resulting read-only staged file is uploaded under the requested remote
 basename, so source edits or pathname replacement cannot invalidate the recorded
 SHA-256. Fresh Proton backups containing a folder source stage the whole selected
