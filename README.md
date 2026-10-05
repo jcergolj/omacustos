@@ -1,21 +1,19 @@
 # OmaCustos for Proton Drive
 
-OmaCustos is a small Omarchy desktop app for backing up selected files and
-folders to Proton Drive. It runs as your user and uses Proton's official
-`proton-drive` CLI. It is intended for personal files and folders, not system
-images, boot files, filesystem snapshots, or consistent live-database backups.
+Back up your documents, photos, projects, and other personal files to Proton Drive
+from your Omarchy desktop. Choose what to save, run backups manually or on a
+schedule, and restore files from an earlier copy when you need them.
 
-Create a named backup set for documents, photos, projects, or personal
-configuration folders, then run it manually or on a schedule. Each run creates
-a separate copy you can restore later.
+OmaCustos uses Proton's official `proton-drive` CLI and runs as your user. It backs
+up selected files and folders, not system images or live databases.
 
-“Custos” is Latin for guardian or keeper.
+**[User manual](MANUAL.md)** · [Technical notes and development](TECHNICAL.md)
 
 ## Get started
 
-### 1. Install OmaCustos
+### 1. Install
 
-On Arch Linux or Omarchy, build and install the package:
+On Arch Linux or Omarchy:
 
 ```bash
 sudo pacman -S --needed base-devel git
@@ -24,380 +22,69 @@ cd omacustos/pkgbuild
 makepkg -Csi
 ```
 
-Open **OmaCustos for Proton Drive** from your app launcher, or run `omacustos`.
-
-### 2. Authenticate Proton Drive
-
-Install the `proton-drive` CLI using the package or release source supported by
-your system. Authenticate it as the same user who will run OmaCustos.
-
-When OmaCustos cannot connect to Proton Drive, it shows a visible error with a
-suggested fix. If the CLI is missing, install `proton-drive` and press **Retry**.
-If you need to authenticate, press **Sign in to Proton** to open the CLI login
-in your terminal, which launches your browser. Keep the terminal open until
-authentication completes. OmaCustos checks the connection again automatically;
-use **Retry** to check immediately. No connection status is shown when healthy.
-
-You can also sign in from a terminal:
-
-```bash
-command -v proton-drive
-proton-drive auth login
-proton-drive filesystem info /my-files
-```
-
-OmaCustos uses this login session. It never asks for or stores your Proton password.
-The sign-in button uses `xdg-terminal-exec`, available on Omarchy. If it cannot
-open a terminal, use the commands above.
-
-### 3. Create and run a backup
-
-1. Open **OmaCustos** and choose **New backup set** from the top-right **⋯** menu,
-   or press **Create your first backup set** on an empty dashboard.
-2. Name the set, such as **Documents** or **Projects**.
-3. Use **+** under **Source files and folders** to choose what to back up.
-4. Select exclusions with **+** under **Exclusions**, or enter names or paths,
-   one per line.
-5. Choose a schedule, or leave scheduling disabled for manual backups.
-6. Press **Save**, return to the dashboard, and press **Back up now** on the set's card.
-
-The bottom **Cancel** button returns to the dashboard. When creating a new backup
-set, Cancel discards it unless Save succeeded. Preview alone does not create a
-saved set.
-
-Hidden paths such as `~/.config` are valid sources; select the folder or enter its
-full path in a source field. Folder backups include hidden files and hidden
-subdirectories by default, including `.env` and `.git`; use exclusions to omit
-any you do not want backed up. Use **Preview** to review included, excluded,
-skipped, and missing paths before running.
-
-Preview shows separate **Included**, **Excluded**, **Skipped**, and **Missing**
-sections with counts and an explanation when a section is empty. Scroll each
-nonempty list to inspect its full paths; paths wrap and can be selected and copied.
-Only included files will be attempted. Preview does not save settings, start a
-backup, or enable scheduling; press **Preview** again after editing the selection.
-
-Each named backup set has its own files, exclusions, and schedule. Every run
-creates a separate copy. By default, copies are stored under `/my-files/backups`
-in Proton Drive, and the latest three verified successful copies are kept.
-
-The dashboard shows one full-width card per backup set, stacked vertically in a
-stable order. Each card combines its sources, latest attempt, last successful
-backup when relevant, schedule, next scheduled run, and retention policy.
-**Back up now** starts that set; click its name or **⋯ → Edit settings** to edit it.
-
-A card summarizes the latest run, not every stored copy. **Restore copies…**
-opens the copy picker so you can choose the latest or an older available copy.
-All available files are selected by default. Untick individual files or a parent
-folder to leave them out; a folder checkbox includes its subfolders, and
-**Select all files** selects or clears the whole copy. Your selection is preserved
-when refreshing or returning to the same restore screen.
-“Retention: keep 3 successful copies” is the configured policy, not a live count
-of copies in Proton Drive. Deleting the latest copy keeps the set's card and access
-to older copies. **⋯ → Open latest copy in Proton Drive** and **Delete latest copy**
-refer specifically to the most recently recorded copy.
-
-Results distinguish **Successful**, **Incomplete** (some verified files, with
-failures), and **Failed** (no verified restorable copy). Completed copies show the
-verified-file count and failed-item count. Press **View issues** or open
-**⋯ → View latest run details** for affected
-paths, failure reasons, and the next automatic retry. An incomplete copy still
-allows restoring its verified files; it does not replace an older successful copy
-for retention purposes. Failed items can include missing or unreadable folders,
-so they are counted as items rather than always as individual files.
-
-While a backup runs, its row shows an estimated remaining time. New backups show
-**Estimating time remaining…** until enough progress is available; later runs can
-start with an estimate based on their previous successful run. Estimates update
-as files finish and may change with transfer speed. During final checks, the row
-shows **Finalizing backup…**.
-
-The running backup's card shows a work-progress bar, processed and verified file
-counts, and failures. **⋯ → View latest run details** shows the current file's path. Its phase distinguishes
-reading, uploading, and verification. The bar advances as file attempts finish;
-failed attempts count as processed work, never as verified files. The CLI does not
-expose documented live byte progress, so a large file stays at its current step
-while being transferred.
-
-**Advanced settings** lets you change the remote folder and number of copies
-to keep, or run only on AC power.
-
-It also offers a **Resource usage (all backups)** setting:
-
-**Use system defaults** is enabled by default: no CPU cap, normal CPU priority,
-and normal I/O scheduling for the worker and its Proton CLI subprocesses.
-Uncheck it to opt into one of the five presets:
-
-| Preset | CPU quota | CPU priority (`nice`) | I/O priority |
-| --- | ---: | ---: | --- |
-| Very low | 10% | 19 | Idle |
-| Low | 25% | 15 | Idle |
-| Medium | 50% | 10 | Best effort |
-| High | 100% | 5 | Best effort |
-| Very high | 200% | 0 | Best effort |
-
-Press **Save** to apply your choice to all manual and scheduled backups. New
-limits take effect when the next worker starts; a running backup keeps its
-current limits. A 100% quota allows one full CPU core, and 200% allows two.
-Lower `nice` values give the worker higher CPU priority. Tick **Use system
-defaults** and save to remove the custom limits again. These settings apply to
-the backup worker and its CLI processes; the desktop interface uses normal
-system scheduling.
-
-Schedules can be daily, weekly, or monthly. If a monthly day does not exist in
-the current month, the last day of that month is used.
-
-### 4. Schedule automatic backups
-
-Choose a **daily**, **weekly**, or **monthly** schedule and press **Save**.
-OmaCustos automatically enables and starts its scheduler; no terminal setup is
-needed. Importing backup sets with enabled schedules also activates scheduling.
-Manual-only backup sets do not activate it.
-
-The scheduler area stays hidden when scheduling is working. If activation fails,
-the timer is paused, or it is not enabled to start at login, a visible error
-explains what to do. Your backup settings remain saved. Press **Enable scheduling**
-to retry. OmaCustos checks scheduling automatically while the app is open.
-
-The timer runs as your user while logged in and catches up overdue backups after
-your next login. It does not run while the computer is off or require user
-lingering for this login-session behavior. Make sure Proton Drive is signed in
-before expecting scheduled backups to succeed.
-
-You can close OmaCustos: systemd starts the scheduler automatically at login and
-runs scheduled backups independently of the app. The app does not need to start
-at login or stay running in the background.
-
-## Desktop theme
-
-OmaCustos follows your active Omarchy theme and updates its colors while open when
-you switch themes. On other desktops, it uses the system's Qt color palette.
-
-## Exclude folders such as node_modules
-
-Enter exclusions one per line:
-
-```text
-node_modules
-vendor
-/home/you/projects/cache
-```
-
-A folder name excludes every matching folder at any depth. A full path excludes
-only that file or folder. You can also select a specific path with **+**.
-
-## Import and export backup sets
-
-Open the top-right **⋯** menu and choose **Export** to save your backup sets as a
-JSON file, or **Download template** to save an annotated example for editing.
-Use **Import** to select a JSON file, then choose how to apply it:
-
-- **Merge** keeps other existing sets, adds sets with new IDs, and updates sets
-  whose IDs match the imported file. Matching names alone do not combine sets.
-- **Replace** replaces the entire configured set list with the imported sets.
-
-OmaCustos automatically validates the file before applying either choice. If it
-is invalid, the app shows an error and keeps your existing settings.
-
-The file contains sources, exclusions, schedules, and settings. Your backed-up
-files, Proton login, and this computer's global resource preset are not included.
-
-### Create an import file
-
-In OmaCustos, open **⋯ → Download template** and choose where to save the file.
-The template is bundled with the app, so this works offline and before you have
-created any backup sets.
-
-You can also download the [annotated backup-set template](backup-sets.template.json)
-([raw file](https://raw.githubusercontent.com/jcergolj/omacustos/HEAD/backup-sets.template.json))
-and save a copy as `my-backup-sets.json`. On GitHub, open the template and use
-**Download raw file**, or save the raw link from your browser.
-
-1. Replace the example source paths with the full paths of your folders and files,
-   such as `/home/alex/Documents` or `/home/alex/notes.txt`. Use your actual username;
-   do not use `~` or environment variables such as `$HOME`.
-2. Set the backup's `name` and `id`. Each set must have a nonempty, unique `id`.
-   To create multiple sets, duplicate the object inside `sets` and edit each copy.
-3. Choose exclusions, the remote folder, retention, and schedule. The template runs
-   **daily at 02:00 in your computer's local time**. Set `frequency` to `disabled`
-   for manual backups, or use `daily`, `weekly`, or `monthly`. Hours are 0–23 and
-   minutes are 0–59; weekdays are 1–7 (Monday–Sunday), and monthly days are 1–31.
-4. Save the file, press **Import** in OmaCustos, and select your file. Choose
-   **Merge** to keep other existing sets or **Replace** to use only this file's
-   sets. Export your current sets first if you want to keep a copy before replacing
-   them. Enabled schedules activate automatic scheduling.
-5. Open each imported set and use **Preview** to check its sources and exclusions.
-
-The template includes `_comment` fields explaining the format and giving LLMs
-instructions for generating a file. OmaCustos ignores these fields; you can keep
-or remove them. JSON does not allow `//` or `/* … */` comments or trailing commas.
-
-### Generate an import file with an LLM
-
-Attach the downloaded template to your LLM conversation and use a prompt like
-this, replacing the paths with your own:
-
-```text
-Using the attached OmaCustos template and its _comment instructions, create
-one backup set named "Personal files" for the following folders and files.
-Run it daily at 02:00 local time, keep 3 successful copies, use
-/my-files/backups as the remote root, and allow backups on battery power.
-Exclude folders named node_modules and vendor.
-
-/home/alex/Documents
-/home/alex/projects
-/home/alex/.config/hypr/hyprland.conf
-
-Return only the complete importable JSON, without Markdown code fences.
-```
-
-Save the response as `my-backup-sets.json`, review the paths and schedule, then
-import it and check **Preview** as described above. Use **Merge** to keep other
-existing sets. To modify an existing set, attach an export and ask the LLM to
-preserve that set's ID so merging updates it.
-
-### Automatic import validation
-
-When you choose **Merge** or **Replace**, OmaCustos checks JSON syntax, the
-application and version, required fields, unique IDs within the file, value
-types, and schedule and retention ranges before saving any changes. Errors point
-to the field to fix, such as `sets[0].schedule.hour`; incorrect values are rejected
-rather than silently replaced with defaults. The template's `_comment` fields
-are accepted.
-
-Use **Preview** after importing to check local source paths, and authenticate
-Proton Drive before running a backup. An empty `sets` array is valid: **Replace**
-clears the configured set list, while **Merge** keeps it.
-
-## Restore
-
-1. Press **Restore copies…** on a backup set's card that has a recorded run.
-2. The restore panel opens immediately and loads copies for that backup in the
-   background. Select a remote copy to load and verify its files.
-3. All verified files are selected by default. Untick any files or folders you
-   want to leave out.
-4. Use **Choose folder…** to select a separate destination folder, or enter its
-   full path.
-5. Press **Start restore** at the bottom. The button is available when at least
-   one file is selected and a destination folder is specified.
-
-After a successful restore, the restore panel closes and OmaCustos returns to the
-dashboard. If a restore fails, the panel and your selection stay open for retry.
-
-Incomplete copies expose only verified entries. Missing, failed, malformed, or
-unverifiable items are not presented as successful restores.
-
-You can close the Restore panel, edit a backup, or open another backup while files
-are restoring. The active restore keeps running; its file-count progress bar and
-**View restore** action stay available above the current screen. Returning to a
-backup preserves the Restore destination, valid ticks, and file-list position.
-Cached file information is marked and must be verified again before a new restore.
-Copy discovery and verification may wait for an active restore to finish.
-
-For a reinstall or move to another computer, keep or transfer `~/.config/omacustos`
-so the backup definitions and run history remain available, then install OmaCustos
-and authenticate `proton-drive` as the new machine's user. The current UI opens
-remote discovery through **Restore copies…** on a recorded backup; it does not yet have
-a standalone remote-root discovery action for a fresh installation.
-
-## Manage copies
-
-- **⋯ → Open latest copy in Proton Drive** opens the latest recorded copy in your browser.
-- **⋯ → Delete latest copy** confirms the exact copy before moving it to Proton Drive Trash.
-- **⋯ → Delete backup set** removes its configuration and schedule; remote copies remain.
-
-Browser links are prepared in advance and cached, so opening a known copy does not
-download its manifest or wait for a Proton CLI lookup. Older or uncached copies
-may need an initial background lookup before opening.
-
-## Daily operation
-
-- Use **Preview** before a first backup or after changing sources and exclusions.
-- Retention keeps three verified successful copies by default.
-- Failed or incomplete runs do not remove older successful copies.
-- The first cleanup proposal requires confirmation; later cleanups use the saved
-  decision.
-- To stop scheduling without uninstalling:
-
-```bash
-systemctl --user disable --now omacustos.timer
-```
-
-OmaCustos shows a scheduling-paused error. Use **Enable scheduling** to resume. Saving
-backup settings while an enabled schedule exists also reactivates the timer.
-To make a backup manual-only, choose **disabled** for its schedule and save.
-
-## Troubleshooting
-
-Check the worker log:
-
-```bash
-journalctl --user -u omacustos.service
-```
-
-Check the timer and Proton CLI:
-
-```bash
-systemctl --user status omacustos.timer
-command -v proton-drive
-proton-drive filesystem info /my-files
-```
-
-An AC-power requirement makes a backup wait while on battery power. Missing or
-unreadable source paths are reported in the preview and manifest.
-
-Uploads and downloads have a 24-hour total runtime limit per CLI command, so large
-files and slow transfers can run longer than five minutes. Metadata commands keep
-their five-minute limit. The CLI has no documented live-progress feed; silent or
-stalled transfers are stopped at the same total runtime limit, rather than an
-inactivity deadline. Timeout errors are shown separately from start failures and
-crashes, and a timed-out backup does not trigger retention cleanup.
-
-To change the transfer limit, set `OMACUSTOS_TRANSFER_TIMEOUT_SECONDS` to a positive
-whole number of seconds in the app's environment. For manual and scheduled backups,
-set it in the worker service using `systemctl --user edit omacustos.service`:
-
-```ini
-[Service]
-Environment=OMACUSTOS_TRANSFER_TIMEOUT_SECONDS=172800
-```
-
-Run `systemctl --user daemon-reload` afterward; the setting applies to the next
-worker. For restores, launch the app with the variable, for example
-`OMACUSTOS_TRANSFER_TIMEOUT_SECONDS=172800 omacustos`. This example allows 48 hours
-per transfer. Empty, invalid, nonpositive, or values above 2147483 seconds use the
-24-hour default.
-
-## Uninstall
-
-Stop scheduling first if it is enabled, then remove the package:
-
-```bash
-systemctl --user disable --now omacustos.timer
-sudo pacman -Rns omacustos-git
-```
-
-Package removal does not delete `~/.config/omacustos`, the user-systemd resource
-drop-in, or remote backups. Keep your configuration and backups if you may need
-to restore later.
-
-## Technical documentation
-
-See [Technical Notes](TECHNICAL.md) for remote layout, manifests, verification,
-cleanup behavior, and package/service details.
-
-## Development
-
-Build and test the native app from the repository root:
-
-```bash
-cmake -S native -B build
-cmake --build build
-ctest --test-dir build --output-on-failure
-```
-
-The main binaries are `build/omacustos` and `build/omacustos-worker`. The Arch package
-recipe is in `pkgbuild/`.
-
-See [Responsiveness measurements](native/tests/responsiveness.md) for the opt-in
-on-screen benchmark, before/after results, and outstanding target-hardware checks.
+Install Proton's official `proton-drive` CLI separately using a package or release
+source supported by your system, then open **OmaCustos for Proton Drive** from
+your app launcher.
+
+### 2. Sign in
+
+If the app asks you to authenticate, press **Sign in to Proton**. Complete the
+browser login and keep the terminal open until it finishes. Press **Retry** if
+needed. OmaCustos uses the CLI's login session; it never stores your Proton password.
+
+If the terminal does not open, see [sign-in instructions](MANUAL.md#authenticate-proton-drive).
+
+### 3. Make your first backup
+
+1. Press **Create your first backup set**, or choose **New backup set** from the
+   top-right **⋯** menu.
+2. Give it a name and use **+** under **Source files and folders** to choose files
+   or folders.
+3. Add any **Exclusions**, such as `node_modules` or `vendor`, one per line.
+4. Use **Preview** to check what will be included.
+5. Press **Save**, then **Back up now** on the dashboard card.
+
+Each run creates a separate copy in Proton Drive. By default, copies are stored
+under `/my-files/backups`, and the latest **three successful copies** are kept.
+
+### 4. Make it automatic
+
+Edit your backup, choose a **daily**, **weekly**, or **monthly** schedule, and
+press **Save**. Scheduling starts automatically, and you can close the app.
+
+Scheduled backups run while you are logged in and catch up after your next login.
+They cannot run while the computer is off. If scheduling needs attention, the app
+shows a suggested fix and an **Enable scheduling** button.
+
+## Restore your files
+
+1. Press **Restore copies…** on the backup's dashboard card.
+2. Choose a copy and leave the files you want selected.
+3. Use **Choose folder…** to select a separate destination folder.
+4. Press **Start restore**.
+
+**Before reinstalling or moving computers, keep a copy of `~/.config/omacustos`.**
+It contains the backup definitions and run history needed to access copies through
+the app. A fresh installation cannot yet discover backups on its own. See
+[reinstall and migration instructions](MANUAL.md#reinstall-or-move-to-another-computer).
+
+## Things to know
+
+- Folder backups include hidden files such as `.env` and `.git`. Add exclusions
+  for anything you do not want backed up.
+- **Incomplete** means some files were verified but others failed; **Failed** means
+  there is no verified restorable copy. Use **View issues** for details.
+- Failed or incomplete runs do not remove older successful copies. The first
+  cleanup requires your confirmation.
+- Deleting a backup set removes its settings and schedule, but leaves its remote
+  copies in Proton Drive.
+
+## Help and more options
+
+The **[user manual](MANUAL.md)** covers exclusions, backup settings, resource usage,
+import/export, managing copies, and uninstalling.
+
+- [Troubleshooting](MANUAL.md#troubleshooting)
+- [Import and export backup sets](MANUAL.md#import-and-export-backup-sets)
+- [Backup-set template](backup-sets.template.json)
+- [Technical notes and developer instructions](TECHNICAL.md)

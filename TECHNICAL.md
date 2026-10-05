@@ -3,6 +3,8 @@
 This document records implementation details that are useful for maintainers
 and advanced users but are not needed for the quick start.
 
+For everyday instructions, see the [README](README.md) and [user manual](MANUAL.md).
+
 ## Native And QML Structure
 
 CMake compiles shared implementations once into three static targets:
@@ -234,6 +236,25 @@ CLI stderr. Timed-out commands are killed and return a failure even if partial
 remote content exists. The normal manifest verification and success-only
 retention gates still apply. Tests inject millisecond timeout policies and use
 a local subprocess fixture for progressing, silent, and failing commands.
+
+### Transfer Timeout Configuration
+
+To change the transfer limit, set `OMACUSTOS_TRANSFER_TIMEOUT_SECONDS` to a positive
+whole number of seconds in the app's environment. For manual and scheduled backups,
+set it in the worker service using `systemctl --user edit omacustos.service`:
+
+```ini
+[Service]
+Environment=OMACUSTOS_TRANSFER_TIMEOUT_SECONDS=172800
+```
+
+Run `systemctl --user daemon-reload` afterward; the setting applies to the next
+worker. For restores, launch the app with the variable, for example
+`OMACUSTOS_TRANSFER_TIMEOUT_SECONDS=172800 omacustos`. This example allows 48 hours
+per transfer. Empty, invalid, nonpositive, or values above 2147483 seconds use the
+24-hour default.
+
+### Browser Links And Copy Management
 
 Recent-backup browser links open the copy recorded for that run in
 the signed-in Proton Drive web app. Browsing a recorded copy uses its locally saved
@@ -480,3 +501,19 @@ are `omacustos`, `omacustos-worker`, and `omacustos-install`, and the user units
 are `omacustos.service` and `omacustos.timer`. The QML module is `OmaCustos`.
 `OMACUSTOS_PROTON_BIN` overrides the default Proton CLI executable when creating
 a configuration; saved configurations retain their `proton_binary` setting.
+
+## Development
+
+Build and test the native app from the repository root:
+
+```bash
+cmake -S native -B build
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+The main binaries are `build/omacustos` and `build/omacustos-worker`. The Arch package
+recipe is in `pkgbuild/`.
+
+See [Responsiveness measurements](native/tests/responsiveness.md) for the opt-in
+on-screen benchmark, before/after results, and outstanding target-hardware checks.
