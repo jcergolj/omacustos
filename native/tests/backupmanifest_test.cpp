@@ -7,6 +7,7 @@
 #include <QTest>
 
 #include "../src/backupmanifest.h"
+#include "../src/backupengine.h"
 #include "../src/localprovider.h"
 
 class BackupManifestTest final : public QObject
@@ -14,6 +15,10 @@ class BackupManifestTest final : public QObject
     Q_OBJECT
 
 private slots:
+    void constructsReadableCopyState_data();
+    void constructsReadableCopyState();
+    void rejectsInvalidDraftWithoutReplacingManifest_data();
+    void rejectsInvalidDraftWithoutReplacingManifest();
     void loadsVersionedEntries();
     void rejectsTraversalPaths();
     void acceptsDotsInsideFileNames();
@@ -29,6 +34,142 @@ private slots:
     void preservesExistingDestinationWhenRestoreFails();
     void rejectsRestoreThroughDestinationSymlink();
 };
+
+namespace {
+
+BackupManifestDraft completeDraft()
+{
+    BackupManifestDraft draft;
+    draft.metadata = {QStringLiteral("computer"), QStringLiteral("set-id"), QStringLiteral("Documents"),
+        QStringLiteral("copy"), QDateTime::fromString(QStringLiteral("2026-09-28T12:00:00.000Z"), Qt::ISODateWithMs)};
+    draft.verifiedEntries = {{QStringLiteral("/source/notes.txt"), QStringLiteral("copy/notes.txt"), 5,
+        QCryptographicHash::hash("notes", QCryptographicHash::Sha256), QStringLiteral("notes.txt")}};
+    draft.expectedItems = {QStringLiteral("notes.txt")};
+    return draft;
+}
+
+}
+
+void BackupManifestTest::constructsReadableCopyState_data()
+{
+    QTest::addColumn<QString>("state");
+    QTest::newRow("complete") << QStringLiteral("complete");
+    QTest::newRow("mixed upload results") << QStringLiteral("failed");
+    QTest::newRow("missing expected payload") << QStringLiteral("missing");
+    QTest::newRow("transfer issue with all payloads verified") << QStringLiteral("issue");
+    QTest::newRow("selection failure outside expected payloads") << QStringLiteral("selection");
+    QTest::newRow("legacy copy") << QStringLiteral("legacy");
+    QTest::newRow("large payload metadata") << QStringLiteral("large");
+}
+
+void BackupManifestTest::constructsReadableCopyState()
+{
+    QFETCH(QString, state);
+    BackupManifestDraft draft = completeDraft();
+    if (state == QStringLiteral("failed") || state == QStringLiteral("missing")) {
+        draft.expectedItems.append(QStringLiteral("failed.txt"));
+    }
+    if (state == QStringLiteral("failed")) {
+        draft.failedItems.append(QStringLiteral("failed.txt"));
+        draft.issues.append({QStringLiteral("/source/failed.txt"), QStringLiteral("uploading"), QStringLiteral("Upload failed.")});
+    } else if (state == QStringLiteral("issue")) {
+        draft.issues.append({QStringLiteral("/source"), QStringLiteral("uploading"), QStringLiteral("Folder transfer failed.")});
+    } else if (state == QStringLiteral("selection")) {
+        draft.failedItems.append(QStringLiteral("/source/missing.txt"));
+        draft.issues.append({QStringLiteral("/source/missing.txt"), QStringLiteral("selection"), QStringLiteral("Missing source.")});
+    } else if (state == QStringLiteral("legacy")) {
+        draft.metadata = {};
+        draft.verifiedEntries.first().restorePath.clear();
+    } else if (state == QStringLiteral("large")) {
+        draft.verifiedEntries.first().size = qint64(5) * 1024 * 1024 * 1024;
+    }
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString path = directory.filePath(QStringLiteral("manifest.json"));
+    QString error;
+    QVERIFY2(BackupManifest::write(path, draft, &error), qPrintable(error));
+    QVector<BackupEntry> entries;
+    BackupManifestInfo info;
+    QVERIFY2(BackupManifest::load(path, &entries, &info, &error), qPrintable(error));
+    QCOMPARE(entries.size(), 1);
+    QCOMPARE(entries.first().restorePath, QStringLiteral("notes.txt"));
+    QCOMPARE(entries.first().sourcePath, draft.verifiedEntries.first().sourcePath);
+    QCOMPARE(entries.first().remotePath, draft.verifiedEntries.first().remotePath);
+    QCOMPARE(entries.first().size, draft.verifiedEntries.first().size);
+    QCOMPARE(entries.first().checksum, draft.verifiedEntries.first().checksum);
+    QCOMPARE(info.issues.size(), draft.issues.size());
+    if (!draft.issues.isEmpty()) {
+        QCOMPARE(info.issues.first().path, draft.issues.first().path);
+        QCOMPARE(info.issues.first().phase, draft.issues.first().phase);
+        QCOMPARE(info.issues.first().reason, draft.issues.first().reason);
+    }
+    if (state == QStringLiteral("legacy")) {
+        QCOMPARE(info.version, 1);
+        QCOMPARE(info.status, QStringLiteral("complete"));
+    } else {
+        QCOMPARE(info.version, 2);
+        QCOMPARE(info.application, QStringLiteral("omacustos"));
+        QCOMPARE(info.computerName, draft.metadata.computerName);
+        QCOMPARE(info.setId, draft.metadata.setId);
+        QCOMPARE(info.setName, draft.metadata.setName);
+        QCOMPARE(info.copyId, draft.metadata.copyId);
+        QCOMPARE(info.createdAt, draft.metadata.createdAt);
+        QCOMPARE(info.expectedItems, draft.expectedItems);
+        QCOMPARE(info.failedItems, draft.failedItems);
+        QCOMPARE(info.status, state == QStringLiteral("complete") || state == QStringLiteral("large")
+            ? QStringLiteral("complete") : QStringLiteral("incomplete"));
+    }
+}
+
+void BackupManifestTest::rejectsInvalidDraftWithoutReplacingManifest_data()
+{
+    QTest::addColumn<QString>("fault");
+    for (const QString &fault : {QStringLiteral("failed verified entry"), QStringLiteral("duplicate restore"),
+             QStringLiteral("duplicate remote"), QStringLiteral("duplicate expected"), QStringLiteral("duplicate failed"),
+             QStringLiteral("unexpected entry"), QStringLiteral("unsafe restore"), QStringLiteral("unsafe remote"),
+             QStringLiteral("invalid checksum"), QStringLiteral("negative size"), QStringLiteral("invalid provenance"),
+             QStringLiteral("invalid timestamp")}) {
+        QTest::newRow(qPrintable(fault)) << fault;
+    }
+}
+
+void BackupManifestTest::rejectsInvalidDraftWithoutReplacingManifest()
+{
+    QFETCH(QString, fault);
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString path = directory.filePath(QStringLiteral("manifest.json"));
+    const BackupManifestDraft original = completeDraft();
+    QVERIFY(BackupManifest::write(path, original));
+    BackupManifestDraft draft = original;
+    if (fault == QStringLiteral("failed verified entry")) draft.failedItems = draft.expectedItems;
+    if (fault == QStringLiteral("duplicate restore")) draft.verifiedEntries.append(draft.verifiedEntries.first());
+    if (fault == QStringLiteral("duplicate remote")) {
+        BackupEntry duplicate = draft.verifiedEntries.first();
+        duplicate.restorePath = QStringLiteral("other.txt");
+        draft.expectedItems.append(duplicate.restorePath);
+        draft.verifiedEntries.append(duplicate);
+    }
+    if (fault == QStringLiteral("duplicate expected")) draft.expectedItems.append(draft.expectedItems.first());
+    if (fault == QStringLiteral("duplicate failed")) draft.failedItems = {QStringLiteral("failed.txt"), QStringLiteral("failed.txt")};
+    if (fault == QStringLiteral("unexpected entry")) draft.expectedItems.clear();
+    if (fault == QStringLiteral("unsafe restore")) draft.verifiedEntries.first().restorePath = QStringLiteral("../outside");
+    if (fault == QStringLiteral("unsafe remote")) draft.verifiedEntries.first().remotePath = QStringLiteral("copy/../outside");
+    if (fault == QStringLiteral("invalid checksum")) draft.verifiedEntries.first().checksum = QByteArray("bad");
+    if (fault == QStringLiteral("negative size")) draft.verifiedEntries.first().size = -1;
+    if (fault == QStringLiteral("invalid provenance")) draft.metadata.setId.clear();
+    if (fault == QStringLiteral("invalid timestamp")) draft.metadata.createdAt = {};
+    QString error;
+    QVERIFY(!BackupManifest::write(path, draft, &error));
+    QVERIFY(!error.isEmpty());
+    QVector<BackupEntry> entries;
+    BackupManifestInfo info;
+    QVERIFY(BackupManifest::load(path, &entries, &info));
+    QCOMPARE(info.status, QStringLiteral("complete"));
+    QCOMPARE(info.expectedItems, original.expectedItems);
+    QCOMPARE(entries.size(), 1);
+    QCOMPARE(entries.first().checksum, original.verifiedEntries.first().checksum);
+}
 
 void BackupManifestTest::loadsVersionedEntries()
 {
@@ -289,6 +430,30 @@ void BackupManifestTest::rejectsMalformedVersionTwoManifests_data()
     root = valid;
     root.insert("entries", QJsonArray {42});
     QTest::newRow("non-object entry") << QJsonDocument(root).toJson();
+    root = valid;
+    root.insert("issues", QJsonArray {42});
+    QTest::newRow("malformed issue") << QJsonDocument(root).toJson();
+    root = valid;
+    root.insert("status", "complete");
+    root.insert("expected", QJsonArray {"notes.txt"});
+    root.insert("failed", QJsonArray {});
+    root.insert("issues", QJsonArray {QJsonObject {{"path", "/source"}, {"phase", "uploading"}, {"reason", "transfer failed"}}});
+    QTest::newRow("complete copy with transfer issue") << QJsonDocument(root).toJson();
+    root = valid;
+    QJsonArray entries = root.value("entries").toArray();
+    QJsonObject entry = entries.first().toObject();
+    entry.insert("restore", "failed.txt");
+    entry.insert("sha256", "bad");
+    entries.append(entry);
+    root.insert("entries", entries);
+    QTest::newRow("invalid entry after valid entry") << QJsonDocument(root).toJson();
+    for (const QJsonValue &size : {QJsonValue(1.5), QJsonValue(9223372036854775808.0), QJsonValue("5")}) {
+        root = valid;
+        entry = root.value("entries").toArray().first().toObject();
+        entry.insert("size", size);
+        root.insert("entries", QJsonArray {entry});
+        QTest::newRow(qPrintable("invalid size " + size.toVariant().toString())) << QJsonDocument(root).toJson();
+    }
 }
 
 void BackupManifestTest::rejectsMalformedVersionTwoManifests()
@@ -302,9 +467,13 @@ void BackupManifestTest::rejectsMalformedVersionTwoManifests()
     file.close();
 
     QVector<BackupEntry> entries;
+    BackupManifestInfo info;
     QString error;
-    QVERIFY(!BackupManifest::load(file.fileName(), &entries, &error));
+    QVERIFY(!BackupManifest::load(file.fileName(), &entries, &info, &error));
     QVERIFY(!error.isEmpty());
+    QVERIFY(entries.isEmpty());
+    QCOMPARE(info.version, 0);
+    QVERIFY(info.status.isEmpty());
 }
 
 QTEST_MAIN(BackupManifestTest)

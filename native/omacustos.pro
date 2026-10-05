@@ -40,6 +40,7 @@ worker {
         src/worker_main.cpp \
         src/backupconfig.cpp \
         src/backupengine.cpp \
+        src/backupmanifest.cpp \
         src/protonprovider.cpp \
         src/qprocessrunner.cpp
     HEADERS = \

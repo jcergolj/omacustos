@@ -16,6 +16,7 @@
 
 #include "../src/backuprestorecontroller.h"
 #include "../src/backupmanifest.h"
+#include "../src/backupecleanup.h"
 #include "../src/localprovider.h"
 
 class RestoreTestProvider final : public BackupProvider
@@ -326,6 +327,10 @@ void BackupRestoreControllerTest::restoresSurvivingFileAfterUploadFailure()
     QVERIFY(info.expectedItems.contains("notes.txt"));
     QVERIFY(info.expectedItems.contains("failed.txt"));
     QCOMPARE(info.failedItems, QStringList {"failed.txt"});
+    QCOMPARE(info.issues.size(), 1);
+    QCOMPARE(info.issues.first().path, result.issues.first().path);
+    QCOMPARE(info.issues.first().phase, result.issues.first().phase);
+    QCOMPARE(info.issues.first().reason, result.issues.first().reason);
     QCOMPARE(entries.size(), 1);
     QCOMPARE(entries.first().restorePath, QStringLiteral("notes.txt"));
 
@@ -338,6 +343,8 @@ void BackupRestoreControllerTest::restoresSurvivingFileAfterUploadFailure()
     QCOMPARE(copies.first().entries.size(), 1);
     QCOMPARE(copies.first().entries.first().restorePath, QStringLiteral("notes.txt"));
     QCOMPARE(copies.first().failedItems, QStringList {"failed.txt"});
+    QVERIFY(!copies.first().complete());
+    QCOMPARE(BackupCleanup::eligibleTargets(copies, 1, "computer", "set-id"), QStringList {copy});
 
     BackupRestoreController controller(engine, &provider);
     QSignalSpy failed(&controller, &BackupRestoreController::failed);

@@ -85,6 +85,17 @@ readers. An incomplete manifest can list an attempted path in both `expected`
 and `failed`; a verified entry cannot also be listed as failed.
 This provenance keeps similarly named backups on different computers distinct.
 
+`BackupManifest` owns persisted entry and provenance types, version selection,
+completion rules, serialization, and validation. Execution passes a
+`BackupManifestDraft` containing verified payload observations, expected/failed
+items, and issues; it does not construct JSON or claim a persisted completion
+state. Writes pass through the same validation boundary as loads before atomic
+replacement. Complete version-2 copies must contain exactly the expected entries
+and have neither failed items nor issues. Incomplete copies retain only verified
+entries, including when a folder transfer reports failure after transferring all
+payloads. Older version-1/version-2 manifests remain readable, including those
+without an `issues` field. Failed loads expose no partial entries or provenance.
+
 The interface calls each saved configuration a **backup** and each run's output
 a **copy**. Internal `BackupSet` types and persisted `sets`, `set_id`, and
 `set_name` fields retain their existing names for compatibility with saved

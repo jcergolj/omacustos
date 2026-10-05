@@ -7,9 +7,6 @@
 #include <QFileInfo>
 #include <QDirIterator>
 #include <QHash>
-#include <QJsonArray>
-#include <QJsonDocument>
-#include <QJsonObject>
 #include <QSet>
 #include <QSaveFile>
 #include <QStandardPaths>
@@ -384,23 +381,16 @@ bool BackupEngine::backup(const QStringList &sourceDirectories, const QString &r
         reportProgress(progress);
     }
 
-    QJsonArray entries;
+    BackupManifestDraft manifestDraft;
+    manifestDraft.metadata = metadata;
     QVector<BackupEntry> pendingVerification;
     const auto recordVerified = [&](const BackupEntry &entry) {
-        entries.append(QJsonObject {
-            {QStringLiteral("source"), entry.sourcePath},
-            {QStringLiteral("remote"), entry.remotePath},
-            {QStringLiteral("restore"), entry.restorePath},
-            {QStringLiteral("size"), entry.size},
-            {QStringLiteral("sha256"), QString::fromLatin1(entry.checksum.toHex())},
-        });
+        manifestDraft.verifiedEntries.append(entry);
         ++outcome.verifiedFiles;
         outcome.verifiedBytes += entry.size;
         progress.verifiedFiles = outcome.verifiedFiles;
         progress.verifiedBytes = outcome.verifiedBytes;
     };
-    QStringList expectedItems;
-    QStringList failedItems;
     QStringList sourcePrefixes;
     QSet<QString> remotePaths;
     remotePaths.insert(QStringLiteral("manifest.json"));
@@ -479,12 +469,12 @@ bool BackupEngine::backup(const QStringList &sourceDirectories, const QString &r
         }
         remotePaths.insert(remoteMappedPath);
         const QString remotePath = QDir(normalizedRemoteRoot).filePath(remoteMappedPath);
-        expectedItems.append(mappedPath);
+        manifestDraft.expectedItems.append(mappedPath);
         providerError.clear();
 
         const auto failFile = [&](const QString &phase, const QString &reason) {
             outcome.issues.append({sourcePath, phase, reason});
-            failedItems.append(mappedPath);
+            manifestDraft.failedItems.append(mappedPath);
             ++progress.failedItems;
         };
         const auto reportPhase = [&](const QString &phase) {
@@ -619,7 +609,7 @@ bool BackupEngine::backup(const QStringList &sourceDirectories, const QString &r
             || !PayloadMetadataPolicy::matchesAfterTransfer(remoteFile, entry.size, entry.checksum)) {
             outcome.issues.append({entry.sourcePath, QStringLiteral("verifying"), verificationError.isEmpty()
                 ? QStringLiteral("Remote verification failed.") : verificationError});
-            failedItems.append(entry.restorePath);
+            manifestDraft.failedItems.append(entry.restorePath);
             ++progress.failedItems;
         } else {
             recordVerified(entry);
@@ -641,49 +631,11 @@ bool BackupEngine::backup(const QStringList &sourceDirectories, const QString &r
         return false;
     }
     const QString path = QDir(manifestDirectory).filePath(QStringLiteral("manifest.json"));
-    QSaveFile manifest(path);
     const bool incomplete = !outcome.issues.isEmpty();
-    failedItems.append(selection.missingPaths);
-    failedItems.append(selection.skippedPaths);
-    expectedItems.removeDuplicates();
-    failedItems.removeDuplicates();
-    QJsonObject manifestObject {
-        {QStringLiteral("version"), metadata.copyId.isEmpty() ? 1 : 2},
-        {QStringLiteral("entries"), entries},
-    };
-    QJsonArray issues;
-    for (const BackupIssue &issue : outcome.issues) {
-        issues.append(QJsonObject {{QStringLiteral("path"), issue.path},
-            {QStringLiteral("phase"), issue.phase}, {QStringLiteral("reason"), issue.reason}});
-    }
-    manifestObject.insert(QStringLiteral("issues"), issues);
-    if (!metadata.copyId.isEmpty()) {
-        manifestObject.insert(QStringLiteral("application"), QStringLiteral("omacustos"));
-        manifestObject.insert(QStringLiteral("computer"), metadata.computerName);
-        manifestObject.insert(QStringLiteral("set_id"), metadata.setId);
-        manifestObject.insert(QStringLiteral("set_name"), metadata.setName);
-        manifestObject.insert(QStringLiteral("copy_id"), metadata.copyId);
-        manifestObject.insert(QStringLiteral("created_at"), metadata.createdAt.toString(Qt::ISODateWithMs));
-        manifestObject.insert(QStringLiteral("status"), incomplete ? QStringLiteral("incomplete") : QStringLiteral("complete"));
-        QJsonArray expected;
-        for (const QString &item : expectedItems) {
-            expected.append(item);
-        }
-        QJsonArray failed;
-        for (const QString &item : failedItems) {
-            failed.append(item);
-        }
-        manifestObject.insert(QStringLiteral("expected"), expected);
-        manifestObject.insert(QStringLiteral("failed"), failed);
-    }
-    const QByteArray manifestContents = QJsonDocument(manifestObject).toJson();
-    if (!manifest.open(QIODevice::WriteOnly)
-        || manifest.write(manifestContents) != manifestContents.size()
-        || !manifest.commit()) {
-        if (error != nullptr) {
-            *error = QStringLiteral("Unable to write the backup manifest.");
-        }
-
+    manifestDraft.failedItems.append(selection.missingPaths);
+    manifestDraft.failedItems.append(selection.skippedPaths);
+    manifestDraft.issues = outcome.issues;
+    if (!BackupManifest::write(path, manifestDraft, error)) {
         return false;
     }
 

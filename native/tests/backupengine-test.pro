@@ -6,6 +6,7 @@ TEMPLATE = app
 SOURCES += \
     backupengine_test.cpp \
     ../src/backupengine.cpp \
+    ../src/backupmanifest.cpp \
     ../src/localprovider.cpp
 
 HEADERS += \

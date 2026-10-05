@@ -7,6 +7,7 @@ SOURCES += \
     backupjob_test.cpp \
     ../src/backupjob.cpp \
     ../src/backupengine.cpp \
+    ../src/backupmanifest.cpp \
     ../src/localprovider.cpp
 
 HEADERS += \

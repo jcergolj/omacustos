@@ -8,6 +8,7 @@ SOURCES += \
     ../src/backupworker.cpp \
     ../src/backupjob.cpp \
     ../src/backupengine.cpp \
+    ../src/backupmanifest.cpp \
     ../src/localprovider.cpp
 
 HEADERS += \

@@ -3,6 +3,7 @@
 #include "backupprovider.h"
 #include "backupprogress.h"
 #include "backupresult.h"
+#include "backupmanifest.h"
 
 #include <QObject>
 #include <QDateTime>
@@ -11,27 +12,11 @@
 #include <QVariantMap>
 #include <functional>
 
-struct BackupEntry {
-    QString sourcePath;
-    QString remotePath;
-    qint64 size = 0;
-    QByteArray checksum;
-    QString restorePath;
-};
-
 struct BackupPreview {
     QStringList includedFiles;
     QStringList excludedFiles;
     QStringList skippedPaths;
     QStringList missingPaths;
-};
-
-struct BackupCopyMetadata {
-    QString computerName;
-    QString setId;
-    QString setName;
-    QString copyId;
-    QDateTime createdAt;
 };
 
 struct BackupOptions {
