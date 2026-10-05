@@ -16,6 +16,7 @@ ScrollView {
     property var scrollPositions: ({})
     property var advancedStates: ({})
     readonly property bool backupRunning: controller.currentRunStatus === "running"
+    signal saved()
     signal closeRequested()
 
     Layout.fillWidth: true
@@ -682,6 +683,7 @@ ScrollView {
                     editor.syncCurrentSet()
                     if (editor.controller.save()) {
                         editor.resources.save(systemResourceDefaults.checked ? -1 : resourcePreset.currentIndex)
+                        editor.saved()
                     }
                 }
             }

@@ -662,6 +662,10 @@ ApplicationWindow {
                 style: uiStyle
                 controller: backupSetController
                 resources: resourceUsage
+                onSaved: {
+                    root.showEditor = false
+                    dashboardScrollView.scrollToTop()
+                }
                 onCloseRequested: {
                     backupSetController.discardUnsavedSet()
                     root.showEditor = false
