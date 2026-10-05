@@ -46,6 +46,20 @@ static bool safeLocalPath(const QString &rootPath, const QString &remotePath)
     return true;
 }
 
+static bool sha256File(QFile &file, QByteArray *checksum)
+{
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    while (!file.atEnd()) {
+        const QByteArray chunk = file.read(1024 * 1024);
+        if (chunk.isEmpty() && file.error() != QFileDevice::NoError) {
+            return false;
+        }
+        hash.addData(chunk);
+    }
+    *checksum = hash.result();
+    return true;
+}
+
 static QString trashPath(const QString &rootPath, const QString &remotePath)
 {
     return QDir(rootPath).filePath(QDir(QStringLiteral(".trash")).filePath(remotePath));
@@ -160,7 +174,12 @@ bool LocalProvider::inspect(const QString &remotePath, RemoteFile *file, QString
 
     file->path = remotePath;
     file->size = info.size();
-    file->checksum = QCryptographicHash::hash(source.readAll(), QCryptographicHash::Sha256);
+    if (!sha256File(source, &file->checksum)) {
+        if (error != nullptr) {
+            *error = QStringLiteral("The remote file could not be read.");
+        }
+        return false;
+    }
 
     return true;
 }
