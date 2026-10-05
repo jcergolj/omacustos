@@ -16,6 +16,7 @@ static bool validRemotePath(const QString &remotePath)
     const QString normalized = QDir::cleanPath(remotePath);
 
     return !remotePath.startsWith('/') && !normalized.isEmpty() && normalized != QStringLiteral(".")
+        && !remotePath.split('/').contains(QStringLiteral(".."))
         && normalized != QStringLiteral("..") && !normalized.startsWith(QStringLiteral("../"))
         && !normalized.contains(QStringLiteral("/../"));
 }
@@ -23,25 +24,25 @@ static bool validRemotePath(const QString &remotePath)
 static bool safeLocalPath(const QString &rootPath, const QString &remotePath)
 {
     const QString root = QFileInfo(rootPath).canonicalFilePath();
-    const QFileInfo destinationInfo(QDir(rootPath).filePath(remotePath));
-    const QString destination = destinationInfo.absoluteFilePath();
-    const QString parent = QFileInfo(destination).absolutePath();
     if (root.isEmpty()) {
         return false;
     }
-    const QString canonicalParent = QFileInfo(parent).exists()
-        ? QFileInfo(parent).canonicalFilePath()
-        : QFileInfo(parent).absoluteFilePath();
-    if (canonicalParent != root && !canonicalParent.startsWith(root + QDir::separator())) {
-        return false;
-    }
 
-    if (destinationInfo.exists()) {
-        const QString canonicalDestination = destinationInfo.canonicalFilePath();
-        return canonicalDestination == root
-            || canonicalDestination.startsWith(root + QDir::separator());
+    QString current = root;
+    const QStringList parts = QDir::cleanPath(remotePath).split('/', Qt::SkipEmptyParts);
+    for (int index = 0; index < parts.size(); ++index) {
+        current = QDir(current).filePath(parts.at(index));
+        const QFileInfo component(current);
+        if (component.isSymLink()) {
+            return false;
+        }
+        if (!component.exists()) {
+            break;
+        }
+        if (index + 1 < parts.size() && !component.isDir()) {
+            return false;
+        }
     }
-
     return true;
 }
 
@@ -191,7 +192,7 @@ bool LocalProvider::list(const QString &remotePath, QVector<RemoteItem> *items, 
 
     const QDir directoryContents(directoryPath);
     for (const QFileInfo &info : directoryContents.entryInfoList(QDir::AllEntries | QDir::NoDotAndDotDot, QDir::Name)) {
-        if (info.fileName() == QStringLiteral(".trash")) {
+        if (info.fileName() == QStringLiteral(".trash") || info.isSymLink()) {
             continue;
         }
         items->append({

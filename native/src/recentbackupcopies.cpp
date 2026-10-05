@@ -113,11 +113,7 @@ RecentCopyTarget resolveCopy(BackupProvider &provider, const QString &configPath
         record->remoteCopyPath.clear();
         record->nextAttempt = {};
         record->lastError.clear();
-        CleanupState &cleanupState = cleanup.states()[setId];
-        cleanupState.targets.removeAll(result.path);
-        cleanupState.trashed.removeAll(result.path);
-        cleanupState.completed.removeAll(result.path);
-        if (cleanup.save(&result.error)) {
+        if (cleanup.forgetTarget(setId, result.path, &result.error)) {
             runs.save(&result.error);
         }
         return result;

@@ -146,7 +146,7 @@ omacustos_add_test(backupconfig-test tests/backupconfig_test.cpp omacustos-core)
 omacustos_add_test(backupmanifest-test tests/backupmanifest_test.cpp omacustos-core)
 omacustos_add_test(backuprestorecontroller-test tests/backuprestorecontroller_test.cpp omacustos-controllers)
 target_link_libraries(backuprestorecontroller-test PRIVATE Qt6::Qml)
-omacustos_add_test(retention-discovery-test tests/retention_discovery_test.cpp omacustos-core)
+omacustos_add_test(retention-discovery-test tests/retention_discovery_test.cpp omacustos-controllers)
 
 # Environment-sensitive, on-screen timings are opt-in, never a CTest gate.
 qt_add_executable(responsiveness-benchmark tests/responsiveness_benchmark.cpp)

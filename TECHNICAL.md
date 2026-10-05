@@ -283,10 +283,21 @@ folder and verifies their manifests and payload metadata. It does not recursivel
 scan other computers, backups, or payload directories. Full-root discovery remains
 available for catalog discovery.
 
-Before the first cleanup, the exact remote paths are persisted as a proposal and
-shown in the UI. No deletion occurs until the proposal is confirmed. If
-permanent deletion fails after trashing, the target and cleanup phase are
-persisted so the next attempt resumes without expanding the deletion scope.
+Before the first cleanup, the exact remote paths and a proposal identifier are
+persisted and shown in the UI. Confirmation compares the displayed proposal
+with current disk state; a changed proposal is refreshed and must be reviewed
+again. No deletion occurs until the proposal is durably confirmed. Later
+cleanups use that saved decision, but persist each new exact scope before the
+first trash or permanent-delete operation. A failed state write stops cleanup
+and reports a retryable error.
+
+The cleanup module coordinates all updates with a shared file lock and reloads
+fresh state before writing. The lock remains held through deletion and phase
+persistence, so stale UI or worker snapshots cannot overwrite another set's
+progress. An unfinished authorized scope is never replaced by newly discovered
+targets. Retries resume its persisted phases, including when a remote operation
+succeeded but its phase write failed. Targets must be strictly below the backup
+set's configured root; the root itself cannot be deleted.
 
 ## Restore Safety
 

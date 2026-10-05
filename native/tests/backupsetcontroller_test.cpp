@@ -309,8 +309,8 @@ void BackupSetControllerTest::failedDashboardRefreshRetainsLastSuccessfulData()
     runs.markSuccess(*runs.find("documents"), QDateTime::currentDateTimeUtc());
     QVERIFY(runs.save());
     CleanupStore cleanup(home.filePath("omacustos-backup-cleanup.json"));
-    cleanup.setPending("documents", {"/backups/old"});
-    QVERIFY(cleanup.save());
+    QVERIFY(cleanup.propose("documents", {"/backups/old"}));
+    const QByteArray cleanupSnapshot = cleanup.toBytes();
     BackupEngine engine;
     BackupSetController controller(engine, settings);
     const auto timestamps = controller.recentBackupTimestamps();
@@ -343,7 +343,10 @@ void BackupSetControllerTest::failedDashboardRefreshRetainsLastSuccessfulData()
     QVERIFY(dashboard.isEmpty() && stateChanged.isEmpty() && cleanupChanged.isEmpty());
     if (unreadable) QVERIFY(QDir().rmdir(path));
     QVERIFY(runs.save());
-    QVERIFY(cleanup.save());
+    QFile restoredCleanup(cleanup.filePath());
+    QVERIFY(restoredCleanup.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    QCOMPARE(restoredCleanup.write(cleanupSnapshot), cleanupSnapshot.size());
+    restoredCleanup.close();
     controller.refreshRunState();
     QVERIFY(controller.dashboardRefreshError().isEmpty());
     QCOMPARE(controller.recentBackupTimestamps(), timestamps);
@@ -363,8 +366,7 @@ void BackupSetControllerTest::missingStateFilesClearDashboardSnapshots()
     runs.markSuccess(*runs.find("documents"), QDateTime::currentDateTimeUtc());
     QVERIFY(runs.save());
     CleanupStore cleanup(home.filePath("omacustos-backup-cleanup.json"));
-    cleanup.setPending("documents", {"/backups/old"});
-    QVERIFY(cleanup.save());
+    QVERIFY(cleanup.propose("documents", {"/backups/old"}));
     BackupEngine engine;
     BackupSetController controller(engine, settings);
     QVERIFY(!controller.runSummaries().isEmpty());

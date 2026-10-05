@@ -257,19 +257,9 @@ int main(int argc, char *argv[])
                     setIterator->id, &copies, &catalogError)) {
                 const QStringList targets = BackupCleanup::eligibleTargets(
                     copies, setIterator->retention, computerName, setIterator->id);
-                CleanupState &cleanupState = cleanupStore.states()[setIterator->id];
-                if (cleanupState.decision == QStringLiteral("confirmed")) {
-                    cleanupStore.setTargets(setIterator->id, targets);
-                    QString cleanupError;
-                    if (!BackupCleanup::apply(provider, cleanupStore, setIterator->id,
-                            setRemoteSegment(*setIterator, computerName), &cleanupError)) {
-                        qCritical().noquote() << setIterator->name << QStringLiteral("Cleanup failed:") << cleanupError;
-                    }
-                } else if (cleanupState.targets.isEmpty()) {
-                    cleanupStore.setPending(setIterator->id, targets);
-                }
-                if (!cleanupStore.save(&catalogError)) {
-                    qCritical().noquote() << catalogError;
+                if (!BackupCleanup::run(provider, cleanupStore, setIterator->id, targets,
+                        setIterator->remoteFolder(computerName), &catalogError)) {
+                    qCritical().noquote() << setIterator->name << QStringLiteral("Cleanup failed:") << catalogError;
                 }
             } else {
                 qCritical().noquote() << setIterator->name << QStringLiteral("Cleanup preview unavailable:") << catalogError;

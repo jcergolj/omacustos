@@ -20,6 +20,18 @@ QByteArray read(const QString &path)
     return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
 }
 
+bool saveSnapshot(const CleanupStore &store)
+{
+    // Parsing tests deliberately write captured snapshots; production writes
+    // go through the cleanup module's coordinated transition methods.
+    return write(store.filePath(), store.toBytes());
+}
+
+bool saveSnapshot(const BackupRunStore &store)
+{
+    return store.save();
+}
+
 const QByteArray runState = R"({"runs":[{
     "set_id":"documents","status":"running","reason":"manual","attempts":2,
     "remote_copy_path":"/backups/copy","last_error":"offline",
@@ -81,7 +93,7 @@ private slots:
         const auto exercise = [&](auto &store, const QByteArray &initial) {
             QVERIFY(write(path, initial));
             QVERIFY(store.load());
-            QVERIFY(store.save());
+            QVERIFY(saveSnapshot(store));
             const QByteArray lastGood = read(path);
             QByteArray captured;
             QVERIFY(store.load(nullptr, &captured));
@@ -101,7 +113,7 @@ private slots:
             }
             QVERIFY(!error.isEmpty());
             if (unreadable) QVERIFY(QDir().rmdir(path));
-            QVERIFY(store.save());
+            QVERIFY(saveSnapshot(store));
             QCOMPARE(read(path), lastGood); // Includes every persisted field, with no partial replacement.
         };
         if (cleanup) {
@@ -129,12 +141,12 @@ private slots:
         const auto exercise = [&](auto &store, const QByteArray &initial) {
             QVERIFY(write(path, initial));
             QVERIFY(store.load());
-            QVERIFY(store.save());
+            QVERIFY(saveSnapshot(store));
             const QByteArray captured = read(path);
             QVERIFY(store.loadFromBytes("{}"));
             QVERIFY(write(path, "{"));
             QVERIFY(store.loadFromBytes(captured));
-            QVERIFY(store.save());
+            QVERIFY(saveSnapshot(store));
             QCOMPARE(read(path), captured);
         };
         if (cleanup) {
@@ -162,7 +174,7 @@ private slots:
             QByteArray captured("previous");
             QVERIFY(store.load(nullptr, &captured));
             QCOMPARE(captured, QByteArray(1, '\0'));
-            QVERIFY(store.save());
+            QVERIFY(saveSnapshot(store));
             const QByteArray emptyState = read(path);
             QVERIFY(store.load(nullptr, &captured));
             QCOMPARE(captured, QByteArray(1, '\1') + emptyState);
@@ -175,7 +187,8 @@ private slots:
         if (cleanup) {
             CleanupStore store(path);
             exercise(store, cleanupState);
-            QVERIFY(store.states().isEmpty());
+            QVERIFY(store.state("documents").targets.isEmpty());
+            QCOMPARE(store.toBytes(), CleanupStore(path).toBytes());
         } else {
             BackupRunStore store(path);
             exercise(store, runState);

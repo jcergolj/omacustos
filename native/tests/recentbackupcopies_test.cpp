@@ -85,8 +85,7 @@ void RecentBackupCopiesTest::confirmationDeletesOnlyItsExactCopyAndKeepsTheSet()
     QVERIFY(fixture.copy(QStringLiteral("old"), -1));
     QVERIFY(fixture.copy(QStringLiteral("recent"), 0));
     CleanupStore cleanup(fixture.state.filePath(QStringLiteral("omacustos-backup-cleanup.json")));
-    cleanup.setPending(fixture.set.id, {fixture.path(QStringLiteral("old")), fixture.path(QStringLiteral("recent"))});
-    QVERIFY(cleanup.save());
+    QVERIFY(cleanup.propose(fixture.set.id, {fixture.path(QStringLiteral("old")), fixture.path(QStringLiteral("recent"))}));
     RecentBackupCopies copies(fixture.provider, fixture.configPath, QStringLiteral("computer"));
     QSignalSpy warning(&copies, &RecentBackupCopies::deleteConfirmationReady);
     QSignalSpy deleted(&copies, &RecentBackupCopies::copyDeleted);

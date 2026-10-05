@@ -838,9 +838,10 @@ bool BackupSetController::confirmCleanup()
     if (set == nullptr || cleanupStore.state(set->id).targets.isEmpty()) {
         return false;
     }
-    cleanupStore.confirm(set->id);
+    const CleanupState presented = cleanupStore.state(set->id);
     QString error;
-    if (!cleanupStore.save(&error)) {
+    if (!cleanupStore.confirm(set->id, presented, &error)) {
+        emit cleanupChanged();
         emit failed(error);
         return false;
     }
@@ -931,7 +932,7 @@ void BackupSetController::refreshRunState()
         && nextCleanupContents != cleanupContents) {
         bool loaded = true;
         if (nextCleanupContents == QByteArray(1, '\0')) {
-            cleanupStore.states().clear();
+            cleanupStore.loadFromBytes("{}");
         } else {
             loaded = cleanupStore.loadFromBytes(nextCleanupContents.mid(1), &cleanupError);
         }

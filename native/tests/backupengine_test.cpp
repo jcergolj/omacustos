@@ -1032,7 +1032,11 @@ void BackupEngineTest::localProviderRejectsUnsafePaths()
     QVERIFY(!provider.inspect(QStringLiteral("link.txt"), nullptr, &error));
     QCOMPARE(error, QStringLiteral("The provider path is invalid."));
     QVERIFY(QFile::link(outside.path(), remote.filePath(QStringLiteral("link-dir"))));
+    QVERIFY(!provider.inspect(QStringLiteral("link-dir/../outside.txt"), nullptr, &error));
+    QCOMPARE(error, QStringLiteral("The provider path is invalid."));
     QVERIFY(!provider.ensureDirectory(QStringLiteral("link-dir/new"), &error));
+    QCOMPARE(error, QStringLiteral("The provider path is invalid."));
+    QVERIFY(!provider.ensureDirectory(QStringLiteral("link-dir/new/deep"), &error));
     QCOMPARE(error, QStringLiteral("The provider path is invalid."));
 }
 
