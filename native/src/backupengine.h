@@ -17,6 +17,7 @@ struct BackupPreview {
     QStringList excludedFiles;
     QStringList skippedPaths;
     QStringList missingPaths;
+    qint64 totalBytes = 0;
 };
 
 struct BackupOptions {

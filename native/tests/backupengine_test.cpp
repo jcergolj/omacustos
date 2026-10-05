@@ -78,6 +78,7 @@ private slots:
     void verifiesTransferredPayloadMetadata();
     void reservesManifestPathForSourceFiles();
     void previewsMultipleSourcesAndExclusions();
+    void previewsLargeAndEmptyFiles();
     void cancelledPreviewStopsTraversalAndDiscardsPartialResults();
     void excludesMatchingFolderNamesAtEveryDepth_data();
     void excludesMatchingFolderNamesAtEveryDepth();
@@ -554,10 +555,13 @@ void BackupEngineTest::previewsMultipleSourcesAndExclusions()
     QVERIFY(secondFile.open(QIODevice::WriteOnly));
     secondFile.write("second");
     secondFile.close();
+    const QString link = first.filePath("link.txt");
+    QVERIFY(QFile::link(included.fileName(), link));
+    const QString missing = first.filePath("missing.txt");
 
     BackupEngine engine;
     const BackupPreview preview = engine.preview(
-        {first.path(), second.path()},
+        {first.path(), second.path(), included.fileName(), second.path(), missing},
         {first.filePath(QStringLiteral("cache"))}
     );
 
@@ -565,6 +569,31 @@ void BackupEngineTest::previewsMultipleSourcesAndExclusions()
     QCOMPARE(preview.excludedFiles, QStringList {excluded.fileName()});
     QVERIFY(preview.includedFiles.contains(included.fileName()));
     QVERIFY(preview.includedFiles.contains(secondFile.fileName()));
+    QCOMPARE(preview.skippedPaths, QStringList {link});
+    QCOMPARE(preview.missingPaths, QStringList {missing});
+    QCOMPARE(preview.totalBytes, qint64(10));
+}
+
+void BackupEngineTest::previewsLargeAndEmptyFiles()
+{
+    QTemporaryDir source;
+    QVERIFY(source.isValid());
+    QVERIFY(QDir().mkpath(source.filePath(".hidden")));
+    QFile large(source.filePath(".hidden/large.bin"));
+    QVERIFY(large.open(QIODevice::WriteOnly));
+    const qint64 size = 3LL * 1024 * 1024 * 1024 + 17;
+    QVERIFY(large.resize(size));
+    large.close();
+    QFile empty(source.filePath("empty.txt"));
+    QVERIFY(empty.open(QIODevice::WriteOnly));
+    empty.close();
+
+    BackupEngine engine;
+    const QVariantMap preview = engine.previewSelection({source.path(), large.fileName()}, {});
+    QCOMPARE(preview.value("included").toStringList().size(), 2);
+    QCOMPARE(preview.value("totalBytes").toLongLong(), size);
+    QCOMPARE(engine.preview({source.path()}, {".hidden"}).totalBytes, qint64(0));
+    QCOMPARE(engine.preview({}, {}).totalBytes, qint64(0));
 }
 
 void BackupEngineTest::excludesMatchingFolderNamesAtEveryDepth_data()
@@ -590,6 +619,7 @@ void BackupEngineTest::cancelledPreviewStopsTraversalAndDiscardsPartialResults()
     QVERIFY(cancelled.excludedFiles.isEmpty());
     QVERIFY(cancelled.skippedPaths.isEmpty());
     QVERIFY(cancelled.missingPaths.isEmpty());
+    QCOMPARE(cancelled.totalBytes, qint64(0));
     QCOMPARE(engine.preview({source.path()}, {}).includedFiles.size(), 100);
 }
 

@@ -581,6 +581,14 @@ ScrollView {
                 Layout.fillWidth: true
             }
 
+            Label {
+                objectName: "previewTotalSize"
+                text: qsTr("Total size to back up: %1").arg(editor.controller.previewTotalSize)
+                font.pixelSize: editor.style.bodyTypeSize
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+
             PreviewGroup {
                 style: editor.style
                 key: "included"

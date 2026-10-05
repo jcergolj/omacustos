@@ -573,6 +573,11 @@ QStringList BackupSetController::previewIncluded() const
     return previewResult.includedFiles;
 }
 
+QString BackupSetController::previewTotalSize() const
+{
+    return QLocale().formattedDataSize(previewResult.totalBytes);
+}
+
 QStringList BackupSetController::previewExcluded() const
 {
     return previewResult.excludedFiles;

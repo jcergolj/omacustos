@@ -217,6 +217,7 @@ QVariantMap BackupEngine::previewSelection(const QStringList &sourceDirectories,
         {QStringLiteral("excluded"), result.excludedFiles},
         {QStringLiteral("skipped"), result.skippedPaths},
         {QStringLiteral("missing"), result.missingPaths},
+        {QStringLiteral("totalBytes"), result.totalBytes},
     };
 }
 
@@ -229,10 +230,16 @@ BackupPreview BackupEngine::scan(const QStringList &sourceDirectories, const QSt
 {
     const ExclusionRules rules(exclusions);
     BackupPreview result;
-    QStringList included;
+    QSet<QString> included;
     QStringList excluded;
     QStringList skipped;
     QStringList missing;
+    const auto includeFile = [&](const QFileInfo &file) {
+        const QString path = file.absoluteFilePath();
+        if (included.contains(path)) return;
+        included.insert(path);
+        result.totalBytes += qMax(qint64(0), file.size());
+    };
 
     for (const QString &sourceDirectory : sourceDirectories) {
         if (cancelled && cancelled()) return {};
@@ -250,7 +257,7 @@ BackupPreview BackupEngine::scan(const QStringList &sourceDirectories, const QSt
             continue;
         }
         if (source.isFile()) {
-            included.append(source.absoluteFilePath());
+            includeFile(source);
             continue;
         }
         if (!source.isDir()) {
@@ -282,22 +289,21 @@ BackupPreview BackupEngine::scan(const QStringList &sourceDirectories, const QSt
                 } else if (file.isFile() && !file.isReadable()) {
                     skipped.append(path);
                 } else if (file.isFile()) {
-                    included.append(path);
+                    includeFile(file);
                 }
             }
         }
     }
 
     if (cancelled && cancelled()) return {};
-    included.removeDuplicates();
     excluded.removeDuplicates();
     skipped.removeDuplicates();
     missing.removeDuplicates();
-    included.sort();
     excluded.sort();
     skipped.sort();
     missing.sort();
-    result.includedFiles = included;
+    result.includedFiles = included.values();
+    result.includedFiles.sort();
     result.excludedFiles = excluded;
     result.skippedPaths = skipped;
     result.missingPaths = missing;

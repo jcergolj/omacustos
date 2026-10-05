@@ -67,6 +67,7 @@ TestCase {
         backupSetController.previewCount = 0
         backupSetController.saveCount = 0
         backupSetController.previewIncluded = []
+        backupSetController.previewTotalSize = "0 bytes"
         backupSetController.previewExcluded = []
         backupSetController.previewSkipped = []
         backupSetController.previewMissing = []
@@ -1348,11 +1349,11 @@ TestCase {
 
     function test_previewDistinguishesAllGroupsWithoutRunningOrSaving_data() {
         return [
-            { tag: "mixed results", included: ["/safe/notes.txt"], excluded: ["/safe/cache/output.txt"],
+            { tag: "mixed results", size: "2.00 GiB", included: ["/safe/notes.txt"], excluded: ["/safe/cache/output.txt"],
                 skipped: ["/safe/link"], missing: ["/safe/missing"] },
-            { tag: "only skipped and missing", included: [], excluded: [],
+            { tag: "only skipped and missing", size: "0 bytes", included: [], excluded: [],
                 skipped: ["/safe/unreadable"], missing: ["/safe/missing"] },
-            { tag: "empty selection", included: [], excluded: [], skipped: [], missing: [] }
+            { tag: "empty selection", size: "0 bytes", included: [], excluded: [], skipped: [], missing: [] }
         ]
     }
 
@@ -1363,6 +1364,7 @@ TestCase {
         backupSetController.previewExcluded = data.excluded
         backupSetController.previewSkipped = data.skipped
         backupSetController.previewMissing = data.missing
+        backupSetController.previewTotalSize = data.size
         control("scheduleFrequency").currentIndex = 1
         waitForRendering(app.contentItem)
         const scroll = control("editorScrollView").contentItem
@@ -1376,6 +1378,8 @@ TestCase {
         mouseClick(previewButton)
         compare(backupSetController.previewCount, 1)
         tryCompare(control("backupPreview"), "visible", true)
+        compare(control("previewTotalSize").visible, true)
+        compare(control("previewTotalSize").text, "Total size to back up: " + data.size)
         for (const key of ["included", "excluded", "skipped", "missing"]) {
             const paths = data[key]
             const group = control("previewGroup-" + key)

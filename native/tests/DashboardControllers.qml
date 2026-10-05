@@ -89,6 +89,7 @@ QtObject {
         property int appliedDraftCount: 0
         property var lastDraft: ({})
         property var previewIncluded: []
+        property string previewTotalSize: "0 bytes"
         property var previewExcluded: []
         property var previewSkipped: []
         property var previewMissing: []

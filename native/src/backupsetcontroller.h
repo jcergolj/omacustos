@@ -50,6 +50,7 @@ class BackupSetController final : public QObject
     Q_PROPERTY(bool previewAvailable READ previewAvailable NOTIFY previewChanged)
     Q_PROPERTY(bool previewBusy READ previewBusy NOTIFY previewBusyChanged)
     Q_PROPERTY(QStringList previewIncluded READ previewIncluded NOTIFY previewChanged)
+    Q_PROPERTY(QString previewTotalSize READ previewTotalSize NOTIFY previewChanged)
     Q_PROPERTY(QStringList previewExcluded READ previewExcluded NOTIFY previewChanged)
     Q_PROPERTY(QStringList previewSkipped READ previewSkipped NOTIFY previewChanged)
     Q_PROPERTY(QStringList previewMissing READ previewMissing NOTIFY previewChanged)
@@ -106,6 +107,7 @@ public:
     bool previewAvailable() const;
     bool previewBusy() const { return previewWorking; }
     QStringList previewIncluded() const;
+    QString previewTotalSize() const;
     QStringList previewExcluded() const;
     QStringList previewSkipped() const;
     QStringList previewMissing() const;

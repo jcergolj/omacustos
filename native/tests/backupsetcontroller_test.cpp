@@ -3,6 +3,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLockFile>
+#include <QLocale>
 #include <QRegularExpression>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -696,7 +697,14 @@ void BackupSetControllerTest::previewUpdatesFilesWithoutCountMessage()
     QTRY_VERIFY(controller.previewAvailable());
     QCOMPARE(previewSpy.count(), 1);
     QCOMPARE(controller.previewIncluded(), hasSource ? QStringList {source.fileName()} : QStringList {});
-    QCOMPARE(statusSpy.count(), 1);
+    QCOMPARE(controller.property("previewTotalSize").toString(), QLocale().formattedDataSize(hasSource ? 17 : 0));
+    QVERIFY(source.open(QIODevice::WriteOnly));
+    QCOMPARE(source.write(QByteArray(4096, 'x')), qint64(4096));
+    source.close();
+    controller.preview();
+    QTRY_VERIFY(!controller.previewBusy());
+    QCOMPARE(controller.previewTotalSize(), QLocale().formattedDataSize(hasSource ? 4096 : 0));
+    QCOMPARE(statusSpy.count(), 2);
     QVERIFY(statusSpy.first().first().toString().isEmpty());
     QVERIFY(failureSpy.isEmpty());
 }
@@ -748,6 +756,7 @@ void BackupSetControllerTest::previewGroupsAreReadOnlyAndResetWithSelection()
     QCOMPARE(controller.previewExcluded(), mixed ? QStringList {excluded} : QStringList {});
     QCOMPARE(controller.previewSkipped(), QStringList {skipped});
     QCOMPARE(controller.previewMissing(), QStringList {missing});
+    QCOMPARE(controller.previewTotalSize(), QLocale().formattedDataSize(mixed ? 7 : 0));
     QVERIFY(saved.isEmpty());
     QVERIFY(controller.runningSetIds().isEmpty());
     QVERIFY(!QFile::exists(directory.filePath("omacustos-backup-runs.json")));
@@ -760,6 +769,7 @@ void BackupSetControllerTest::previewGroupsAreReadOnlyAndResetWithSelection()
     QVERIFY(controller.previewExcluded().isEmpty());
     QVERIFY(controller.previewSkipped().isEmpty());
     QVERIFY(controller.previewMissing().isEmpty());
+    QCOMPARE(controller.previewTotalSize(), QLocale().formattedDataSize(0));
     controller.preview();
     QTRY_VERIFY(controller.previewAvailable());
     QCOMPARE(controller.previewIncluded(), QStringList {included});
