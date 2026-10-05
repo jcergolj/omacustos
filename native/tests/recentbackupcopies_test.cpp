@@ -21,12 +21,14 @@ public:
     QStringList trashed;
     QStringList downloaded;
     QStringList listed;
+    std::function<void()> beforeList;
+    std::function<void()> beforeTrash;
     bool upload(const QString &a, const QString &b, QString *e) override { return local.upload(a, b, e); }
     bool ensureDirectory(const QString &p, QString *e) override { return local.ensureDirectory(p, e); }
     bool download(const QString &a, const QString &b, QString *e) override { downloaded.append(a); return local.download(a, b, e); }
     bool inspect(const QString &p, RemoteFile *f, QString *e) override { return local.inspect(p, f, e); }
-    bool list(const QString &p, QVector<RemoteItem> *i, QString *e) override { listed.append(p); return local.list(p, i, e); }
-    bool trash(const QString &p, QString *e) override { trashed.append(p); return local.trash(p, e); }
+    bool list(const QString &p, QVector<RemoteItem> *i, QString *e) override { if (beforeList) beforeList(); listed.append(p); return local.list(p, i, e); }
+    bool trash(const QString &p, QString *e) override { if (beforeTrash) beforeTrash(); trashed.append(p); return local.trash(p, e); }
     bool permanentlyDelete(const QString &, QString *) override { return false; }
 };
 
@@ -74,6 +76,9 @@ private slots:
     void changedRunPointerPreventsDeletion();
     void foreignManifestsAndUnsafePathsCannotBeDeleted();
     void runningWorkerPreventsDeletion();
+    void runningWorkerPreventsDeletion_data();
+    void remoteManagementPreservesConcurrentEnqueue_data();
+    void remoteManagementPreservesConcurrentEnqueue();
     void browsingRecordedCopyNeedsNoManifestOrWorkerLock();
     void browsingRejectsUnsafeRecordedPath();
 };
@@ -244,15 +249,92 @@ void RecentBackupCopiesTest::foreignManifestsAndUnsafePathsCannotBeDeleted()
 
 void RecentBackupCopiesTest::runningWorkerPreventsDeletion()
 {
+    QFETCH(bool, alternateConfig);
     CopyFixture fixture;
     QVERIFY(fixture.prepare());
-    QLockFile lock(fixture.configPath + QStringLiteral(".worker.lock"));
+    QLockFile lock((alternateConfig ? fixture.runPath : fixture.configPath) + QStringLiteral(".worker.lock"));
     QVERIFY(lock.tryLock(0));
     RecentBackupCopies copies(fixture.provider, fixture.configPath, QStringLiteral("computer"));
     QSignalSpy failure(&copies, &RecentBackupCopies::failed);
     copies.requestDelete(fixture.set.id);
     QTRY_COMPARE(failure.count(), 1);
+    QVERIFY(failure.first().first().toString().contains("running backup"));
     QVERIFY(fixture.provider.trashed.isEmpty());
+    QVERIFY(fixture.provider.listed.isEmpty());
+    QVERIFY(fixture.provider.downloaded.isEmpty());
+}
+
+void RecentBackupCopiesTest::runningWorkerPreventsDeletion_data()
+{
+    QTest::addColumn<bool>("alternateConfig");
+    QTest::newRow("same config worker") << false;
+    QTest::newRow("alternate config worker sharing queue") << true;
+}
+
+void RecentBackupCopiesTest::remoteManagementPreservesConcurrentEnqueue_data()
+{
+    QTest::addColumn<bool>("deleting");
+    QTest::addColumn<bool>("sameSet");
+    QTest::newRow("legacy discovery preserves other set") << false << false;
+    QTest::newRow("legacy discovery rejects superseded same set") << false << true;
+    QTest::newRow("deletion preserves other set") << true << false;
+    QTest::newRow("deletion preserves same set's new request") << true << true;
+}
+
+void RecentBackupCopiesTest::remoteManagementPreservesConcurrentEnqueue()
+{
+    QFETCH(bool, deleting);
+    QFETCH(bool, sameSet);
+    CopyFixture fixture;
+    QVERIFY(fixture.prepare());
+    QVERIFY(fixture.copy("recent", 0));
+    RecentBackupCopies copies(fixture.provider, fixture.configPath, "computer");
+    QSignalSpy warning(&copies, &RecentBackupCopies::deleteConfirmationReady);
+    QSignalSpy opened(&copies, &RecentBackupCopies::folderResolved);
+    QSignalSpy deleted(&copies, &RecentBackupCopies::copyDeleted);
+    QSignalSpy failed(&copies, &RecentBackupCopies::failed);
+    if (deleting) {
+        copies.requestDelete(fixture.set.id);
+        QTRY_COMPARE(warning.count(), 1);
+    }
+    bool queueAccepted = false;
+    QString queueError;
+    const QString queuedId = sameSet ? fixture.set.id : QString("photos");
+    const auto enqueue = [&] {
+        BackupRunStore fresh(fixture.runPath);
+        queueAccepted = fresh.queueManual({queuedId}, true, &queueError);
+    };
+    if (deleting) {
+        fixture.provider.beforeTrash = enqueue;
+        copies.confirmDelete();
+        QTRY_COMPARE_WITH_TIMEOUT(deleted.count(), 1, 10000);
+    } else {
+        fixture.provider.beforeList = enqueue;
+        copies.openCopy(fixture.set.id);
+        if (sameSet) QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 10000);
+        else QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 10000);
+    }
+    QVERIFY2(queueAccepted, qPrintable(queueError));
+    if (!deleting && sameSet) {
+        QVERIFY(failed.first().first().toString().contains("changed"));
+        QVERIFY(opened.isEmpty());
+    } else {
+        QVERIFY(failed.isEmpty());
+    }
+    BackupRunStore reopened(fixture.runPath);
+    QVERIFY(reopened.load());
+    QVERIFY(reopened.find(queuedId));
+    QCOMPARE(reopened.find(queuedId)->status, QString("pending"));
+    QCOMPARE(reopened.find(queuedId)->reason, QString("manual"));
+    QVERIFY(reopened.find(queuedId)->nextAttempt.isValid());
+    if (deleting) {
+        QVERIFY(reopened.find(fixture.set.id)->remoteCopyPath.isEmpty());
+        if (!sameSet) QCOMPARE(reopened.find(fixture.set.id)->status, QString("copy_deleted"));
+    } else if (sameSet) {
+        QVERIFY(reopened.find(fixture.set.id)->remoteCopyPath.isEmpty());
+    } else {
+        QCOMPARE(reopened.find(fixture.set.id)->remoteCopyPath, fixture.path("recent"));
+    }
 }
 
 QTEST_GUILESS_MAIN(RecentBackupCopiesTest)

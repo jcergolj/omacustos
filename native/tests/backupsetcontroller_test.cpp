@@ -1310,13 +1310,15 @@ void BackupSetControllerTest::importIsBlockedWhileWorkerRuns()
     QVERIFY(BackupConfigStore(configPath).save(BackupConfig {}));
     const QString exportPath = directory.filePath(QStringLiteral("sets.json"));
     QVERIFY(BackupConfigStore(exportPath).exportSets(BackupConfig {}));
-    QLockFile lock(configPath + QStringLiteral(".worker.lock"));
-    QVERIFY(lock.tryLock(0));
     BackupEngine engine;
     BackupSetController controller(engine, configPath);
     QSignalSpy failure(&controller, &BackupSetController::failed);
-    QVERIFY(!controller.importSets(exportPath));
-    QCOMPARE(failure.count(), 1);
+    for (const QString &path : {configPath, directory.filePath(QStringLiteral("omacustos-backup-runs.json"))}) {
+        QLockFile lock(path + QStringLiteral(".worker.lock"));
+        QVERIFY(lock.tryLock(0));
+        QVERIFY(!controller.importSets(exportPath));
+    }
+    QCOMPARE(failure.count(), 2);
 }
 
 QTEST_GUILESS_MAIN(BackupSetControllerTest)

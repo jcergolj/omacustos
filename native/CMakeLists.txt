@@ -28,6 +28,7 @@ add_library(omacustos-core STATIC
     src/qprocessrunner.cpp
     src/backupjob.cpp
     src/backupworker.cpp
+    src/workerexecution.cpp
     src/systemdlauncher.cpp
     src/serviceinstaller.cpp
 )
@@ -104,6 +105,13 @@ set_tests_properties(qprocessrunner-test PROPERTIES TIMEOUT 30)
 
 omacustos_add_test(backupscheduler-test tests/backupscheduler_test.cpp omacustos-controllers)
 omacustos_add_test(backuplauncher-test tests/backuplauncher_test.cpp omacustos-controllers)
+qt_add_executable(worker-prerequisite-fixture tests/workerprerequisitefixture.cpp)
+target_link_libraries(worker-prerequisite-fixture PRIVATE omacustos-core)
+target_compile_definitions(backuplauncher-test PRIVATE
+    OMACUSTOS_WORKER_BINARY="$<TARGET_FILE:omacustos-worker>"
+    OMACUSTOS_WAITING_WORKER_BINARY="$<TARGET_FILE:worker-prerequisite-fixture>")
+add_dependencies(backuplauncher-test omacustos-worker worker-prerequisite-fixture)
+set_tests_properties(backuplauncher-test PROPERTIES TIMEOUT 60)
 omacustos_add_test(resourceusage-test tests/resourceusage_test.cpp omacustos-controllers)
 omacustos_add_test(protonauthcontroller-test tests/protonauthcontroller_test.cpp omacustos-controllers)
 omacustos_add_test(themecolors-test tests/themecolors_test.cpp omacustos-theme)

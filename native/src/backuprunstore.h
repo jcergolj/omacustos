@@ -3,6 +3,8 @@
 #include <QDateTime>
 #include <QString>
 #include <QVector>
+#include <functional>
+#include "backupconfig.h"
 #include "backupprogress.h"
 #include "backupresult.h"
 
@@ -43,10 +45,24 @@ public:
     QVector<BackupRunRecord> &records();
     const QVector<BackupRunRecord> &records() const;
 
+    // Durable mutations reload under a short queue lock. Worker exclusion is
+    // separate and must be held by the executable for prepare/attempt operations.
+    bool queueManual(const QStringList &setIds, bool requireNew, QString *error = nullptr);
+    bool prepareWorker(const QVector<BackupSet> &sets, const QDateTime &now, QString *error = nullptr);
+    bool waitForPrerequisite(const QString &setId, const QString &reason, const QDateTime &now,
+        QString *error = nullptr);
+    bool beginAttempt(const QString &setId, const QString &copyPath, BackupRunRecord *attempt,
+        QString *error = nullptr);
+    bool publishProgress(const BackupRunRecord &attempt, QString *error = nullptr);
+    bool completeAttempt(const BackupRunRecord &attempt, bool succeeded, const QString &failure,
+        const QDateTime &now, QString *error = nullptr);
+    bool rememberCopyPath(const BackupRunRecord &expected, const QString &copyPath, QString *error = nullptr);
+    bool markCopyDeleted(const QString &setId, const QString &copyPath, QString *error = nullptr);
+
     void ensureSet(const QString &setId);
     bool enqueue(const QString &setId, const QString &reason, const QDateTime &scheduledFor);
     QVector<int> readyIndexes(const QDateTime &now) const;
-    // Only call while holding the exclusive worker and run-state locks.
+    // In-memory rules; durable callers use prepareWorker instead.
     bool recoverInterrupted(const QDateTime &now);
     BackupRunRecord *find(const QString &setId);
     const BackupRunRecord *find(const QString &setId) const;
@@ -61,6 +77,8 @@ public:
     static int retryDelaySeconds(int attempt);
 
 private:
+    bool update(const std::function<bool(BackupRunStore &, QString *)> &mutation, QString *error);
+    BackupRunRecord *matchingAttempt(const BackupRunRecord &attempt, QString *error);
     QString path;
     QVector<BackupRunRecord> runRecords;
 };

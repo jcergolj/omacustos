@@ -68,6 +68,31 @@ parses changed bytes. Missing files clear their snapshots; present empty files
 are malformed. Refresh errors remain visible until a successful retry, while
 remaining-time countdowns continue independently of state changes.
 
+`BackupRunStore` owns durable manual enqueue, schedule catch-up, interrupted-run
+recovery, prerequisite deferral, running publication, progress, and outcome
+updates. Each mutation briefly locks `omacustos-backup-runs.json.lock`, reloads
+the latest queue, and atomically saves the changed state. Waiting transitions
+are saved before the worker skips that backup, even when every ready backup waits.
+Progress and final outcomes update only the matching running attempt (backup ID,
+copy path, attempt count, and scheduled time), preserving other queued work.
+
+The worker separately holds `<config-path>.worker.lock` and
+`omacustos-backup-runs.json.worker.lock` throughout execution. The latter excludes
+workers using different config files in the same state directory without blocking
+manual enqueue during transfers. It reloads the queue between backups to pick up
+new requests, attempting each backup at most once per invocation. The progress
+writer is joined before outcome publication, so pending samples cannot overwrite
+a finished attempt. Executable setup supplies the system prerequisite probe;
+the battery fixture exercises the same worker execution path with deterministic
+AC-power state.
+
+Copy management and import acquire `omacustos-backup-runs.json.management.lock`
+before worker exclusion and release it last. A newly launched worker waits at
+that gate, then acquires worker exclusion and releases the gate before running.
+Thus requests queued during management execute after it finishes, including
+manual-only backups with no timer. A competing worker still exits immediately
+when another worker holds exclusion.
+
 ## Remote Layout
 
 Each copy is stored independently below:
@@ -231,12 +256,16 @@ URLs and is merged atomically under a separate lock shared by the GUI and worker
 
 Runs persist the exact copy folder as `remote_copy_path`. For older run records,
 OmaCustos identifies the newest matching manifest inside that backup's folder and
-remembers its path under the worker/run-state locks. This legacy fallback still
+remembers its path through a fresh coordinated run-store update. This legacy fallback still
 downloads manifests. Browsing and manual deletion use the same recorded copy.
 Manual deletion requires confirmation of the exact path, rechecks its OmaCustos
 manifest and identity, and moves that copy to Proton Drive Trash. Older copies
 and the backup set remain; the deleted entry disappears from Recent backups.
-Worker and run-state locks prevent deletion during a backup or queue update.
+Config-specific and shared queue-worker locks prevent deletion during a backup.
+Discovery and deletion release queue coordination between durable mutations, so
+manual requests can be saved during remote calls. Copy-pointer and deletion
+updates merge fresh state; deleting an old copy preserves a new manual request
+for the same backup instead of replacing its pending status with `copy_deleted`.
 
 ## Backup Progress And Remaining Time
 

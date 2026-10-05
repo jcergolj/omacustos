@@ -51,21 +51,20 @@ RecentCopyTarget resolveCopy(BackupProvider &provider, const QString &configPath
 {
     RecentCopyTarget result;
     result.setId = setId;
-    QLockFile workerLock(configPath + QStringLiteral(".worker.lock"));
-    if (!browse && !workerLock.tryLock(0)) {
-        result.error = QStringLiteral("Wait for the running backup to finish before managing its copies.");
-        return result;
-    }
     const QString runPath = QDir(QFileInfo(configPath).absolutePath()).filePath(QStringLiteral("omacustos-backup-runs.json"));
-    QLockFile runLock(runPath + QStringLiteral(".lock"));
-    if (!browse && !runLock.tryLock(0)) {
-        result.error = QStringLiteral("A backup queue update is already in progress.");
+    QLockFile managementGate(runPath + QStringLiteral(".management.lock"));
+    QLockFile workerLock(configPath + QStringLiteral(".worker.lock"));
+    QLockFile queueWorkerLock(runPath + QStringLiteral(".worker.lock"));
+    workerLock.setStaleLockTime(0);
+    queueWorkerLock.setStaleLockTime(0);
+    managementGate.setStaleLockTime(0);
+    if (!browse && (!managementGate.tryLock(0) || !workerLock.tryLock(0) || !queueWorkerLock.tryLock(0))) {
+        result.error = QStringLiteral("Wait for the running backup to finish before managing its copies.");
         return result;
     }
     BackupConfig config;
     BackupRunStore runs(runPath);
-    QByteArray runContents;
-    if (!BackupConfigStore(configPath).load(&config, &result.error) || !runs.load(&result.error, &runContents)) {
+    if (!BackupConfigStore(configPath).load(&config, &result.error) || !runs.load(&result.error)) {
         return result;
     }
     const auto set = std::find_if(config.sets.cbegin(), config.sets.cend(), [&setId](const BackupSet &candidate) {
@@ -109,12 +108,8 @@ RecentCopyTarget resolveCopy(BackupProvider &provider, const QString &configPath
             }
             return result;
         }
-        record->status = QStringLiteral("copy_deleted");
-        record->remoteCopyPath.clear();
-        record->nextAttempt = {};
-        record->lastError.clear();
         if (cleanup.forgetTarget(setId, result.path, &result.error)) {
-            runs.save(&result.error);
+            runs.markCopyDeleted(setId, result.path, &result.error);
         }
         return result;
     }
@@ -134,20 +129,9 @@ RecentCopyTarget resolveCopy(BackupProvider &provider, const QString &configPath
     }
 
     // Older run records have no exact path. Identify their newest copy by its manifest once.
-    if (browse && (!workerLock.tryLock(0) || !runLock.tryLock(0))) {
+    if (browse && (!managementGate.tryLock(0) || !workerLock.tryLock(0) || !queueWorkerLock.tryLock(0))) {
         result.error = QStringLiteral("Wait for the running backup or queue update to finish before discovering older copies.");
         return result;
-    }
-    if (browse) {
-        // The unlocked navigation read must never overwrite a newer queue
-        // snapshot when legacy discovery remembers its result.
-        BackupRunStore currentRuns(runPath);
-        QByteArray currentContents;
-        if (!currentRuns.load(&result.error, &currentContents)) return result;
-        if (currentContents != runContents) {
-            result.error = QStringLiteral("The recent backup changed. Open it again to use the current copy.");
-            return result;
-        }
     }
     const QString root = QDir::cleanPath(set->remoteFolder(computer));
     QVector<RemoteItem> folders;
@@ -167,8 +151,8 @@ RecentCopyTarget resolveCopy(BackupProvider &provider, const QString &configPath
         result.error = QStringLiteral("No identifiable OmaCustos backup copy was found for this backup set.");
         return result;
     }
-    record->remoteCopyPath = result.path;
-    runs.save(&result.error);
+    const BackupRunRecord expected = *record;
+    runs.rememberCopyPath(expected, result.path, &result.error);
     return result;
 }
 

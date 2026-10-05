@@ -1,10 +1,12 @@
 #include "backuprunstore.h"
+#include "backupschedule.h"
 
 #include <QDir>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLockFile>
 #include <QSaveFile>
 #include <cmath>
 #include <limits>
@@ -259,9 +261,200 @@ bool BackupRunStore::save(QString *error) const
     return true;
 }
 
+bool BackupRunStore::update(const std::function<bool(BackupRunStore &, QString *)> &mutation, QString *error)
+{
+    if (!QDir().mkpath(QFileInfo(path).absolutePath())) {
+        if (error) *error = QStringLiteral("Unable to create the backup run state directory.");
+        return false;
+    }
+    QLockFile lock(path + QStringLiteral(".lock"));
+    lock.setStaleLockTime(0);
+    if (!lock.tryLock(5000)) {
+        if (error) *error = QStringLiteral("A backup queue update is already in progress.");
+        return false;
+    }
+    BackupRunStore fresh(path);
+    if (!fresh.load(error) || !mutation(fresh, error) || !fresh.save(error)) {
+        return false;
+    }
+    runRecords = std::move(fresh.runRecords);
+    return true;
+}
+
+bool BackupRunStore::queueManual(const QStringList &setIds, bool requireNew, QString *error)
+{
+    return update([&](BackupRunStore &fresh, QString *error) {
+        const QDateTime now = QDateTime::currentDateTime();
+        bool queued = false;
+        for (const QString &setId : setIds) {
+            queued = fresh.enqueue(setId, QStringLiteral("manual"), now) || queued;
+        }
+        if (requireNew && !queued) {
+            if (error) *error = QStringLiteral("The selected backup is already queued.");
+            return false;
+        }
+        return true;
+    }, error);
+}
+
+bool BackupRunStore::prepareWorker(const QVector<BackupSet> &sets, const QDateTime &now, QString *error)
+{
+    return update([&](BackupRunStore &fresh, QString *) {
+        fresh.recoverInterrupted(now);
+        for (const BackupSet &set : sets) {
+            fresh.ensureSet(set.id);
+            BackupRunRecord *record = fresh.find(set.id);
+            if (!set.schedule.enabled()) continue;
+            QDateTime due = record->nextScheduled;
+            if (record->lastScheduled.isValid()) {
+                const QDateTime recalculated = BackupScheduleCalculator::nextRun(set.schedule, record->lastScheduled);
+                if (recalculated.isValid() && recalculated != due) {
+                    due = recalculated;
+                    record->nextScheduled = recalculated;
+                }
+            }
+            if (!due.isValid()) {
+                const QDateTime currentDue = BackupScheduleCalculator::dueRun(set.schedule, now);
+                if (currentDue.isValid() && currentDue <= now) {
+                    due = currentDue;
+                } else {
+                    record->nextScheduled = BackupScheduleCalculator::nextRun(set.schedule, now);
+                }
+            }
+            if (due.isValid() && due <= now) {
+                record->lastScheduled = due;
+                record->nextScheduled = BackupScheduleCalculator::nextRun(set.schedule, now);
+                fresh.enqueue(set.id, QStringLiteral("schedule"), due);
+            }
+        }
+        return true;
+    }, error);
+}
+
+bool BackupRunStore::waitForPrerequisite(const QString &setId, const QString &reason,
+    const QDateTime &now, QString *error)
+{
+    return update([&](BackupRunStore &fresh, QString *error) {
+        BackupRunRecord *record = fresh.find(setId);
+        if (!record) {
+            if (error) *error = QStringLiteral("The queued backup no longer exists.");
+            return false;
+        }
+        fresh.markWaiting(*record, reason, now);
+        return true;
+    }, error);
+}
+
+bool BackupRunStore::beginAttempt(const QString &setId, const QString &copyPath,
+    BackupRunRecord *attempt, QString *error)
+{
+    BackupRunRecord claimed;
+    const bool saved = update([&](BackupRunStore &fresh, QString *error) {
+        BackupRunRecord *record = fresh.find(setId);
+        const QVector<int> ready = fresh.readyIndexes(QDateTime::currentDateTime());
+        bool eligible = false;
+        for (int index : ready) eligible = eligible || fresh.records().at(index).setId == setId;
+        if (!record || !eligible) {
+            if (error) *error = QStringLiteral("The backup is no longer ready to run.");
+            return false;
+        }
+        fresh.markRunning(*record);
+        record->remoteCopyPath = copyPath;
+        claimed = *record;
+        return true;
+    }, error);
+    if (saved) *attempt = std::move(claimed);
+    return saved;
+}
+
+BackupRunRecord *BackupRunStore::matchingAttempt(const BackupRunRecord &attempt, QString *error)
+{
+    BackupRunRecord *record = find(attempt.setId);
+    if (!record || record->status != QStringLiteral("running")
+        || record->remoteCopyPath != attempt.remoteCopyPath || record->attempts != attempt.attempts
+        || record->scheduledFor != attempt.scheduledFor) {
+        if (error) *error = QStringLiteral("The backup attempt is no longer current.");
+        return nullptr;
+    }
+    return record;
+}
+
+bool BackupRunStore::publishProgress(const BackupRunRecord &attempt, QString *error)
+{
+    return update([&](BackupRunStore &fresh, QString *error) {
+        BackupRunRecord *record = fresh.matchingAttempt(attempt, error);
+        if (!record) return false;
+        record->progress = attempt.progress;
+        record->progressElapsedMs = attempt.progressElapsedMs;
+        record->progressUpdatedAt = attempt.progressUpdatedAt;
+        return true;
+    }, error);
+}
+
+bool BackupRunStore::completeAttempt(const BackupRunRecord &attempt, bool succeeded,
+    const QString &failure, const QDateTime &now, QString *error)
+{
+    return update([&](BackupRunStore &fresh, QString *error) {
+        BackupRunRecord *record = fresh.matchingAttempt(attempt, error);
+        if (!record) return false;
+        record->progress = attempt.progress;
+        record->progressElapsedMs = attempt.progressElapsedMs;
+        record->progressUpdatedAt = attempt.progressUpdatedAt;
+        record->result = attempt.result;
+        const QString message = failure.toLower();
+        if (succeeded) {
+            fresh.markSuccess(*record, now);
+        } else if (message.contains(QStringLiteral("auth")) || message.contains(QStringLiteral("sign in"))
+            || message.contains(QStringLiteral("login")) || message.contains(QStringLiteral("401"))) {
+            fresh.markAuthenticationRequired(*record, failure, now);
+        } else if (attempt.result.manifestVerified && attempt.result.verifiedFiles > 0) {
+            fresh.markIncomplete(*record, failure, now);
+        } else {
+            fresh.markFailed(*record, failure, now);
+        }
+        return true;
+    }, error);
+}
+
 QString BackupRunStore::filePath() const
 {
     return path;
+}
+
+bool BackupRunStore::rememberCopyPath(const BackupRunRecord &expected, const QString &copyPath, QString *error)
+{
+    return update([&](BackupRunStore &fresh, QString *error) {
+        fresh.ensureSet(expected.setId);
+        BackupRunRecord *record = fresh.find(expected.setId);
+        if (record->status != expected.status || record->scheduledFor != expected.scheduledFor
+            || record->attempts != expected.attempts || record->remoteCopyPath != expected.remoteCopyPath
+            || record->lastSuccess != expected.lastSuccess) {
+            if (error) *error = QStringLiteral("The recent backup changed. Open it again to use the current copy.");
+            return false;
+        }
+        record->remoteCopyPath = copyPath;
+        return true;
+    }, error);
+}
+
+bool BackupRunStore::markCopyDeleted(const QString &setId, const QString &copyPath, QString *error)
+{
+    return update([&](BackupRunStore &fresh, QString *error) {
+        BackupRunRecord *record = fresh.find(setId);
+        if (!record || record->remoteCopyPath != copyPath || record->status == QStringLiteral("running")) {
+            if (error) *error = QStringLiteral("The recent backup copy changed. Refresh it to use the current copy.");
+            return false;
+        }
+        record->remoteCopyPath.clear();
+        // A manual request may arrive while the old copy is being trashed.
+        // Removing that pointer must not cancel the newly queued logical run.
+        if (record->status != QStringLiteral("pending")) {
+            record->status = QStringLiteral("copy_deleted");
+            record->nextAttempt = {};
+            record->lastError.clear();
+        }
+        return true;
+    }, error);
 }
 
 QVector<BackupRunRecord> &BackupRunStore::records()

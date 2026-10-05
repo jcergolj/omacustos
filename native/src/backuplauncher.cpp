@@ -3,7 +3,6 @@
 #include "backuprunstore.h"
 
 #include <QDir>
-#include <QLockFile>
 
 #include <algorithm>
 
@@ -26,22 +25,12 @@ void BackupLauncher::startBackup()
     }
 
     const QString runPath = QDir::home().filePath(QStringLiteral(".config/omacustos/omacustos-backup-runs.json"));
-    QLockFile runStateLock(runPath + QStringLiteral(".lock"));
-    if (!runStateLock.tryLock(0)) {
-        emit failed(QStringLiteral("A backup queue update is already in progress."));
-        return;
-    }
     BackupRunStore runs(runPath);
-    if (!runs.load(&error)) {
-        emit failed(error);
-
-        return;
-    }
-    const QDateTime now = QDateTime::currentDateTime();
+    QStringList setIds;
     for (const BackupSet &set : config.sets) {
-        runs.enqueue(set.id, QStringLiteral("manual"), now);
+        setIds.append(set.id);
     }
-    if (!runs.save(&error)) {
+    if (!runs.queueManual(setIds, false, &error)) {
         emit failed(error);
 
         return;
@@ -67,17 +56,8 @@ void BackupLauncher::startBackup(const QString &setId)
         return;
     }
     const QString runPath = QDir::home().filePath(QStringLiteral(".config/omacustos/omacustos-backup-runs.json"));
-    QLockFile runStateLock(runPath + QStringLiteral(".lock"));
-    if (!runStateLock.tryLock(0)) {
-        emit failed(QStringLiteral("A backup queue update is already in progress."));
-        return;
-    }
     BackupRunStore runs(runPath);
-    if (!runs.load(&error) || !runs.enqueue(setId, QStringLiteral("manual"), QDateTime::currentDateTime())) {
-        emit failed(error.isEmpty() ? QStringLiteral("The selected backup is already queued.") : error);
-        return;
-    }
-    if (!runs.save(&error)) {
+    if (!runs.queueManual({setId}, true, &error)) {
         emit failed(error);
         return;
     }
@@ -98,19 +78,8 @@ void BackupLauncher::startBackup(const QString &sourceDirectory, const QString &
     }
 
     const QString runPath = QDir::home().filePath(QStringLiteral(".config/omacustos/omacustos-backup-runs.json"));
-    QLockFile runStateLock(runPath + QStringLiteral(".lock"));
-    if (!runStateLock.tryLock(0)) {
-        emit failed(QStringLiteral("A backup queue update is already in progress."));
-        return;
-    }
     BackupRunStore runs(runPath);
-    if (!runs.load(&error)) {
-        emit failed(error.isEmpty() ? QStringLiteral("Unable to queue the backup.") : error);
-
-        return;
-    }
-    runs.enqueue(QStringLiteral("default"), QStringLiteral("manual"), QDateTime::currentDateTime());
-    if (!runs.save(&error)) {
+    if (!runs.queueManual({QStringLiteral("default")}, false, &error)) {
         emit failed(error.isEmpty() ? QStringLiteral("Unable to queue the backup.") : error);
 
         return;

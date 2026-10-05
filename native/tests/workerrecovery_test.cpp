@@ -161,8 +161,8 @@ esac
     QVERIFY(!store.find("documents")->lastSuccess.isValid());
 
     // Old lock timestamps must not allow a second worker to recover a live
-    // run. The alternate config also exercises the shared run-state lock.
-    for (const QString &lockPath : {configPath + ".worker.lock", store.filePath() + ".lock"}) {
+    // run. The alternate config also exercises the shared queue-worker lock.
+    for (const QString &lockPath : {configPath + ".worker.lock", store.filePath() + ".worker.lock"}) {
         QFile lock(lockPath);
         QVERIFY(lock.open(QIODevice::ReadWrite));
         QVERIFY(lock.setFileTime(scheduled.addSecs(-120), QFileDevice::FileModificationTime));

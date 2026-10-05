@@ -792,9 +792,15 @@ bool BackupSetController::importSets(const QString &filePath, bool merge)
         emit failed(error);
         return false;
     }
+    QLockFile managementGate(runStore.filePath() + QStringLiteral(".management.lock"));
     QLockFile workerLock(store.filePath() + QStringLiteral(".worker.lock"));
+    QLockFile queueWorkerLock(runStore.filePath() + QStringLiteral(".worker.lock"));
     QLockFile runLock(runStore.filePath() + QStringLiteral(".lock"));
-    if (!workerLock.tryLock(0) || !runLock.tryLock(0)) {
+    workerLock.setStaleLockTime(0);
+    queueWorkerLock.setStaleLockTime(0);
+    runLock.setStaleLockTime(0);
+    managementGate.setStaleLockTime(0);
+    if (!managementGate.tryLock(0) || !workerLock.tryLock(0) || !queueWorkerLock.tryLock(0) || !runLock.tryLock(0)) {
         emit failed(QStringLiteral("Wait for the current backup or queue update to finish before importing sets."));
         return false;
     }
