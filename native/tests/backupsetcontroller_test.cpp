@@ -4,6 +4,9 @@
 #include <QJsonObject>
 #include <QLockFile>
 #include <QRegularExpression>
+#include <QQmlComponent>
+#include <QQmlContext>
+#include <QQmlEngine>
 #include <QSignalSpy>
 #include <QSysInfo>
 #include <QTemporaryDir>
@@ -66,6 +69,8 @@ private slots:
     void emptyImportDoesNotRestoreLegacySources();
     void removingFinalSetPersistsEmptyConfiguration_data();
     void removingFinalSetPersistsEmptyConfiguration();
+    void newBackupDoesNotKeepDeletedBackupsRunningIndicator_data();
+    void newBackupDoesNotKeepDeletedBackupsRunningIndicator();
     void exportCannotOverwriteLocalState();
     void importIsBlockedWhileWorkerRuns();
     void successfulSaveNotifiesSchedulingButPreviewAndFailedSaveDoNot();
@@ -1206,6 +1211,60 @@ void BackupSetControllerTest::emptyImportDoesNotRestoreLegacySources()
     QCOMPARE(reloaded.protonBinary, QStringLiteral("/custom/proton-drive"));
     BackupSetController reopened(engine, configPath);
     QVERIFY(reopened.setIds().isEmpty());
+}
+
+void BackupSetControllerTest::newBackupDoesNotKeepDeletedBackupsRunningIndicator_data()
+{
+    QTest::addColumn<bool>("otherSet");
+    QTest::newRow("delete final backup") << false;
+    QTest::newRow("delete with another backup remaining") << true;
+}
+
+void BackupSetControllerTest::newBackupDoesNotKeepDeletedBackupsRunningIndicator()
+{
+    QFETCH(bool, otherSet);
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString configPath = directory.filePath("settings.json");
+    BackupConfig config;
+    config.sets = {{"documents", "Documents", "/backups", {"/safe/documents"}, {}}};
+    if (otherSet) config.sets.append({"photos", "Photos", "/backups", {"/safe/photos"}, {}});
+    QVERIFY(BackupConfigStore(configPath).save(config));
+    BackupRunStore runs(directory.filePath("omacustos-backup-runs.json"));
+    runs.ensureSet("documents");
+    runs.markRunning(*runs.find("documents"));
+    if (otherSet) {
+        runs.ensureSet("photos");
+        runs.markFailed(*runs.find("photos"), "Upload failed", QDateTime::currentDateTimeUtc());
+    }
+    QVERIFY(runs.save());
+
+    BackupEngine engine;
+    BackupSetController controller(engine, configPath);
+    QQmlEngine qml;
+    qml.rootContext()->setContextProperty("controller", &controller);
+    QQmlComponent component(&qml);
+    // Use the editor's binding against the real controller, including NOTIFY signals.
+    component.setData(R"(
+        import QtQml
+        QtObject {
+            readonly property bool backupRunning: controller.currentRunStatus === "running"
+            readonly property string runError: controller.currentRunError
+        }
+    )", QUrl());
+    QScopedPointer<QObject> editorState(component.create());
+    QVERIFY2(editorState, qPrintable(component.errorString()));
+    QVERIFY(editorState->property("backupRunning").toBool());
+
+    controller.removeCurrentSet();
+    QVERIFY(!editorState->property("backupRunning").toBool());
+    QCOMPARE(editorState->property("runError").toString(), otherSet ? QString("Upload failed") : QString());
+    controller.addSet();
+    QVERIFY(controller.currentId() != QString("documents"));
+    QCOMPARE(controller.currentRunStatus(), QString("idle"));
+    controller.refreshRunState();
+    QVERIFY(!editorState->property("backupRunning").toBool());
+    QVERIFY(editorState->property("runError").toString().isEmpty());
 }
 
 void BackupSetControllerTest::removingFinalSetPersistsEmptyConfiguration_data()

@@ -118,6 +118,7 @@ omacustos_add_test(themecolors-test tests/themecolors_test.cpp omacustos-theme)
 set_tests_properties(themecolors-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORMTHEME=")
 
 omacustos_add_test(backupsetcontroller-test tests/backupsetcontroller_test.cpp omacustos-controllers)
+target_link_libraries(backupsetcontroller-test PRIVATE Qt6::Qml)
 omacustos_add_test(protonfolderbrowser-test tests/protonfolderbrowser_test.cpp omacustos-controllers)
 omacustos_add_test(recentbackupcopies-test tests/recentbackupcopies_test.cpp omacustos-controllers)
 

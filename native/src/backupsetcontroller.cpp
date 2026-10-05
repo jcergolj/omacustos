@@ -130,6 +130,7 @@ BackupSetController::BackupSetController(BackupEngine &engine, QString configPat
     connect(this, &BackupSetController::setsChanged, this, &BackupSetController::updateDashboard);
     connect(this, &BackupSetController::setsChanged, this, &BackupSetController::runDetailsChanged);
     connect(this, &BackupSetController::currentSetChanged, this, &BackupSetController::updateDashboard);
+    connect(this, &BackupSetController::currentSetChanged, this, &BackupSetController::runStateChanged);
     updateDashboard();
     stateTimer.setInterval(cachedRunningSetIds.isEmpty() ? 5000 : 1000);
 }
