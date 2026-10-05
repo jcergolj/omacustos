@@ -3,6 +3,7 @@
 #include "backuprunstore.h"
 #include "backupprerequisites.h"
 #include "backupcatalog.h"
+#include "backupstaging.h"
 #include "backupecleanup.h"
 #include "protonprovider.h"
 #include "protonfolderlink.h"
@@ -10,6 +11,7 @@
 #include "workerexecution.h"
 
 #include <QDebug>
+#include <QCryptographicHash>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFileInfo>
@@ -136,6 +138,19 @@ int runBackupWorker(const QString &configuredPath, BackupPrerequisiteProbe &prer
         return 1;
     }
     BackupRunStore runStore(QDir(stateDirectory).filePath(QStringLiteral("omacustos-backup-runs.json")));
+    if (!runStore.load(&error)) { qCritical().noquote() << error; return 1; }
+    QStringList selectedSources;
+    for (const auto &set : config.sets) selectedSources.append(set.sourceDirectories);
+    QSet<QString> stagingRoots;
+    for (const auto &record : runStore.records())
+        for (const auto &root : record.stagingRoots) stagingRoots.insert(root);
+    // Recover staging even when a durable pause/cancel means no engine will run.
+    // Historical roots include disks selected before an interruption/settings edit.
+    for (const auto &root : stagingRoots) {
+        BackupStaging recovery;
+        QString recoveryError;
+        recovery.open(root, selectedSources, &recoveryError);
+    }
     if (!runStore.prepareWorker(config.sets, QDateTime::currentDateTime(), &error)) {
         qCritical().noquote() << error;
 
@@ -178,22 +193,48 @@ int runBackupWorker(const QString &configuredPath, BackupPrerequisiteProbe &prer
         QString manifestPath;
         const QString computerName = QSysInfo::machineHostName();
         const QString copy = copyId();
-        const QString copyRoot = QDir(setIterator->remoteFolder(computerName)).filePath(copy);
+        const QString proposedRoot = QDir(setIterator->remoteFolder(computerName)).filePath(copy);
         BackupRunRecord record;
-        if (!runStore.beginAttempt(setId, copyRoot, &record, &error)) {
+        if (!runStore.beginAttempt(setId, proposedRoot, &record, &error)) {
             qCritical().noquote() << error;
             return 1;
         }
+        const QString copyRoot = record.remoteCopyPath;
         error.clear();
         const BackupCopyMetadata metadata {
             computerName,
             setIterator->id,
             setIterator->name,
-            copy,
+            QFileInfo(copyRoot).fileName(),
             QDateTime::currentDateTimeUtc(),
         };
         QElapsedTimer progressClock;
         progressClock.start();
+        QElapsedTimer controlClock;
+        controlClock.start();
+        bool stop = false;
+        const auto stopped = [&] {
+            if (stop) return true;
+            if (controlClock.elapsed() < 100) return false;
+            controlClock.restart();
+            BackupRunStore controls(runStore.filePath());
+            QString controlError;
+            if (!controls.load(&controlError)) { stop = true; return true; }
+            const auto *current = controls.find(setId);
+            stop = !current || current->remoteCopyPath != copyRoot || current->attempts != record.attempts
+                || current->status != "running" || !current->controlRequest.isEmpty();
+            return stop;
+        };
+        runner.setStopRequested(stopped);
+        BackupOptions options;
+        options.freshCopy = true;
+        options.stagingDirectory = setIterator->stagingDirectory;
+        options.stagingBudget = setIterator->stagingBudget;
+        options.continuationDirectory = QDir(stateDirectory).filePath(QStringLiteral("continuations/")
+            + QString::fromLatin1(QCryptographicHash::hash(copyRoot.toUtf8(), QCryptographicHash::Sha256).toHex()));
+        options.stopped = stopped;
+        options.retainLocalManifest = false;
+        options.stagingReady = [&](const QString &root, QString *error) { return runStore.rememberStagingRoot(record, root, error); };
         bool succeeded;
         {
             ProgressWriter progressWriter(runStore.filePath(), progressClock);
@@ -204,25 +245,13 @@ int runBackupWorker(const QString &configuredPath, BackupPrerequisiteProbe &prer
                 progressWriter.update(record, progress);
             };
             succeeded = engine.backup(setIterator->sourceDirectories, copyRoot, setIterator->exclusions,
-                metadata, provider, &manifestPath, &error, reportProgress, &record.result, {true});
+                metadata, provider, &manifestPath, &error, reportProgress, &record.result, options);
         }
+        runner.setStopRequested({});
+        if (stopped()) succeeded = false;
         if (succeeded) {
             record.progressElapsedMs = progressClock.elapsed();
             qInfo().noquote() << setIterator->name << manifestPath;
-
-            QVector<RemoteCopy> copies;
-            QString catalogError;
-            if (BackupCatalog::discoverCopies(provider, setIterator->remoteFolder(computerName),
-                    setIterator->id, &copies, &catalogError)) {
-                const QStringList targets = BackupCleanup::eligibleTargets(
-                    copies, setIterator->retention, computerName, setIterator->id);
-                if (!BackupCleanup::run(provider, cleanupStore, setIterator->id, targets,
-                        setIterator->remoteFolder(computerName), &catalogError)) {
-                    qCritical().noquote() << setIterator->name << QStringLiteral("Cleanup failed:") << catalogError;
-                }
-            } else {
-                qCritical().noquote() << setIterator->name << QStringLiteral("Cleanup preview unavailable:") << catalogError;
-            }
         } else {
             qCritical().noquote() << setIterator->name << error << manifestPath;
         }
@@ -239,6 +268,23 @@ int runBackupWorker(const QString &configuredPath, BackupPrerequisiteProbe &prer
 
             return 1;
         }
+        // A final manifest is the durable outcome; checkpoints for terminal work
+        // are no longer needed. Interrupted/paused work keeps its journal.
+        const auto *completed = runStore.find(setId);
+        if (completed && completed->status == QStringLiteral("success") && completed->result.manifestVerified) {
+            // Commit success under the same lock as control decisions before
+            // retention. A late pause/cancel can never authorize old-copy deletion.
+            QVector<RemoteCopy> copies;
+            QString catalogError;
+            const QString copyParent = QFileInfo(copyRoot).path();
+            if (BackupCatalog::discoverCopies(provider, copyParent, setIterator->id, &copies, &catalogError)) {
+                const QStringList targets = BackupCleanup::eligibleTargets(copies, setIterator->retention, computerName, setIterator->id);
+                if (!BackupCleanup::run(provider, cleanupStore, setIterator->id, targets, copyParent, &catalogError))
+                    qCritical().noquote() << setIterator->name << QStringLiteral("Cleanup failed:") << catalogError;
+            } else qCritical().noquote() << setIterator->name << QStringLiteral("Cleanup preview unavailable:") << catalogError;
+        }
+        if (completed && !completed->unfinished) QDir(options.continuationDirectory).removeRecursively();
+        if (!manifestPath.isEmpty()) QDir(QFileInfo(manifestPath).absolutePath()).removeRecursively();
     }
 
     return 0;

@@ -49,6 +49,7 @@ omacustos-backup.json
 omacustos-backup-runs.json
 omacustos-backup-cleanup.json
 omacustos-browser-links.json
+continuations/<sha256-of-exact-copy-path>/
 ```
 
 The first file contains named backup configurations. Run history and pending
@@ -87,6 +88,27 @@ writer is joined before outcome publication, so pending samples cannot overwrite
 a finished attempt. Executable setup supplies the system prerequisite probe;
 the battery fixture exercises the same worker execution path with deterministic
 AC-power state.
+
+Modern running records carry `unfinished`, `control_request`, cancelled-copy
+history, and staging-root history. Retry count is separate from copy identity.
+Recovery/Resume retain the exact unfinished copy path; fresh requests after a
+terminal outcome allocate a new namespace. Older records/configurations remain
+readable. Pause/cancel decisions are merged under the run-store lock, are checked
+cooperatively during scan/copy work and approximately every 100 ms during CLI
+commands, and dominate late progress/final-result writes. Linux CLI children have
+a parent-death signal; Pause/Cancel kill their process group. User-paused work is
+never scheduler-ready. Authentication defers for 60 seconds; transient transfer
+failures retain the copy and use exponential retry delay, capped at one hour.
+
+`BackupContinuation` stores a versioned copy/root-identity header and atomic,
+sequenced batch journals. Prepared mapping records are committed before transfer
+and never authorize reuse. Verified records are committed after remote verification
+and before payload release. Commits use `QSaveFile` without direct-write fallback
+and sync the containing directory. Journal writes scale with a batch, rather than
+rewriting every verified item at each checkpoint. Source/remote/restore mappings
+remain stable across root reordering, additions, reserved names, and file/directory
+changes. Rescan creates a new final manifest from the current selection; stale
+remote bytes outside that manifest are not restore entries.
 
 Copy management and import acquire `omacustos-backup-runs.json.management.lock`
 before worker exclusion and release it last. A newly launched worker waits at
@@ -177,30 +199,43 @@ on failure. It returns only the staged path, size, and SHA-256; the orchestrator
 owns the temporary directories and controls their lifetime through upload/retry.
 The resulting read-only staged file is uploaded under the requested remote
 basename, so source edits or pathname replacement cannot invalidate the recorded
-SHA-256. Fresh Proton backups containing a folder source stage the whole selected
-tree, preserving mapped paths, hidden files, and exclusions, and upload it with
-one recursive CLI command. Folder conflicts use `merge`, allowing one whole-tree
-retry without replacing already transferred folders. The private staging tree is
-removed immediately after the upload/retry, before remote verification, on both
-success and failure. Early returns also remove staging automatically. The temporary
-filesystem needs space for the entire selected backup. File-only backups and
-providers without recursive upload retain per-file staging and transfer.
-Read or staging failures produce failed items, never successful entries; partial
-staged files are removed before the recursive upload can see them. An unsuccessful
-folder command cannot mark the backup successful, but any files that pass subsequent
-verification remain individually restorable in an incomplete copy.
+SHA-256. Worker backups use `backupBatches`: at most 1000000000 payload bytes and
+1000 files per prepared batch by default. A larger file is staged alone after a
+free-space check, including a 16 MiB metadata reserve. Actual writes and flushes
+can still fail under a user quota; those failures produce a waiting state with
+verified work preserved. Source-read failures instead continue other files and
+finalize an Incomplete manifest containing only verified entries.
+
+`BackupStaging` selects `~/.local/share/omacustos/staging` outside sources, or a
+private `/var/tmp/omacustos-<uid>/staging` fallback. Explicit `staging_directory`
+and positive `staging_budget_bytes` settings are persisted/exported per set.
+Locations resolve existing ancestors and reject source overlap, symlinks at the
+chosen directory, RAM-backed/read-only/unusable filesystems. There is no `/tmp`
+fallback. Private workspaces have a durable ownership marker and lifetime lock.
+Startup recovery considers recorded staging roots even when all work is paused;
+only same-user marked, unlocked children outside selected sources are removed.
+Existing user-chosen base-directory permissions are preserved.
+
+Folder sources upload each mapped prepared tree with CLI folder `merge`. A retry
+uses the same read-only bytes. File-only sources/providers without recursive
+upload transfer individual snapshots inside the batch. Staging remains through
+verification and checkpoint publication and is released before preparing the
+next batch. Production final manifests also live inside owned disk staging, so
+crash recovery covers finalization payloads.
 
 A provider SHA-256 field is used when the CLI exposes one. Existing remote payloads
-are reused only when both size and checksum match the staged bytes. With size-only
-metadata, retries re-upload the snapshot rather than trusting same-sized content.
-The worker explicitly marks its newly allocated copy namespace as fresh and skips
-the pre-upload payload lookup. Once payload uploads finish, it verifies them with
-one fresh content-metadata listing per payload directory, falling back to individual
+are reused only after re-hashing current local content and verifying remote content.
+When metadata lacks SHA-256, continuation downloads and hashes the remote payload
+instead of trusting same-sized content. This also reconciles transfers completed
+before verified checkpoint publication. A failed merge cannot use size-only
+metadata to certify old unmodified remote content: checksum evidence is required.
+New copy namespaces skip pre-upload payload lookup. Each batch obtains one fresh
+content-metadata listing per payload directory, falling back to individual
 inspection for missing, malformed, or ambiguous entries. Unsupported/failed or
 storage-only listings disable further bulk attempts for that pass. Only verified
 payloads enter the manifest or verified progress counts; manifest verification still
-applies. The verification pass retains metadata only, so staged payloads are removed
-after upload/retry rather than being retained through verification. Engine callers
+applies. Directory caches have batch lifetime, and payloads are released only after
+the verified batch commit. Engine callers
 reusing a namespace retain checksum-based reuse checks and immediate individual
 post-upload verification by default.
 Within a backup operation, each payload parent directory is ensured once, and the
@@ -301,37 +336,45 @@ and is joined before durable success/failure state is saved.
 Processed counts include failed attempts; they describe work done, not verified
 backup contents. Manifest verification remains the authority for successful files.
 
-Remaining time uses the slower of measured per-file and byte-throughput estimates
-and counts down between samples. The last successful run's duration, bytes, and
-file count provide an initial estimate for later runs, including single-file
-backups. Current-run measurements take over once files finish. A first single-file
-backup cannot provide an estimate before that file finishes. Older run records
-without progress remain compatible and show an estimating state.
+Modern worker attempts show their current phase and verified byte/file counts
+instead of estimating throughput or ETA from the CLI's final JSON summary.
+Historical elapsed/count fields and the old estimator remain readable for record
+compatibility, but do not drive the new continuation UI.
 
 The UI polls once per second while a backup is running and every five seconds
 otherwise. Unchanged state contents skip JSON parsing and model notifications;
-countdowns update independently of the recent-backup model. Ordering, summaries,
+phase/progress presentation updates independently of the recent-backup model. Ordering, summaries,
 and transfer display data are cached once per refresh. Detailed issue lists are
 converted only when requested, including while the details dialog is open.
-Expired estimates show **Taking longer than estimated…** rather than
-claiming zero remaining time. Manifest upload, verification, and post-backup
-cleanup show **Finalizing backup…** until the worker records its final result.
+Manifest upload/verification show **Finalizing backup…**. Success is durably
+published before retention runs; a concurrent pause/cancel cannot authorize
+older-copy deletion.
 
 The work-progress bar measures processed file attempts rather than upload bytes
 or verified contents. The CLI has no documented live byte-progress feed; the
 current path, planned size, and phase remain visible during single-file transfers.
-Folder backups show separate preparation and whole-folder upload phases with an
+Folder backups show separate preparation and batch-folder upload phases with an
 indeterminate work-progress bar. Staging a file does not count as uploading it;
 processed counts advance only after the folder command finishes, and verification
-counts remain zero until remote verification succeeds.
+counts advance after remote verification and durable checkpoint publication.
 
 Run state also stores a structured `result` with verified payload counts, issues,
 and whether the remote manifest passed verification. Only a verified manifest with
-some verified entries can produce an **Incomplete** result. An attempt with no
-verified entries or a failed manifest produces **Failed**. Both retain automatic
-retry backoff. Only **Successful** runs trigger retention cleanup and update the
-historical duration used for estimates. Older run records without these fields
-remain readable and do not display invented verified-file counts.
+some verified entries can produce an **Incomplete** result. Source failures with
+no verified entries produce **Failed**. Transfer, verification, manifest, and
+checkpoint interruptions instead keep the copy unfinished in **Retrying** or an
+actionable **Waiting** / **Sign-in required** state. Only **Successful** runs
+trigger retention cleanup. Older run records without these fields remain readable
+and do not display invented verified-file counts.
+
+Payload batching does not bound all metadata. Selection paths, collision maps,
+manifest entries, continuation identities, and provider listings still scale with
+file count; provider listings can include more than the current batch. Batch
+journals avoid quadratic full-checkpoint rewrites, and verification caches are
+discarded between batches. The opt-in [large-backup resource benchmark](native/tests/largebackup-benchmark.md)
+records selection/checkpoint, execution, and final-manifest RSS separately for
+877172 files / 95323650798 selected bytes. The high-water mark is measured for the
+process, not an invented constant-memory guarantee or a live CLI throughput estimate.
 
 ## Retention And Cleanup
 

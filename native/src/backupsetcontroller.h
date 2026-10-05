@@ -32,6 +32,8 @@ class BackupSetController final : public QObject
     Q_PROPERTY(int currentScheduleDayOfMonth READ currentScheduleDayOfMonth WRITE setCurrentScheduleDayOfMonth NOTIFY currentSetChanged)
     Q_PROPERTY(int currentRetention READ currentRetention WRITE setCurrentRetention NOTIFY currentSetChanged)
     Q_PROPERTY(bool currentOnlyOnAcPower READ currentOnlyOnAcPower WRITE setCurrentOnlyOnAcPower NOTIFY currentSetChanged)
+    Q_PROPERTY(QString currentStagingDirectory READ currentStagingDirectory NOTIFY currentSetChanged)
+    Q_PROPERTY(qint64 currentStagingBudget READ currentStagingBudget NOTIFY currentSetChanged)
     Q_PROPERTY(QString currentNextRun READ currentNextRun NOTIFY currentSetChanged)
     Q_PROPERTY(QString currentRunStatus READ currentRunStatus NOTIFY runStateChanged)
     Q_PROPERTY(QString currentRunError READ currentRunError NOTIFY runStateChanged)
@@ -84,6 +86,8 @@ public:
     int currentRetention() const;
     void setCurrentRetention(int retention);
     bool currentOnlyOnAcPower() const;
+    QString currentStagingDirectory() const;
+    qint64 currentStagingBudget() const;
     void setCurrentOnlyOnAcPower(bool enabled);
     QString currentNextRun() const;
     QString currentRunStatus() const;

@@ -3,9 +3,84 @@
 #include <QProcessEnvironment>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QDir>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QLockFile>
+#include <QStorageInfo>
 
 #include "../src/backupconfig.h"
 #include "../src/backuprunstore.h"
+#include "../src/backupmanifest.h"
+
+namespace {
+bool writeFile(const QString &path, const QByteArray &bytes)
+{
+    if (!QDir().mkpath(QFileInfo(path).absolutePath())) return false;
+    QFile file(path);
+    return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size();
+}
+
+QVector<QJsonObject> logEntries(const QString &path)
+{
+    QFile file(path);
+    QVector<QJsonObject> entries;
+    if (!file.open(QIODevice::ReadOnly)) return entries;
+    while (!file.atEnd()) entries.append(QJsonDocument::fromJson(file.readLine()).object());
+    return entries;
+}
+
+struct WorkerFixture {
+    QTemporaryDir directory {QDir::current().filePath("worker-continuation-XXXXXX")};
+    BackupConfig config;
+    QString configPath = directory.filePath("settings.json");
+    BackupRunStore runs {directory.filePath("omacustos-backup-runs.json")};
+    QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+    QString error;
+
+    bool prepare(qint64 budget = 8)
+    {
+        if (!directory.isValid()) return false;
+        const QString cli = directory.filePath("proton-fixture");
+        if (!QFile::copy(QStringLiteral(OMACUSTOS_CONTINUATION_CLI), cli)
+            || !QFile::setPermissions(cli, QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner)) return false;
+        config.protonBinary = cli;
+        config.sets = {{"documents", "Documents", "/backups", {directory.filePath("source")}, {}}};
+        config.sets[0].stagingDirectory = directory.filePath(".stage");
+        config.sets[0].stagingBudget = budget;
+        environment.insert("FIXTURE_REMOTE", directory.filePath("remote"));
+        environment.insert("FIXTURE_LOG", directory.filePath("transfers.jsonl"));
+        environment.insert("FIXTURE_BATCH_LOG", directory.filePath("batches.jsonl"));
+        environment.insert("FIXTURE_MARKER", directory.filePath("blocked"));
+        return QDir().mkpath(directory.filePath("remote")) && QDir().mkpath(directory.filePath("source"))
+            && save() && runs.queueManual({"documents"}, true, &error);
+    }
+
+    bool save() { return BackupConfigStore(configPath).save(config, &error); }
+    void start(QProcess &worker)
+    {
+        worker.setProcessEnvironment(environment);
+        worker.start(QStringLiteral(OMACUSTOS_WORKER_BINARY), {"--config", configPath});
+    }
+    bool run()
+    {
+        QProcess worker;
+        start(worker);
+        if (!worker.waitForFinished(20000) || worker.exitCode() != 0) { error = worker.readAllStandardError(); return false; }
+        return runs.load(&error);
+    }
+    const BackupRunRecord &record() const { return *runs.find("documents"); }
+    QString remoteCopy() const { return directory.filePath("remote") + record().remoteCopyPath; }
+    bool emptyStaging() const { return QDir(config.sets[0].stagingDirectory).entryList({"attempt-*"}, QDir::Dirs | QDir::NoDotAndDotDot).isEmpty(); }
+    int transfers(const QString &name) const
+    {
+        int count = 0;
+        for (const auto &item : logEntries(directory.filePath("transfers.jsonl")))
+            if (QFileInfo(item.value("remote").toString()).fileName() == name) ++count;
+        return count;
+    }
+};
+}
 
 class WorkerRecoveryTest : public QObject
 {
@@ -15,6 +90,23 @@ private slots:
     void recoveryPreservesTheLogicalRun();
     void terminatedWorkerRecovers_data();
     void terminatedWorkerRecovers();
+    void boundedBatches_data();
+    void boundedBatches();
+    void rescanReusesUnchangedAndReconcilesEdits_data();
+    void rescanReusesUnchangedAndReconcilesEdits();
+    void controlsStopTransfersAndSurviveScheduler_data();
+    void controlsStopTransfersAndSurviveScheduler();
+    void storageWaitingPreservesCheckpoint_data();
+    void storageWaitingPreservesCheckpoint();
+    void stagingRecoveryProtectsActiveAndUnrelatedData();
+    void stagingRejectsUnsafeLocations_data();
+    void stagingRejectsUnsafeLocations();
+    void uncheckpointedUploadsAndRemoteDamageAreReconciled_data();
+    void uncheckpointedUploadsAndRemoteDamageAreReconciled();
+    void namespaceChangesRemainRestorable_data();
+    void namespaceChangesRemainRestorable();
+    void prerequisiteWaitingCanBeCancelledWithoutTouchingHistoricalCopies();
+    void sourceFailuresFinalizeIncompleteAndProtectSuccessfulCopies();
 };
 
 void WorkerRecoveryTest::recoveryPreservesTheLogicalRun()
@@ -57,15 +149,412 @@ void WorkerRecoveryTest::recoveryPreservesTheLogicalRun()
     QCOMPARE(recovered.attempts, 1);
     QCOMPARE(recovered.remoteCopyPath, QString("/interrupted-copy"));
     QVERIFY(recovered.lastError.contains("interrupted"));
-    QCOMPARE(recovered.progress.totalFiles, 0);
-    QVERIFY(!recovered.progress.finalizing);
-    QCOMPARE(recovered.progressElapsedMs, qint64(0));
-    QVERIFY(!recovered.progressUpdatedAt.isValid());
+    QCOMPARE(recovered.progress.totalFiles, 1);
+    QVERIFY(recovered.progress.finalizing);
+    QCOMPARE(recovered.progressElapsedMs, qint64(1000));
+    QCOMPARE(recovered.progressUpdatedAt, scheduled);
     QCOMPARE(reopened.readyIndexes(now).size(), 2);
     QCOMPARE(reopened.find("pending")->status, QString("pending"));
     QCOMPARE(reopened.find("idle")->status, QString("idle"));
     QVERIFY(!reopened.enqueue("documents", "manual", now));
     QVERIFY(!reopened.recoverInterrupted(now));
+}
+
+void WorkerRecoveryTest::boundedBatches_data()
+{
+    QTest::addColumn<int>("count");
+    QTest::addColumn<int>("bytes");
+    QTest::addColumn<qint64>("budget");
+    QTest::newRow("total exceeds capacity-sized budget") << 7 << 4 << qint64(8);
+    QTest::newRow("file-count bound for tiny files") << 2005 << 0 << qint64(1000000);
+    QTest::newRow("oversized files run alone") << 3 << 12 << qint64(8);
+}
+
+void WorkerRecoveryTest::boundedBatches()
+{
+    QFETCH(int, count);
+    QFETCH(int, bytes);
+    QFETCH(qint64, budget);
+    WorkerFixture fixture;
+    QVERIFY2(fixture.prepare(budget), qPrintable(fixture.error));
+    if (count == 7) {
+        // The entire selection exceeds this disk/quota-equivalent payload
+        // capacity. Free-space hints and actual aggregate writes are independent.
+        fixture.environment.insert("LD_PRELOAD", QStringLiteral(OMACUSTOS_QUOTA_FIXTURE));
+        fixture.environment.insert("FIXTURE_STAGING_CAPACITY", QString::number(budget));
+        fixture.environment.insert("FIXTURE_STAGING_AVAILABLE", QString::number(16 * 1024 * 1024 + budget));
+    }
+    for (int index = 0; index < count; ++index)
+        QVERIFY(writeFile(fixture.directory.filePath(QStringLiteral("source/file-%1").arg(index, 4, 10, QChar('0'))), QByteArray(bytes, 'a')));
+    QVERIFY2(fixture.run(), qPrintable(fixture.error));
+    QCOMPARE(fixture.record().status, QString("success"));
+    QCOMPARE(fixture.record().result.verifiedFiles, count);
+    QCOMPARE(fixture.record().result.verifiedBytes, qint64(count) * bytes);
+    QVERIFY(fixture.record().result.manifestVerified);
+    QVERIFY(fixture.emptyStaging());
+    const auto batches = logEntries(fixture.directory.filePath("batches.jsonl"));
+    QVERIFY(batches.size() > 1);
+    for (const auto &batch : batches) {
+        const qint64 size = batch.value("bytes").toInteger();
+        const int files = batch.value("files").toInt();
+        QVERIFY(size <= budget || (files == 1 && size == bytes));
+        QVERIFY(files <= 1000);
+        QVERIFY(!batch.value("source").toString().startsWith("/tmp/"));
+    }
+    QVector<BackupEntry> entries;
+    BackupManifestInfo info;
+    QVERIFY2(BackupManifest::load(QDir(fixture.remoteCopy()).filePath("manifest.json"), &entries, &info, &fixture.error), qPrintable(fixture.error));
+    QCOMPARE(entries.size(), count);
+    QCOMPARE(info.status, QString("complete"));
+}
+
+void WorkerRecoveryTest::rescanReusesUnchangedAndReconcilesEdits_data()
+{
+    QTest::addColumn<bool>("sizeOnly");
+    QTest::newRow("checksum metadata") << false;
+    QTest::newRow("size-only metadata needs content evidence") << true;
+}
+
+void WorkerRecoveryTest::rescanReusesUnchangedAndReconcilesEdits()
+{
+    QFETCH(bool, sizeOnly);
+    WorkerFixture fixture;
+    QVERIFY(fixture.prepare());
+    fixture.environment.insert("FIXTURE_SIZE_ONLY", sizeOnly ? "yes" : "no");
+    fixture.environment.insert("FIXTURE_BLOCK_ITEM", "c.txt");
+    for (const QString &name : {"a.txt", "b.txt", "c.txt", "d.txt"})
+        QVERIFY(writeFile(fixture.directory.filePath("source/" + name), "good"));
+    QProcess worker;
+    fixture.start(worker);
+    QVERIFY(worker.waitForStarted());
+    QTRY_VERIFY_WITH_TIMEOUT(QFile::exists(fixture.directory.filePath("blocked")), 10000);
+    QVERIFY(fixture.runs.load());
+    const QString copy = fixture.record().remoteCopyPath;
+    worker.kill();
+    QVERIFY(worker.waitForFinished());
+    QVERIFY(writeFile(fixture.directory.filePath("source/b.txt"), "edit"));
+    QVERIFY(QFile::remove(fixture.directory.filePath("source/c.txt")));
+    QVERIFY(writeFile(fixture.directory.filePath("source/e.txt"), "new!"));
+    fixture.config.sets[0].exclusions = {fixture.directory.filePath("source/d.txt")};
+    // Add a root with the same basename. Existing unprefixed mappings survive.
+    const QString extra = fixture.directory.filePath("other/source");
+    QVERIFY(writeFile(QDir(extra).filePath("a.txt"), "root"));
+    fixture.config.sets[0].sourceDirectories.prepend(extra);
+    QVERIFY(fixture.save());
+    fixture.environment.remove("FIXTURE_BLOCK_ITEM");
+    QVERIFY2(fixture.run(), qPrintable(fixture.error));
+    QCOMPARE(fixture.record().remoteCopyPath, copy);
+    QCOMPARE(fixture.record().status, QString("success"));
+    QCOMPARE(fixture.transfers("a.txt"), 2); // original once, new root once
+    QCOMPARE(fixture.transfers("b.txt"), 2); // same-size edit is never reused
+    QCOMPARE(fixture.transfers("c.txt"), 1);
+    QVector<BackupEntry> entries;
+    BackupManifestInfo info;
+    QVERIFY(BackupManifest::load(QDir(fixture.remoteCopy()).filePath("manifest.json"), &entries, &info));
+    QStringList restorePaths;
+    for (const auto &entry : entries) restorePaths.append(entry.restorePath);
+    restorePaths.sort();
+    QCOMPARE(restorePaths, QStringList({"a.txt", "b.txt", "e.txt", "source/a.txt"}));
+    QVERIFY(fixture.emptyStaging());
+}
+
+void WorkerRecoveryTest::controlsStopTransfersAndSurviveScheduler_data()
+{
+    QTest::addColumn<QString>("action");
+    QTest::addColumn<bool>("crashBeforeAcknowledgement");
+    QTest::newRow("pause") << QString("pause") << false;
+    QTest::newRow("cancel") << QString("cancel") << false;
+    QTest::newRow("pause survives worker crash") << QString("pause") << true;
+    QTest::newRow("cancel survives worker crash") << QString("cancel") << true;
+}
+
+void WorkerRecoveryTest::controlsStopTransfersAndSurviveScheduler()
+{
+    QFETCH(QString, action);
+    QFETCH(bool, crashBeforeAcknowledgement);
+    WorkerFixture fixture;
+    QVERIFY(fixture.prepare(4));
+    QVERIFY(writeFile(fixture.directory.filePath("source/a.txt"), "good"));
+    QVERIFY(writeFile(fixture.directory.filePath("source/b.txt"), "more"));
+    fixture.environment.insert("FIXTURE_BLOCK_ITEM", "b.txt");
+    QProcess worker;
+    fixture.start(worker);
+    QVERIFY(worker.waitForStarted());
+    QTRY_VERIFY_WITH_TIMEOUT(QFile::exists(fixture.directory.filePath("blocked")), 10000);
+    QVERIFY(fixture.runs.load());
+    const QString copy = fixture.record().remoteCopyPath;
+    QVERIFY(fixture.runs.requestControl("documents", action));
+    if (crashBeforeAcknowledgement) worker.kill();
+    QVERIFY(worker.waitForFinished(5000));
+    QVERIFY(fixture.runs.load());
+    const QString status = action == "pause" ? "paused" : "cancelled";
+    if (!crashBeforeAcknowledgement) {
+        QCOMPARE(fixture.record().status, status);
+        QVERIFY(fixture.emptyStaging());
+    }
+    fixture.environment.remove("FIXTURE_BLOCK_ITEM");
+    QVERIFY(fixture.run()); // scheduler invocation respects durable control intent
+    QCOMPARE(fixture.record().status, status);
+    QCOMPARE(fixture.record().remoteCopyPath, copy);
+    QVERIFY(fixture.emptyStaging());
+    QVERIFY(!QFileInfo::exists(QDir(fixture.remoteCopy()).filePath("manifest.json")));
+    if (action == "pause") {
+        QVERIFY(fixture.runs.requestControl("documents", "resume"));
+        QVERIFY(fixture.run());
+        QCOMPARE(fixture.record().remoteCopyPath, copy);
+        QCOMPARE(fixture.transfers("a.txt"), 1);
+        QCOMPARE(fixture.transfers("b.txt"), 1); // upload-before-checkpoint reconciled
+    } else {
+        QVERIFY(!fixture.runs.requestControl("documents", "resume"));
+        QVERIFY(fixture.runs.queueManual({"documents"}, true));
+        QVERIFY(fixture.run());
+        QVERIFY(fixture.record().remoteCopyPath != copy);
+        QVERIFY(fixture.record().cancelledCopies.contains(copy));
+    }
+    QCOMPARE(fixture.record().status, QString("success"));
+}
+
+void WorkerRecoveryTest::storageWaitingPreservesCheckpoint_data()
+{
+    QTest::addColumn<QString>("failure");
+    QTest::newRow("quota despite filesystem free space") << QString("quota");
+    QTest::newRow("oversized file cannot fit") << QString("space");
+}
+
+void WorkerRecoveryTest::storageWaitingPreservesCheckpoint()
+{
+    QFETCH(QString, failure);
+    WorkerFixture fixture;
+    QVERIFY(fixture.prepare(4));
+    QVERIFY(writeFile(fixture.directory.filePath("source/a.txt"), "good"));
+    QVERIFY(writeFile(fixture.directory.filePath("source/z.txt"), "largepayload"));
+    fixture.environment.insert("LD_PRELOAD", QStringLiteral(OMACUSTOS_QUOTA_FIXTURE));
+    if (failure == "quota") fixture.environment.insert("FIXTURE_STAGING_QUOTA", "4");
+    else fixture.environment.insert("FIXTURE_STAGING_AVAILABLE", QString::number(16 * 1024 * 1024 + 4));
+    QVERIFY2(fixture.run(), qPrintable(fixture.error));
+    QCOMPARE(fixture.record().status, QString("waiting"));
+    QVERIFY(fixture.record().unfinished);
+    QCOMPARE(fixture.record().result.verifiedFiles, 1);
+    QCOMPARE(fixture.record().progress.verifiedFiles, 1);
+    QVERIFY(!fixture.record().result.manifestVerified);
+    QVERIFY(fixture.record().lastError.contains(failure == "quota" ? "quota" : "required", Qt::CaseInsensitive));
+    const QString copy = fixture.record().remoteCopyPath;
+    QVERIFY(fixture.emptyStaging());
+    fixture.environment.remove("LD_PRELOAD");
+    fixture.environment.remove("FIXTURE_STAGING_AVAILABLE");
+    fixture.environment.remove("FIXTURE_STAGING_QUOTA");
+    fixture.config.sets[0].stagingDirectory = fixture.directory.filePath("another-disk");
+    QVERIFY(fixture.save());
+    QVERIFY(fixture.runs.requestControl("documents", "resume"));
+    QVERIFY2(fixture.run(), qPrintable(fixture.error));
+    QCOMPARE(fixture.record().status, QString("success"));
+    QCOMPARE(fixture.record().remoteCopyPath, copy);
+    QCOMPARE(fixture.transfers("a.txt"), 1);
+    QCOMPARE(fixture.record().result.verifiedFiles, 2);
+}
+
+void WorkerRecoveryTest::stagingRecoveryProtectsActiveAndUnrelatedData()
+{
+    WorkerFixture fixture;
+    QVERIFY(fixture.prepare());
+    QVERIFY(writeFile(fixture.directory.filePath("source/a.txt"), "good"));
+    const QString base = fixture.config.sets[0].stagingDirectory;
+    const QString orphan = QDir(base).filePath("attempt-orphan");
+    const QString active = QDir(base).filePath("attempt-active");
+    const QString unrelated = QDir(base).filePath("attempt-user-data");
+    for (const auto &path : {orphan, active}) {
+        QVERIFY(writeFile(QDir(path).filePath(".omacustos-owner"), "omacustos-staging-v1\n"));
+        QVERIFY(writeFile(QDir(path).filePath("payloads/file"), "owned"));
+    }
+    QVERIFY(writeFile(QDir(unrelated).filePath("file"), "user"));
+    QLockFile activeLock(active + ".lock");
+    activeLock.setStaleLockTime(0);
+    QVERIFY(activeLock.tryLock());
+    QVERIFY(fixture.run());
+    QCOMPARE(fixture.record().status, QString("success"));
+    QVERIFY(!QFileInfo::exists(orphan));
+    QVERIFY(QFileInfo::exists(QDir(active).filePath("payloads/file")));
+    QVERIFY(QFileInfo::exists(QDir(unrelated).filePath("file")));
+    QVERIFY(QFileInfo::exists(fixture.directory.filePath("source/a.txt")));
+}
+
+void WorkerRecoveryTest::stagingRejectsUnsafeLocations_data()
+{
+    QTest::addColumn<QString>("location");
+    QTest::newRow("inside source") << QString("source/staging");
+    QTest::newRow("source ancestor") << QString(".");
+    QTest::newRow("RAM backed") << QString("/tmp/omacustos-invalid-test");
+    QTest::newRow("symlink to source") << QString("alias/staging");
+}
+
+void WorkerRecoveryTest::stagingRejectsUnsafeLocations()
+{
+    QFETCH(QString, location);
+    WorkerFixture fixture;
+    QVERIFY(fixture.prepare());
+    QVERIFY(writeFile(fixture.directory.filePath("source/a.txt"), "good"));
+    if (location.startsWith("alias")) QVERIFY(QFile::link(fixture.directory.filePath("source"), fixture.directory.filePath("alias")));
+    fixture.config.sets[0].stagingDirectory = location.startsWith('/') ? location : fixture.directory.filePath(location);
+    QVERIFY(fixture.save());
+    QVERIFY(fixture.run());
+    QCOMPARE(fixture.record().status, QString("waiting"));
+    QCOMPARE(fixture.record().result.verifiedFiles, 0);
+    QVERIFY(fixture.record().lastError.contains(location.startsWith("/tmp") ? "disk-backed" : "overlap"));
+    QVERIFY(logEntries(fixture.directory.filePath("transfers.jsonl")).isEmpty());
+    QVERIFY(QFileInfo::exists(fixture.directory.filePath("source/a.txt")));
+}
+
+void WorkerRecoveryTest::uncheckpointedUploadsAndRemoteDamageAreReconciled_data()
+{
+    QTest::addColumn<QString>("failure");
+    QTest::newRow("checkpoint publication failed after upload") << QString("checkpoint");
+    QTest::newRow("partial merge failure") << QString("partial");
+    QTest::newRow("missing previously verified remote payload") << QString("missing");
+    QTest::newRow("same-sized corrupt previously verified remote payload") << QString("corrupt");
+    QTest::newRow("manifest failure preserves batches") << QString("manifest");
+}
+
+void WorkerRecoveryTest::uncheckpointedUploadsAndRemoteDamageAreReconciled()
+{
+    QFETCH(QString, failure);
+    WorkerFixture fixture;
+    QVERIFY(fixture.prepare(8));
+    fixture.environment.insert("FIXTURE_SIZE_ONLY", "yes");
+    QVERIFY(writeFile(fixture.directory.filePath("source/a.txt"), "good"));
+    QVERIFY(writeFile(fixture.directory.filePath("source/z.txt"), "more"));
+    if (failure == "checkpoint") {
+        fixture.environment.insert("LD_PRELOAD", QStringLiteral(OMACUSTOS_QUOTA_FIXTURE));
+        fixture.environment.insert("FIXTURE_CHECKPOINT_FAILURE", "yes");
+    } else fixture.environment.insert("FIXTURE_FAIL_ITEM", failure == "manifest" ? "manifest.json" : "z.txt");
+    QVERIFY2(fixture.run(), qPrintable(fixture.error));
+    QCOMPARE(fixture.record().status, failure == "checkpoint" ? QString("waiting") : QString("retrying"));
+    QVERIFY(fixture.record().unfinished);
+    QVERIFY(!fixture.record().result.manifestVerified);
+    const QString copy = fixture.record().remoteCopyPath;
+    const QString remoteA = QDir(fixture.remoteCopy()).filePath("a.txt");
+    if (failure == "missing") QVERIFY(QFile::remove(remoteA));
+    if (failure == "corrupt") QVERIFY(writeFile(remoteA, "evil"));
+    fixture.environment.remove("LD_PRELOAD");
+    fixture.environment.remove("FIXTURE_CHECKPOINT_FAILURE");
+    fixture.environment.remove("FIXTURE_FAIL_ITEM");
+    QVERIFY(fixture.runs.requestControl("documents", "resume"));
+    QVERIFY2(fixture.run(), qPrintable(fixture.error));
+    QCOMPARE(fixture.record().status, QString("success"));
+    QCOMPARE(fixture.record().remoteCopyPath, copy);
+    const bool damage = failure == "missing" || failure == "corrupt";
+    QCOMPARE(fixture.transfers("a.txt"), damage ? 3 : failure == "partial" ? 2 : 1);
+    // A partial folder command retries the same snapshot twice; already uploaded
+    // matching remote bytes are reconciled on continuation, not uploaded again.
+    QCOMPARE(fixture.transfers("z.txt"), 1);
+    QFile restored(remoteA);
+    QVERIFY(restored.open(QIODevice::ReadOnly));
+    QCOMPARE(restored.readAll(), QByteArray("good"));
+    QCOMPARE(fixture.record().result.verifiedFiles, 2);
+    QVERIFY(fixture.emptyStaging());
+}
+
+void WorkerRecoveryTest::namespaceChangesRemainRestorable_data()
+{
+    QTest::addColumn<QString>("change");
+    QTest::newRow("reserved manifest directory") << QString("manifest-directory");
+    QTest::newRow("checkpointed file becomes directory") << QString("file-directory");
+    QTest::newRow("new root overlaps original unprefixed subtree") << QString("new-root");
+}
+
+void WorkerRecoveryTest::namespaceChangesRemainRestorable()
+{
+    QFETCH(QString, change);
+    WorkerFixture fixture;
+    QVERIFY(fixture.prepare(4));
+    QVERIFY(writeFile(fixture.directory.filePath("source/a.txt"), "good"));
+    if (change == "manifest-directory") {
+        QVERIFY(writeFile(fixture.directory.filePath("source/manifest.json/data.txt"), "data"));
+        QVERIFY(writeFile(fixture.directory.filePath("source/manifest.json.1/extra.txt"), "more"));
+    } else fixture.environment.insert("FIXTURE_FAIL_ITEM", "manifest.json");
+    QVERIFY(fixture.run());
+    const QString copy = fixture.record().remoteCopyPath;
+    if (change == "file-directory") {
+        QCOMPARE(fixture.record().status, QString("retrying"));
+        QVERIFY(QFile::remove(fixture.directory.filePath("source/a.txt")));
+        QVERIFY(writeFile(fixture.directory.filePath("source/a.txt/child.txt"), "child"));
+    } else if (change == "new-root") {
+        QCOMPARE(fixture.record().status, QString("retrying"));
+        QVERIFY(writeFile(fixture.directory.filePath("source/source/a.txt"), "local"));
+        const QString extra = fixture.directory.filePath("other/source");
+        QVERIFY(writeFile(QDir(extra).filePath("a.txt"), "extra"));
+        fixture.config.sets[0].sourceDirectories.prepend(extra);
+        QVERIFY(fixture.save());
+    }
+    if (change != "manifest-directory") {
+        fixture.environment.remove("FIXTURE_FAIL_ITEM");
+        QVERIFY(fixture.runs.requestControl("documents", "resume"));
+        QVERIFY2(fixture.run(), qPrintable(fixture.error));
+    }
+    QCOMPARE(fixture.record().status, QString("success"));
+    QCOMPARE(fixture.record().remoteCopyPath, copy);
+    QVector<BackupEntry> entries;
+    BackupManifestInfo info;
+    QVERIFY(BackupManifest::load(QDir(fixture.remoteCopy()).filePath("manifest.json"), &entries, &info));
+    QCOMPARE(entries.size(), change == "file-directory" ? 1 : 3);
+    QSet<QString> restores;
+    for (const auto &entry : entries) {
+        QVERIFY(!restores.contains(entry.restorePath));
+        restores.insert(entry.restorePath);
+        QFile remote(fixture.directory.filePath("remote") + entry.remotePath);
+        QVERIFY(remote.open(QIODevice::ReadOnly));
+        QFile source(entry.sourcePath);
+        QVERIFY(source.open(QIODevice::ReadOnly));
+        QCOMPARE(remote.readAll(), source.readAll());
+    }
+    QCOMPARE(info.status, QString("complete"));
+}
+
+void WorkerRecoveryTest::prerequisiteWaitingCanBeCancelledWithoutTouchingHistoricalCopies()
+{
+    WorkerFixture fixture;
+    QVERIFY(fixture.prepare());
+    QVERIFY(fixture.runs.load());
+    auto *record = fixture.runs.find("documents");
+    record->remoteCopyPath = "/historical-successful-copy";
+    record->lastSuccess = QDateTime::currentDateTime();
+    QVERIFY(fixture.runs.save());
+    QVERIFY(fixture.runs.waitForPrerequisite("documents", "Waiting for AC power", QDateTime::currentDateTime()));
+    QVERIFY(fixture.runs.requestControl("documents", "cancel"));
+    QCOMPARE(fixture.record().status, QString("cancelled"));
+    QVERIFY(fixture.record().cancelledCopies.isEmpty());
+    QCOMPARE(fixture.record().remoteCopyPath, QString("/historical-successful-copy"));
+    QVERIFY(fixture.runs.readyIndexes(QDateTime::currentDateTime().addSecs(120)).isEmpty());
+}
+
+void WorkerRecoveryTest::sourceFailuresFinalizeIncompleteAndProtectSuccessfulCopies()
+{
+    WorkerFixture fixture;
+    QVERIFY(fixture.prepare(4));
+    const QString missing = fixture.directory.filePath("source/a.txt");
+    QVERIFY(writeFile(missing, "good"));
+    QVERIFY(writeFile(fixture.directory.filePath("source/b.txt"), "more"));
+    fixture.config.sets[0].retention = 1;
+    QVERIFY(fixture.save());
+    QVERIFY(fixture.run());
+    QCOMPARE(fixture.record().status, QString("success"));
+    const QString successfulCopy = fixture.remoteCopy();
+    fixture.environment.insert("FIXTURE_DELETE_SOURCE", missing);
+    QVERIFY(fixture.runs.queueManual({"documents"}, true));
+    QVERIFY(fixture.run());
+    QCOMPARE(fixture.record().status, QString("incomplete"));
+    QVERIFY(fixture.record().result.manifestVerified);
+    QCOMPARE(fixture.record().result.verifiedFiles, 1);
+    QCOMPARE(fixture.record().result.issues.size(), 1);
+    QCOMPARE(fixture.record().result.issues.first().path, missing);
+    QCOMPARE(fixture.record().result.issues.first().phase, QString("reading"));
+    QVERIFY(QFileInfo::exists(QDir(successfulCopy).filePath("manifest.json")));
+    QVERIFY(QFileInfo::exists(QDir(successfulCopy).filePath("a.txt")));
+    QVector<BackupEntry> entries;
+    BackupManifestInfo info;
+    QVERIFY(BackupManifest::load(QDir(fixture.remoteCopy()).filePath("manifest.json"), &entries, &info));
+    QCOMPARE(info.status, QString("incomplete"));
+    QCOMPARE(entries.size(), 1);
+    QCOMPARE(entries.first().restorePath, QString("b.txt"));
 }
 
 void WorkerRecoveryTest::terminatedWorkerRecovers_data()
@@ -198,7 +687,7 @@ esac
     const auto &record = *store.find("documents");
     QCOMPARE(record.reason, QString("manual"));
     QCOMPARE(record.scheduledFor, scheduled);
-    QVERIFY(record.remoteCopyPath != interruptedCopy);
+    QCOMPARE(record.remoteCopyPath, interruptedCopy);
     if (verificationFails) {
         QVERIFY(record.status != "success");
         QVERIFY(record.status != "running");

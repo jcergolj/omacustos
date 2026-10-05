@@ -41,6 +41,8 @@ TestCase {
         backupSetController.currentName = Qt.binding(function () { return backupSetController.setNames[backupSetController.currentIndex] || "" })
         backupSetController.currentRemoteRoot = Qt.binding(function () { return "/backups/" + backupSetController.currentId })
         backupSetController.currentSources = Qt.binding(function () { return ["/safe/" + backupSetController.currentId] })
+        backupSetController.currentStagingDirectory = ""
+        backupSetController.currentStagingBudget = 1000000000
         backupSetController.previewBusy = false
         backupSetController.dashboardRefreshError = ""
         backupSetController.runningSetIds = []
@@ -75,6 +77,9 @@ TestCase {
         backupSetController.recentBackupSetIds = ["photos-id", "documents-id"]
         backupSetController.recentBackupTimestamps = ["", "01/10/2026 10:00:00"]
         backupLauncher.launchedId = ""
+        backupLauncher.pausedId = ""
+        backupLauncher.resumedId = ""
+        backupLauncher.cancelledId = ""
         restoreController.discoveredRoot = ""
         restoreController.discoveredSetId = ""
         restoreController.busy = false
@@ -195,6 +200,52 @@ TestCase {
         if (dashboardScreenshotPath.length > 0) {
             grabImage(app.contentItem).save(dashboardScreenshotPath + ".cards.png")
         }
+    }
+
+    function test_backupControlsKeepNavigationAvailableAndTargetTheCard() {
+        backupSetController.runningSetIds = ["photos-id"]
+        backupSetController.runDetails = {
+            "photos-id": { status: "Running", statusCode: "running", unfinished: true, hasActivity: true }
+        }
+        verify(control("pauseBackup-1").visible)
+        verify(!control("resumeBackup-1").visible)
+        control("pauseBackup-1").clicked()
+        compare(backupLauncher.pausedId, "photos-id")
+        backupSetController.runningSetIds = []
+        backupSetController.runDetails = {
+            "photos-id": { status: "Paused", statusCode: "paused", unfinished: true, hasActivity: true }
+        }
+        verify(control("resumeBackup-1").visible)
+        verify(!control("backUpNow-1").visible)
+        control("resumeBackup-1").clicked()
+        compare(backupLauncher.resumedId, "photos-id")
+        control("cancelBackup-1").clicked()
+        compare(backupLauncher.cancelledId, "photos-id")
+        control("setName-0").clicked()
+        verify(app.showEditor)
+        control("closeEditorButton").clicked()
+        verify(!app.showEditor)
+        app.close()
+        // Closing the GUI emits no transfer-control request.
+        compare(backupLauncher.cancelledId, "photos-id")
+    }
+
+    function test_storageWaitingExplainsTheRequirementAndOffersResume() {
+        backupSetController.runDetails = {
+            "documents-id": { status: "Waiting", statusCode: "waiting", unfinished: true,
+                error: "Waiting for staging space: 1200000000 bytes required; choose another staging disk." }
+        }
+        verify(control("setWaitingReason-0").visible)
+        verify(control("setWaitingReason-0").text.indexOf("1200000000 bytes required") >= 0)
+        verify(control("resumeBackup-0").visible)
+        verify(control("cancelBackup-0").visible)
+        control("setName-0").clicked()
+        app.showAdvanced = true
+        control("stagingDirectoryField").text = "/new-staging-disk"
+        control("stagingBudgetField").text = "500000000"
+        control("saveBackupSetButton").clicked()
+        compare(backupSetController.lastDraft.stagingDirectory, "/new-staging-disk")
+        compare(backupSetController.lastDraft.stagingBudget, 500000000)
     }
 
     function openMenu(index) {

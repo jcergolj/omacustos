@@ -58,7 +58,7 @@ case "$2" in
       if [[ "${OUTCOME:-success}" == authentication_required ]]; then printf 'Authentication required' >&2; exit 1; fi
     fi
     mkdir -p "$FAKE_REMOTE$parent"
-    cp "$source" "$FAKE_REMOTE$parent/$name"
+    cp -f "$source" "$FAKE_REMOTE$parent/$name"
     if [[ -n "${BARRIERS:-}" && ( "$name" == a.txt || "$name" == b.txt ) ]]; then
       touch "$BARRIERS/$name.started"
       while [[ ! -f "$BARRIERS/$name.release" ]]; do
@@ -70,7 +70,8 @@ case "$2" in
   info)
     path="$FAKE_REMOTE${@: -1}"
     [[ -f "$path" ]] || exit 1
-    printf '{"size":%s}' "$(stat -c %s "$path")"
+    checksum="$(sha256sum "$path")"
+    printf '{"size":%s,"sha256":"%s"}' "$(stat -c %s "$path")" "${checksum%% *}"
     ;;
   *) exit 1 ;;
 esac
@@ -235,6 +236,7 @@ void BackupLauncherTest::queuesDuringTransfer()
     })(), 3000);
     QCOMPARE(store.find("b")->status, QString("pending"));
     QCOMPARE(store.find("b")->scheduledFor, scheduled);
+    const QString firstCopy = store.find("a")->remoteCopyPath;
     if (restart) {
         worker.kill();
         QVERIFY(worker.waitForFinished(5000));
@@ -248,7 +250,9 @@ void BackupLauncherTest::queuesDuringTransfer()
     }
     QTRY_VERIFY_WITH_TIMEOUT(QFile::exists(home.filePath("b.txt.started")), 10000);
     QVERIFY(store.load());
-    QCOMPARE(store.find("a")->status, outcome);
+    const QString expectedOutcome = outcome == "failed" ? QString("retrying") : outcome;
+    QCOMPARE(store.find("a")->status, expectedOutcome);
+    QCOMPARE(store.find("a")->remoteCopyPath, firstCopy);
     QCOMPARE(store.find("b")->status, QString("running"));
     QCOMPARE(store.find("b")->scheduledFor, scheduled);
     QCOMPARE(store.find("b")->reason, QString("manual"));
@@ -256,7 +260,7 @@ void BackupLauncherTest::queuesDuringTransfer()
     QVERIFY(worker.waitForFinished(10000));
     QVERIFY2(worker.exitCode() == 0, worker.readAllStandardError().constData());
     QVERIFY(store.load());
-    QCOMPARE(store.find("a")->status, outcome);
+    QCOMPARE(store.find("a")->status, expectedOutcome);
     QCOMPARE(store.find("b")->status, QString("success"));
     QCOMPARE(store.find("b")->scheduledFor, scheduled);
     QCOMPARE(store.records().size(), 2);

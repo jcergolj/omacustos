@@ -13,6 +13,9 @@ find_package(Qt6 REQUIRED COMPONENTS Core Gui Quick QuickControls2 QuickDialogs2
 # Storage, execution, and configuration are usable without a GUI or QML engine.
 add_library(omacustos-core STATIC
     src/backupengine.cpp
+    src/batchedbackup.cpp
+    src/backupcontinuation.cpp
+    src/backupstaging.cpp
     src/backupmanifest.cpp
     src/backupcatalog.cpp
     src/payloadmetadatapolicy.h
@@ -147,9 +150,14 @@ target_compile_definitions(reliability-test PRIVATE OMACUSTOS_WORKER_BINARY="$<T
 add_dependencies(reliability-test omacustos-worker)
 
 omacustos_add_test(workerrecovery-test tests/workerrecovery_test.cpp omacustos-core)
-target_compile_definitions(workerrecovery-test PRIVATE OMACUSTOS_WORKER_BINARY="$<TARGET_FILE:omacustos-worker>")
-add_dependencies(workerrecovery-test omacustos-worker)
-set_tests_properties(workerrecovery-test PROPERTIES TIMEOUT 60)
+add_library(staging-quota-fixture SHARED tests/staging_quota_fixture.cpp)
+target_link_libraries(staging-quota-fixture PRIVATE dl)
+target_compile_definitions(workerrecovery-test PRIVATE
+    OMACUSTOS_WORKER_BINARY="$<TARGET_FILE:omacustos-worker>"
+    OMACUSTOS_CONTINUATION_CLI="${CMAKE_CURRENT_SOURCE_DIR}/tests/continuation_cli.py"
+    OMACUSTOS_QUOTA_FIXTURE="$<TARGET_FILE:staging-quota-fixture>")
+add_dependencies(workerrecovery-test omacustos-worker staging-quota-fixture)
+set_tests_properties(workerrecovery-test PROPERTIES TIMEOUT 180)
 
 omacustos_add_test(backupconfig-test tests/backupconfig_test.cpp omacustos-core)
 omacustos_add_test(backupmanifest-test tests/backupmanifest_test.cpp omacustos-core)
@@ -164,3 +172,6 @@ target_compile_definitions(responsiveness-benchmark PRIVATE OMACUSTOS_SOURCE_DIR
 
 qt_add_executable(manifest-benchmark tests/manifest_benchmark.cpp)
 target_link_libraries(manifest-benchmark PRIVATE omacustos-core)
+
+qt_add_executable(largebackup-benchmark tests/largebackup_benchmark.cpp)
+target_link_libraries(largebackup-benchmark PRIVATE omacustos-core)

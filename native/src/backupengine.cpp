@@ -325,6 +325,8 @@ bool BackupEngine::backup(const QStringList &sourceDirectories, const QString &r
 
 bool BackupEngine::backup(const QStringList &sourceDirectories, const QString &remoteRoot, const QStringList &exclusions, const BackupCopyMetadata &metadata, BackupProvider &provider, QString *manifestPath, QString *error, const std::function<void(const BackupProgress &)> &reportProgress, BackupResult *result, const BackupOptions &options) const
 {
+    if (options.freshCopy) return backupBatches(sourceDirectories, remoteRoot, exclusions, metadata,
+        provider, manifestPath, error, reportProgress, result, options);
     BackupResult outcome;
     outcome.reported = true;
     const auto finishResult = qScopeGuard([&] {

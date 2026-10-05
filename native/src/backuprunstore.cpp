@@ -10,6 +10,10 @@
 #include <QSaveFile>
 #include <cmath>
 #include <limits>
+#ifdef Q_OS_UNIX
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 
 namespace {
 
@@ -145,6 +149,10 @@ bool BackupRunStore::loadFromBytes(const QByteArray &contents, QString *error)
         record.lastSuccess = readDate(object, QStringLiteral("last_success"));
         record.lastFailure = readDate(object, QStringLiteral("last_failure"));
         record.remoteCopyPath = object.value(QStringLiteral("remote_copy_path")).toString();
+        record.unfinished = object.value(QStringLiteral("unfinished")).toBool(false);
+        record.controlRequest = object.value(QStringLiteral("control_request")).toString();
+        for (const auto &copy : object.value(QStringLiteral("cancelled_copies")).toArray()) record.cancelledCopies.append(copy.toString());
+        for (const auto &root : object.value(QStringLiteral("staging_roots")).toArray()) record.stagingRoots.append(root.toString());
         const QJsonObject progress = object.value(QStringLiteral("progress")).toObject();
         record.progress.totalBytes = qMax(qint64(0), progress.value(QStringLiteral("total_bytes")).toInteger());
         record.progress.processedBytes = qMax(qint64(0), progress.value(QStringLiteral("processed_bytes")).toInteger());
@@ -164,6 +172,8 @@ bool BackupRunStore::loadFromBytes(const QByteArray &contents, QString *error)
         record.lastSuccessfulFiles = qMax(0, object.value(QStringLiteral("last_successful_files")).toInt());
         const QJsonObject result = object.value(QStringLiteral("result")).toObject();
         record.result.reported = result.value(QStringLiteral("reported")).toBool();
+        record.result.interrupted = result.value(QStringLiteral("interrupted")).toBool();
+        record.result.waitingForSpace = result.value(QStringLiteral("waiting_for_space")).toBool();
         record.result.manifestVerified = result.value(QStringLiteral("manifest_verified")).toBool();
         record.result.verifiedFiles = qMax(0, result.value(QStringLiteral("verified_files")).toInt());
         record.result.verifiedBytes = qMax(qint64(0), result.value(QStringLiteral("verified_bytes")).toInteger());
@@ -203,6 +213,10 @@ bool BackupRunStore::save(QString *error) const
             {QStringLiteral("last_error"), record.lastError},
             {QStringLiteral("attempts"), record.attempts},
             {QStringLiteral("remote_copy_path"), record.remoteCopyPath},
+            {QStringLiteral("unfinished"), record.unfinished},
+            {QStringLiteral("control_request"), record.controlRequest},
+            {QStringLiteral("cancelled_copies"), QJsonArray::fromStringList(record.cancelledCopies)},
+            {QStringLiteral("staging_roots"), QJsonArray::fromStringList(record.stagingRoots)},
             {QStringLiteral("last_successful_elapsed_ms"), record.lastSuccessfulElapsedMs},
             {QStringLiteral("last_successful_bytes"), record.lastSuccessfulBytes},
             {QStringLiteral("last_successful_files"), record.lastSuccessfulFiles},
@@ -236,6 +250,8 @@ bool BackupRunStore::save(QString *error) const
         }
         object.insert(QStringLiteral("result"), QJsonObject {
             {QStringLiteral("reported"), record.result.reported},
+            {QStringLiteral("interrupted"), record.result.interrupted},
+            {QStringLiteral("waiting_for_space"), record.result.waitingForSpace},
             {QStringLiteral("manifest_verified"), record.result.manifestVerified},
             {QStringLiteral("verified_files"), record.result.verifiedFiles},
             {QStringLiteral("verified_bytes"), record.result.verifiedBytes},
@@ -258,6 +274,15 @@ bool BackupRunStore::save(QString *error) const
         }
         return false;
     }
+#ifdef Q_OS_UNIX
+    const int fd = ::open(QFile::encodeName(QFileInfo(path).absolutePath()).constData(), O_RDONLY | O_DIRECTORY);
+    const bool synced = fd >= 0 && ::fsync(fd) == 0;
+    if (fd >= 0) ::close(fd);
+    if (!synced) {
+        if (error) *error = QStringLiteral("Unable to durably publish the backup run state.");
+        return false;
+    }
+#endif
     return true;
 }
 
@@ -340,6 +365,7 @@ bool BackupRunStore::waitForPrerequisite(const QString &setId, const QString &re
             if (error) *error = QStringLiteral("The queued backup no longer exists.");
             return false;
         }
+        if (record->status == QStringLiteral("paused") || record->status == QStringLiteral("cancelled")) return true;
         fresh.markWaiting(*record, reason, now);
         return true;
     }, error);
@@ -359,7 +385,8 @@ bool BackupRunStore::beginAttempt(const QString &setId, const QString &copyPath,
             return false;
         }
         fresh.markRunning(*record);
-        record->remoteCopyPath = copyPath;
+        if (!record->unfinished || record->remoteCopyPath.isEmpty()) record->remoteCopyPath = copyPath;
+        record->unfinished = true;
         claimed = *record;
         return true;
     }, error);
@@ -384,9 +411,20 @@ bool BackupRunStore::publishProgress(const BackupRunRecord &attempt, QString *er
     return update([&](BackupRunStore &fresh, QString *error) {
         BackupRunRecord *record = fresh.matchingAttempt(attempt, error);
         if (!record) return false;
+        if (!record->controlRequest.isEmpty()) return true;
         record->progress = attempt.progress;
         record->progressElapsedMs = attempt.progressElapsedMs;
         record->progressUpdatedAt = attempt.progressUpdatedAt;
+        return true;
+    }, error);
+}
+
+bool BackupRunStore::rememberStagingRoot(const BackupRunRecord &attempt, const QString &root, QString *error)
+{
+    return update([&](BackupRunStore &fresh, QString *error) {
+        auto *record = fresh.matchingAttempt(attempt, error);
+        if (!record) return false;
+        if (!record->stagingRoots.contains(root)) record->stagingRoots.append(root);
         return true;
     }, error);
 }
@@ -402,15 +440,71 @@ bool BackupRunStore::completeAttempt(const BackupRunRecord &attempt, bool succee
         record->progressUpdatedAt = attempt.progressUpdatedAt;
         record->result = attempt.result;
         const QString message = failure.toLower();
-        if (succeeded) {
+        if (!record->controlRequest.isEmpty()) {
+            fresh.applyControl(*record, record->controlRequest);
+        } else if (succeeded) {
             fresh.markSuccess(*record, now);
+            record->unfinished = false;
+        } else if (attempt.result.waitingForSpace) {
+            fresh.markWaiting(*record, failure, now);
         } else if (message.contains(QStringLiteral("auth")) || message.contains(QStringLiteral("sign in"))
             || message.contains(QStringLiteral("login")) || message.contains(QStringLiteral("401"))) {
             fresh.markAuthenticationRequired(*record, failure, now);
+        } else if (attempt.result.interrupted) {
+            fresh.markRetrying(*record, failure, now);
         } else if (attempt.result.manifestVerified && attempt.result.verifiedFiles > 0) {
             fresh.markIncomplete(*record, failure, now);
+            record->unfinished = false;
         } else {
             fresh.markFailed(*record, failure, now);
+            record->unfinished = false;
+        }
+        return true;
+    }, error);
+}
+
+void BackupRunStore::applyControl(BackupRunRecord &record, const QString &action)
+{
+    const bool cancelled = action == "cancel";
+    const bool ownsCopy = record.unfinished && !record.remoteCopyPath.isEmpty();
+    record.status = cancelled ? QStringLiteral("cancelled") : QStringLiteral("paused");
+    record.nextAttempt = {};
+    if (cancelled) {
+        record.lastError = ownsCopy
+            ? QStringLiteral("Cancelled partial copy: %1. Delete it explicitly in Proton Drive when no longer needed.").arg(record.remoteCopyPath)
+            : QStringLiteral("Cancelled. The next requested or scheduled backup will start a new copy.");
+        if (ownsCopy && !record.cancelledCopies.contains(record.remoteCopyPath)) record.cancelledCopies.append(record.remoteCopyPath);
+        record.unfinished = false;
+    } else record.lastError = ownsCopy ? QStringLiteral("Paused. Resume to continue the same copy.")
+                                     : QStringLiteral("Paused. Resume to run the queued backup.");
+    record.controlRequest.clear();
+}
+
+bool BackupRunStore::requestControl(const QString &setId, const QString &action, QString *error)
+{
+    return update([&](BackupRunStore &fresh, QString *error) {
+        BackupRunRecord *record = fresh.find(setId);
+        if (!record || !QStringList {"pause", "resume", "cancel"}.contains(action)) {
+            if (error) *error = QStringLiteral("The backup control request is invalid.");
+            return false;
+        }
+        if (action == "resume") {
+            if (record->status == "running" || (!record->unfinished && record->status != "paused")) {
+                if (error) *error = QStringLiteral("There is no stopped unfinished copy to resume.");
+                return false;
+            }
+            record->status = "pending";
+            record->controlRequest.clear();
+            record->nextAttempt = QDateTime::currentDateTime();
+            record->lastError.clear();
+        } else if (record->status == "running") {
+            // Cancellation wins over pause. Do not let a late UI click reverse it.
+            if (record->controlRequest != "cancel") record->controlRequest = action;
+        } else if (record->unfinished || QStringList {"pending", "waiting", "retrying", "authentication_required", "paused"}.contains(record->status)) {
+            fresh.applyControl(*record, action);
+        } else {
+            if (error) *error = QStringLiteral("The backup is no longer active.");
+            return false;
         }
         return true;
     }, error);
@@ -479,11 +573,16 @@ bool BackupRunStore::enqueue(const QString &setId, const QString &reason, const 
     ensureSet(setId);
     BackupRunRecord *record = find(setId);
     if (record->status == QStringLiteral("pending") || record->status == QStringLiteral("running")
-        || record->status == QStringLiteral("retrying") || record->status == QStringLiteral("waiting")) {
+        || record->status == QStringLiteral("retrying") || record->status == QStringLiteral("waiting")
+        || record->status == QStringLiteral("paused") || record->status == QStringLiteral("authentication_required")) {
         return false;
     }
 
     record->status = QStringLiteral("pending");
+    // Keep the last-copy pointer for historical navigation until beginAttempt
+    // claims the fresh namespace. It does not authorize continuation.
+    record->unfinished = false;
+    record->controlRequest.clear();
     record->progress = {};
     record->result = {};
     record->progressElapsedMs = 0;
@@ -502,7 +601,7 @@ QVector<int> BackupRunStore::readyIndexes(const QDateTime &now) const
         const BackupRunRecord &record = runRecords.at(index);
         if ((record.status == QStringLiteral("pending") || record.status == QStringLiteral("retrying")
               || record.status == QStringLiteral("waiting") || record.status == QStringLiteral("incomplete")
-              || record.status == QStringLiteral("failed"))
+               || record.status == QStringLiteral("failed") || record.status == QStringLiteral("authentication_required"))
             && (!record.nextAttempt.isValid() || record.nextAttempt <= now)) {
             indexes.append(index);
         }
@@ -517,11 +616,15 @@ bool BackupRunStore::recoverInterrupted(const QDateTime &now)
         if (record.status != QStringLiteral("running")) {
             continue;
         }
-        markRetrying(record, QStringLiteral("The previous backup was interrupted; retrying."), now);
+        // Historical records did not have checkpoint state. Only modern
+        // attempts have unfinished=true and can safely retain copy identity.
+        if (!record.controlRequest.isEmpty()) {
+            applyControl(record, record.controlRequest);
+            recovered = true;
+            continue;
+        }
+        markRetrying(record, QStringLiteral("The previous backup was interrupted; continuing the same copy."), now);
         record.nextAttempt = now;
-        record.progress = {};
-        record.progressElapsedMs = 0;
-        record.progressUpdatedAt = {};
         recovered = true;
     }
     return recovered;
@@ -608,7 +711,7 @@ void BackupRunStore::markAuthenticationRequired(BackupRunRecord &record, const Q
     record.status = QStringLiteral("authentication_required");
     record.lastError = error;
     record.lastFailure = now;
-    record.nextAttempt = {};
+    record.nextAttempt = now.addSecs(60);
 }
 
 int BackupRunStore::retryDelaySeconds(int attempt)

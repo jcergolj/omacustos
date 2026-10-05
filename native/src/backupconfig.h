@@ -15,6 +15,8 @@ struct BackupSet {
     BackupSchedule schedule;
     int retention = 3;
     bool onlyOnAcPower = false;
+    QString stagingDirectory;
+    qint64 stagingBudget = 1000 * 1000 * 1000;
 
     QString remoteFolder(const QString &computerName) const;
 };

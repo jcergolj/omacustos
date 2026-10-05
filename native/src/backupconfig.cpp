@@ -255,6 +255,14 @@ bool BackupConfigStore::loadFile(BackupConfig *config, bool setsOnly, QString *e
             set.schedule.dayOfMonth = schedule.value(QStringLiteral("day_of_month")).toInt(1);
             set.retention = qMax(1, setObject.value(QStringLiteral("retention")).toInt(3));
             set.onlyOnAcPower = setObject.value(QStringLiteral("only_on_ac_power")).toBool(false);
+            set.stagingDirectory = setObject.value(QStringLiteral("staging_directory")).toString();
+            const auto budget = setObject.value(QStringLiteral("staging_budget_bytes"));
+            set.stagingBudget = budget.isUndefined() ? 1000 * 1000 * 1000 : budget.toInteger(-1);
+            if ((!budget.isUndefined() && (!budget.isDouble() || budget.toDouble() != double(set.stagingBudget)))
+                || set.stagingBudget <= 0 || (setObject.contains("staging_directory") && !setObject.value("staging_directory").isString())) {
+                if (error) *error = QStringLiteral("The staging budget must be a positive whole number of bytes and the staging directory must be a string.");
+                return false;
+            }
 
             if (set.id.trimmed().isEmpty() || set.name.trimmed().isEmpty() || set.remoteRoot.trimmed().isEmpty()
                 || set.sourceDirectories.isEmpty()
@@ -332,7 +340,8 @@ bool BackupConfigStore::saveFile(const BackupConfig &config, bool setsOnly, QStr
     QSet<QString> setIds;
     for (const BackupSet &set : config.sets) {
         if (set.id.trimmed().isEmpty() || set.name.trimmed().isEmpty() || set.remoteRoot.trimmed().isEmpty()
-            || set.sourceDirectories.isEmpty() || !validSchedule(set.schedule) || setIds.contains(set.id)) {
+            || set.sourceDirectories.isEmpty() || !validSchedule(set.schedule) || setIds.contains(set.id)
+            || set.stagingBudget <= 0) {
             if (error != nullptr) {
                 *error = QStringLiteral("The OmaCustos backup configuration is incomplete.");
             }
@@ -375,6 +384,8 @@ bool BackupConfigStore::saveFile(const BackupConfig &config, bool setsOnly, QStr
             {QStringLiteral("schedule"), schedule},
             {QStringLiteral("retention"), qMax(1, set.retention)},
             {QStringLiteral("only_on_ac_power"), set.onlyOnAcPower},
+            {QStringLiteral("staging_directory"), set.stagingDirectory},
+            {QStringLiteral("staging_budget_bytes"), set.stagingBudget},
         });
     }
     object.insert(QStringLiteral("sets"), sets);

@@ -20,11 +20,14 @@ struct BackupPreview {
 };
 
 struct BackupOptions {
-    // New copy namespaces skip reuse checks and verify payloads together after
-    // uploads finish, using folder metadata with individual inspection fallback.
-    // Providers supporting recursive upload receive a staged tree in one call
-    // when a folder source is selected; its staging is removed before verification.
     bool freshCopy = false;
+    QString stagingDirectory;
+    qint64 stagingBudget = 1000 * 1000 * 1000;
+    int batchFileLimit = 1000;
+    QString continuationDirectory;
+    std::function<bool()> stopped;
+    bool retainLocalManifest = true;
+    std::function<bool(const QString &, QString *)> stagingReady;
 };
 
 class BackupEngine final : public QObject
@@ -47,5 +50,8 @@ public:
     BackupPreview preview(const QStringList &sourceDirectories, const QStringList &exclusions, const std::function<bool()> &cancelled = {}) const;
 
 private:
+    bool backupBatches(const QStringList &sources, const QString &remoteRoot, const QStringList &exclusions,
+        const BackupCopyMetadata &metadata, BackupProvider &provider, QString *manifestPath, QString *error,
+        const std::function<void(const BackupProgress &)> &reportProgress, BackupResult *result, const BackupOptions &options) const;
     BackupPreview scan(const QStringList &sourceDirectories, const QStringList &exclusions, bool reportExcluded, const std::function<bool()> &cancelled = {}) const;
 };

@@ -1,4 +1,5 @@
 #include "backupsetcontroller.h"
+#include "backupstaging.h"
 
 #include <QDir>
 #include <QFile>
@@ -49,6 +50,8 @@ QString statusLabel(const QString &status)
     if (status == QStringLiteral("retrying")) return QObject::tr("Retrying");
     if (status == QStringLiteral("waiting")) return QObject::tr("Waiting");
     if (status == QStringLiteral("authentication_required")) return QObject::tr("Sign-in required");
+    if (status == QStringLiteral("paused")) return QObject::tr("Paused");
+    if (status == QStringLiteral("cancelled")) return QObject::tr("Cancelled (partial copy)");
     return status;
 }
 
@@ -62,6 +65,8 @@ QString phaseLabel(const QString &phase)
     if (phase == QStringLiteral("verifying")) return QObject::tr("Verifying");
     if (phase == QStringLiteral("selection")) return QObject::tr("Selecting sources");
     if (phase == QStringLiteral("finalizing")) return QObject::tr("Finalizing backup");
+    if (phase == QStringLiteral("scanning")) return QObject::tr("Scanning sources");
+    if (phase == QStringLiteral("checkpointing")) return QObject::tr("Saving verified progress");
     return QObject::tr("Preparing backup");
 }
 
@@ -376,6 +381,18 @@ QStringList BackupSetController::runningSetIds() const
     return cachedRunningSetIds;
 }
 
+QString BackupSetController::currentStagingDirectory() const
+{
+    const auto *set = currentSet();
+    return set ? set->stagingDirectory : QString();
+}
+
+qint64 BackupSetController::currentStagingBudget() const
+{
+    const auto *set = currentSet();
+    return set ? set->stagingBudget : 1000 * 1000 * 1000;
+}
+
 QStringList BackupSetController::calculateRunningSetIds() const
 {
     QStringList ids;
@@ -403,7 +420,11 @@ QVariantMap BackupSetController::calculateRemainingTimes() const
             continue;
         }
         QString text;
-        if (record->progress.finalizing || (record->progress.totalFiles > 0
+        if (!record->controlRequest.isEmpty()) {
+            text = record->controlRequest == "cancel" ? tr("Cancelling…") : tr("Pausing…");
+        } else if (record->unfinished) {
+            text = phaseLabel(record->progress.phase) + QStringLiteral("…");
+        } else if (record->progress.finalizing || (record->progress.totalFiles > 0
             && record->progress.processedFiles >= record->progress.totalFiles)) {
             text = tr("Finalizing backup…");
         } else {
@@ -454,6 +475,7 @@ QVariantMap BackupSetController::calculateTransferProgress() const
             text += QStringLiteral("\n") + tr("%1: %2 (%3)").arg(phaseLabel(progress.phase),
                 progress.currentFile, QLocale().formattedDataSize(progress.currentFileBytes));
         }
+        if (record->unfinished) text += QStringLiteral(" · ") + tr("Verified data: %1").arg(QLocale().formattedDataSize(progress.verifiedBytes));
         result.insert(set.id, QVariantMap {
             {QStringLiteral("text"), text},
             {QStringLiteral("fraction"), progress.totalFiles > 0
@@ -480,13 +502,16 @@ QVariantMap BackupSetController::backupDetails(const QString &setId) const
     const bool verified = record->result.manifestVerified;
     return {
         {QStringLiteral("status"), statusLabel(record->status)},
-        {QStringLiteral("summary"), record->result.reported && verified ? resultSummary(record->result) : QString()},
+        {QStringLiteral("summary"), record->result.reported && verified ? resultSummary(record->result)
+            : record->unfinished ? tr("%1 payloads verified · %2 · unfinished copy (manifest pending)")
+                .arg(record->progress.verifiedFiles).arg(QLocale().formattedDataSize(record->progress.verifiedBytes)) : QString()},
         {QStringLiteral("error"), record->lastError},
         {QStringLiteral("copyPath"), record->remoteCopyPath},
         {QStringLiteral("currentFile"), isRunActive(record->status) && !record->progress.currentFile.isEmpty()
             ? tr("%1: %2 (%3)").arg(phaseLabel(record->progress.phase), record->progress.currentFile,
                 QLocale().formattedDataSize(record->progress.currentFileBytes)) : QString()},
         {QStringLiteral("issues"), issues},
+        {QStringLiteral("cancelledCopies"), record->cancelledCopies},
         {QStringLiteral("nextAttempt"), record->nextAttempt.isValid()
             ? record->nextAttempt.toLocalTime().toString(QStringLiteral("dd/MM/yyyy HH:mm:ss")) : QString()},
     };
@@ -655,6 +680,8 @@ void BackupSetController::applyCurrentDraft(const QVariantMap &draft)
     candidate.schedule.dayOfMonth = qBound(1, draft.value(QStringLiteral("scheduleDayOfMonth")).toInt(), 31);
     candidate.retention = qMax(1, draft.value(QStringLiteral("retention")).toInt());
     candidate.onlyOnAcPower = draft.value(QStringLiteral("onlyOnAcPower")).toBool();
+    if (draft.contains("stagingDirectory")) candidate.stagingDirectory = draft.value("stagingDirectory").toString().trimmed();
+    if (draft.contains("stagingBudget")) candidate.stagingBudget = draft.value("stagingBudget").toLongLong();
 
     const bool nameChanged = candidate.name != set->name;
     const bool previewInputsChanged = candidate.sourceDirectories != set->sourceDirectories
@@ -665,7 +692,8 @@ void BackupSetController::applyCurrentDraft(const QVariantMap &draft)
         && candidate.schedule.minute == set->schedule.minute
         && candidate.schedule.weekday == set->schedule.weekday
         && candidate.schedule.dayOfMonth == set->schedule.dayOfMonth
-        && candidate.retention == set->retention && candidate.onlyOnAcPower == set->onlyOnAcPower) {
+        && candidate.retention == set->retention && candidate.onlyOnAcPower == set->onlyOnAcPower
+        && candidate.stagingDirectory == set->stagingDirectory && candidate.stagingBudget == set->stagingBudget) {
         return;
     }
 
@@ -722,6 +750,11 @@ bool BackupSetController::save()
     }
 
     QString error;
+    if (set->stagingBudget <= 0 || (!set->stagingDirectory.isEmpty()
+        && !BackupStaging::validate(set->stagingDirectory, set->sourceDirectories, &error))) {
+        emit failed(error.isEmpty() ? tr("Enter a positive staging budget.") : error);
+        return false;
+    }
     if (!store.save(config, &error)) {
         emit failed(error);
 
@@ -995,12 +1028,16 @@ void BackupSetController::updateDashboard()
             {QStringLiteral("status"), statusLabel(record->status)},
             {QStringLiteral("statusCode"), record->status},
             {QStringLiteral("summary"), record->result.reported && record->result.manifestVerified
-                && record->status != QStringLiteral("copy_deleted") ? resultSummary(record->result) : QString()},
+                && record->status != QStringLiteral("copy_deleted") ? resultSummary(record->result)
+                : record->unfinished ? tr("%1 payloads verified · %2 · unfinished copy (manifest pending)")
+                    .arg(record->progress.verifiedFiles).arg(QLocale().formattedDataSize(record->progress.verifiedBytes)) : QString()},
             {QStringLiteral("lastAttempt"), timestamp(qMax(record->lastSuccess, record->lastFailure))},
             {QStringLiteral("lastSuccess"), timestamp(record->lastSuccess)},
             {QStringLiteral("error"), record->lastError},
             {QStringLiteral("hasActivity"), hasActivity},
             {QStringLiteral("hasLatestCopy"), latestCopy},
+            {QStringLiteral("unfinished"), record->unfinished},
+            {QStringLiteral("controlRequest"), record->controlRequest},
         });
     }
     // Sort once per refresh, and keep expensive issue conversion out of row bindings.

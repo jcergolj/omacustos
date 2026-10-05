@@ -17,13 +17,16 @@ Frame {
     required property bool copyBusy
     signal editRequested()
     signal backupRequested()
+    signal pauseRequested()
+    signal resumeRequested()
+    signal cancelRequested()
     signal restoreRequested()
     signal openFolderRequested()
     signal detailsRequested()
     signal deleteCopyRequested()
     signal removeRequested()
     readonly property bool active: runActive || deleting
-    readonly property bool needsAttention: ["incomplete", "failed", "retrying", "authentication_required"].indexOf(run.statusCode) >= 0
+    readonly property bool needsAttention: ["incomplete", "failed", "retrying", "waiting", "authentication_required"].indexOf(run.statusCode) >= 0
     readonly property string statusText: deleting ? qsTr("Deleting latest copy…")
         : run.statusCode === "copy_deleted" ? qsTr("Latest copy deleted")
         : !run.statusCode || run.statusCode === "idle" ? qsTr("No backup yet") : run.status
@@ -134,6 +137,14 @@ Frame {
             Layout.fillWidth: true
         }
         Label {
+            objectName: "setWaitingReason-" + card.cardIndex
+            visible: !card.active && (card.run.error || "").length > 0
+            text: card.run.error || ""
+            textFormat: Text.PlainText
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
+        }
+        Label {
             objectName: "setResultSummary-" + card.cardIndex
             visible: !card.active && (card.run.summary || "").length > 0
             text: card.run.summary || ""
@@ -196,8 +207,32 @@ Frame {
             Item { Layout.fillWidth: true }
             ActionButton {
                 style: card.style
+                objectName: "pauseBackup-" + card.cardIndex
+                text: qsTr("Pause")
+                visible: card.runActive || (!!card.run.unfinished && card.run.statusCode !== "paused")
+                enabled: !(card.run.controlRequest || "").length
+                onClicked: card.pauseRequested()
+            }
+            ActionButton {
+                style: card.style
+                objectName: "resumeBackup-" + card.cardIndex
+                text: qsTr("Resume")
+                visible: !card.runActive && (card.run.statusCode === "paused" || !!card.run.unfinished)
+                onClicked: card.resumeRequested()
+            }
+            ActionButton {
+                style: card.style
+                objectName: "cancelBackup-" + card.cardIndex
+                text: qsTr("Cancel")
+                visible: card.runActive || !!card.run.unfinished || ["paused", "pending", "waiting", "retrying", "authentication_required"].indexOf(card.run.statusCode) >= 0
+                enabled: card.run.controlRequest !== "cancel"
+                onClicked: card.cancelRequested()
+            }
+            ActionButton {
+                style: card.style
                 objectName: "backUpNow-" + card.cardIndex
                 text: qsTr("Back up now")
+                visible: !card.run.unfinished && card.run.statusCode !== "paused"
                 enabled: !card.active
                 onClicked: card.backupRequested()
             }

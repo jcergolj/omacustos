@@ -85,7 +85,8 @@ Only included files will be attempted. Preview does not save settings, start a
 backup, or enable scheduling; press **Preview** again after editing the selection.
 
 Each named backup set has its own files, exclusions, and schedule. Every run
-creates a separate copy. By default, copies are stored under `/my-files/backups`
+starts a separate copy; recovery and Resume continue that unfinished copy.
+By default, copies are stored under `/my-files/backups`
 in Proton Drive, and the latest three verified successful copies are kept.
 
 ### Dashboard and results
@@ -113,11 +114,11 @@ so they are counted as items rather than always as individual files.
 
 ### Backup progress
 
-While a backup runs, its card shows an estimated remaining time. New backups show
-**Estimating time remaining…** until enough progress is available; later runs can
-start with an estimate based on their previous successful run. Estimates update
-as files finish and may change with transfer speed. During final checks, the row
-shows **Finalizing backup…**.
+While a backup runs, its card shows its current phase: scanning, preparation,
+uploading, verification, saving verified progress, or finalization. It shows
+processed/total files, verified payloads, and verified data. The CLI does not
+provide reliable live byte progress, so the app does not show live upload speed,
+a byte percentage, or an ETA for these transfers.
 
 The running backup's card shows a work-progress bar, processed and verified file
 counts, and failures. **⋯ → View latest run details** shows the current file's path. Its phase distinguishes
@@ -128,7 +129,40 @@ may stay at its current step while being transferred.
 ### Advanced settings
 
 **Advanced settings** lets you change the remote folder and number of copies
-to keep, or run only on AC power.
+to keep, run only on AC power, or choose a **staging directory** and **staging
+budget in bytes**. The default budget is **1 GB (1000000000 bytes)**, with at most
+1000 files in each batch. Preparation, upload, verification, and saving progress
+finish for one batch before the next is prepared. Total selection size does not
+determine required temporary payload space.
+
+Automatic staging uses disk-backed application storage outside your sources,
+falling back to a private directory in `/var/tmp` when necessary. RAM-backed
+storage such as `/tmp` on Omarchy, source overlaps, and unusable locations are
+rejected. Leave the staging directory blank to select it automatically.
+
+A file larger than the budget is processed alone if the staging disk can hold
+it. If space or your disk quota is insufficient, the copy waits with completed
+work preserved. Free space or choose another staging disk, save the settings,
+then press **Resume**. Files are never silently omitted for being too large.
+
+### Pause, Resume, and Cancel
+
+- **Pause** stops the current transfer and releases temporary payloads while
+  preserving verified progress. The scheduler respects Pause until you press Resume.
+- **Resume** re-scans sources and exclusions and continues the same remote copy.
+  New/changed files are included; deleted/excluded files are omitted from the final
+  manifest. Reuse requires matching local content and fresh remote verification.
+  Size-only remote metadata may require a verification download.
+- **Cancel** permanently ends that attempt. The next requested or scheduled backup
+  starts a new copy. Run details retain cancelled remote paths so you can explicitly
+  remove partial data in Proton Drive when no longer needed.
+
+Closing the window lets the systemd worker continue. Interruptions and transient
+transfer failures keep the copy unfinished and retry with backoff through the
+installed scheduler. Authentication and staging-space problems show actionable
+waiting states. Payload checkpoints alone do not make a copy restorable: its final
+manifest and payloads must also pass verification. Incomplete source-read outcomes
+can expose their verified files for restore, without removing older successful copies.
 
 ### Resource usage
 

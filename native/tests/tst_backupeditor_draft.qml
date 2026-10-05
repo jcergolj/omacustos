@@ -58,7 +58,8 @@ TestCase {
             name: "Updated documents", remoteRoot: "/custom-backups",
             sources: ["/safe/documents", "/safe/notes.txt"], exclusions: ["cache", "/safe/private"],
             scheduleFrequency: "monthly", scheduleHour: 9, scheduleMinute: 30,
-            scheduleWeekday: 4, scheduleDayOfMonth: 12, retention: 7, onlyOnAcPower: true
+            scheduleWeekday: 4, scheduleDayOfMonth: 12, retention: 7, onlyOnAcPower: true,
+            stagingDirectory: "", stagingBudget: 1000000000
         })
         compare(name.text, "Updated documents")
         compare(editor.syncingCurrentSet, false)

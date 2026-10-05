@@ -65,6 +65,8 @@ QtObject {
         property int currentScheduleDayOfMonth: 1
         property int currentRetention: 3
         property bool currentOnlyOnAcPower: false
+        property string currentStagingDirectory: ""
+        property double currentStagingBudget: 1000000000
         property var currentRequiredMounts: []
         property string currentNextRun: "Disabled"
         property string currentRunStatus: "idle"
@@ -146,6 +148,8 @@ QtObject {
             currentScheduleDayOfMonth = draft.scheduleDayOfMonth
             currentRetention = draft.retention
             currentOnlyOnAcPower = draft.onlyOnAcPower
+            currentStagingDirectory = draft.stagingDirectory
+            currentStagingBudget = draft.stagingBudget
             currentSetChanged()
         }
         function recentBackupFolderPath(setId) {
@@ -174,9 +178,15 @@ QtObject {
 
     property QtObject backupLauncher: QtObject {
         property string launchedId: ""
+        property string pausedId: ""
+        property string resumedId: ""
+        property string cancelledId: ""
         signal started()
         signal failed(string error)
         function startBackup(id) { launchedId = id }
+        function pauseBackup(id) { pausedId = id }
+        function resumeBackup(id) { resumedId = id }
+        function cancelBackup(id) { cancelledId = id }
     }
 
     property QtObject protonFolderBrowser: QtObject {

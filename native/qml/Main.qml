@@ -441,6 +441,15 @@ ApplicationWindow {
                         }
                     }
                 }
+                Label {
+                    objectName: "cancelledPartialCopies"
+                    visible: (backupDetailsDialog.details.cancelledCopies || []).length > 0
+                    text: qsTr("Cancelled partial copies (delete explicitly in Proton Drive when no longer needed):\n%1")
+                        .arg((backupDetailsDialog.details.cancelledCopies || []).join("\n"))
+                    textFormat: Text.PlainText
+                    wrapMode: Text.WrapAnywhere
+                    Layout.fillWidth: true
+                }
             }
         }
     }

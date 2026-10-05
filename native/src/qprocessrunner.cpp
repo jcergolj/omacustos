@@ -3,6 +3,11 @@
 #include <QElapsedTimer>
 #include <QProcess>
 #include <limits>
+#ifdef Q_OS_LINUX
+#include <sys/prctl.h>
+#include <signal.h>
+#include <unistd.h>
+#endif
 
 namespace {
 
@@ -40,6 +45,15 @@ ProcessOutput QProcessRunner::run(const QStringList &arguments)
     const int timeout = transfer ? timeouts.transferMilliseconds : timeouts.metadataMilliseconds;
     QElapsedTimer elapsed;
     elapsed.start();
+#ifdef Q_OS_LINUX
+    const pid_t parent = ::getpid();
+    process.setChildProcessModifier([parent] {
+        ::setpgid(0, 0);
+        ::prctl(PR_SET_PDEATHSIG, SIGKILL);
+        if (::getppid() != parent) ::_exit(1);
+    });
+#endif
+    if (stopRequested && stopRequested()) return {-1, {}, QStringLiteral("Backup transfer stopped.")};
     process.start(executable, arguments);
 
     const auto failure = [&](const QString &message) {
@@ -59,7 +73,17 @@ ProcessOutput QProcessRunner::run(const QStringList &arguments)
 
     // The CLI has no documented live byte-progress feed. Output is not evidence
     // of progress, so transfers use a configurable, bounded total runtime.
-    if (!process.waitForFinished(static_cast<int>(qMax(qint64(1), timeout - elapsed.elapsed())))) {
+    while (!process.waitForFinished(static_cast<int>(qMin(qint64(100), qMax(qint64(1), timeout - elapsed.elapsed()))))) {
+        if (stopRequested && stopRequested()) {
+#ifdef Q_OS_LINUX
+            ::kill(-pid_t(process.processId()), SIGKILL);
+#endif
+            process.kill();
+            process.waitForFinished(5000);
+            return failure(QStringLiteral("Backup transfer stopped; continuation checkpoint preserved."));
+        }
+        if (process.state() == QProcess::NotRunning) break;
+        if (elapsed.elapsed() < timeout) continue;
         if (process.error() == QProcess::Timedout) {
             process.kill();
             process.waitForFinished(5000);

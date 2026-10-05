@@ -12,6 +12,9 @@ class BackupLauncher final : public QObject
     Q_OBJECT
 
 public:
+    Q_INVOKABLE void pauseBackup(const QString &setId);
+    Q_INVOKABLE void resumeBackup(const QString &setId);
+    Q_INVOKABLE void cancelBackup(const QString &setId);
     explicit BackupLauncher(QObject *parent = nullptr);
 
 public slots:
@@ -24,6 +27,7 @@ signals:
     void failed(const QString &error);
 
 private:
+    void requestControl(const QString &setId, const QString &action);
     void startService();
 
     QProcessRunner runner;

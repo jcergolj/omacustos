@@ -3,6 +3,8 @@
 #include "backuprunstore.h"
 
 #include <QDir>
+#include <QFutureWatcher>
+#include <QtConcurrentRun>
 
 #include <algorithm>
 
@@ -11,6 +13,44 @@ BackupLauncher::BackupLauncher(QObject *parent)
     , runner(QStringLiteral("systemctl"))
     , systemd(runner)
 {
+}
+
+void BackupLauncher::requestControl(const QString &setId, const QString &action)
+{
+    const QString path = QDir::home().filePath(QStringLiteral(".config/omacustos/omacustos-backup-runs.json"));
+    auto *watcher = new QFutureWatcher<QString>(this);
+    connect(watcher, &QFutureWatcher<QString>::finished, this, [this, watcher, action] {
+        const QString error = watcher->result();
+        watcher->deleteLater();
+        if (!error.isEmpty()) emit failed(error);
+        else if (action == "resume") emit started();
+    });
+    watcher->setFuture(QtConcurrent::run([path, setId, action] {
+        BackupRunStore runs(path);
+        QString error;
+        if (!runs.requestControl(setId, action, &error)) return error;
+        if (action == "resume") {
+            QProcessRunner runner(QStringLiteral("systemctl"));
+            SystemdLauncher systemd(runner);
+            systemd.startUserService(QStringLiteral("omacustos.service"), &error);
+        }
+        return error;
+    }));
+}
+
+void BackupLauncher::pauseBackup(const QString &setId)
+{
+    requestControl(setId, QStringLiteral("pause"));
+}
+
+void BackupLauncher::resumeBackup(const QString &setId)
+{
+    requestControl(setId, QStringLiteral("resume"));
+}
+
+void BackupLauncher::cancelBackup(const QString &setId)
+{
+    requestControl(setId, QStringLiteral("cancel"));
 }
 
 void BackupLauncher::startBackup()

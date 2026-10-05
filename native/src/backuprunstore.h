@@ -28,6 +28,11 @@ struct BackupRunRecord {
     qint64 lastSuccessfulBytes = 0;
     int lastSuccessfulFiles = 0;
     BackupResult result;
+    bool unfinished = false;
+    QString controlRequest;
+    // Keep cancelled partial namespaces identifiable after the next run begins.
+    QStringList cancelledCopies;
+    QStringList stagingRoots;
 
     // -1 means insufficient progress; zero means the estimate has elapsed.
     qint64 estimatedRemainingSeconds(const QDateTime &now) const;
@@ -58,6 +63,8 @@ public:
         const QDateTime &now, QString *error = nullptr);
     bool rememberCopyPath(const BackupRunRecord &expected, const QString &copyPath, QString *error = nullptr);
     bool markCopyDeleted(const QString &setId, const QString &copyPath, QString *error = nullptr);
+    bool requestControl(const QString &setId, const QString &action, QString *error = nullptr);
+    bool rememberStagingRoot(const BackupRunRecord &attempt, const QString &root, QString *error = nullptr);
 
     void ensureSet(const QString &setId);
     bool enqueue(const QString &setId, const QString &reason, const QDateTime &scheduledFor);
@@ -79,6 +86,7 @@ public:
 private:
     bool update(const std::function<bool(BackupRunStore &, QString *)> &mutation, QString *error);
     BackupRunRecord *matchingAttempt(const BackupRunRecord &attempt, QString *error);
+    void applyControl(BackupRunRecord &record, const QString &action);
     QString path;
     QVector<BackupRunRecord> runRecords;
 };

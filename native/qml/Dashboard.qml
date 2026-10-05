@@ -89,6 +89,9 @@ ColumnLayout {
             copyBusy: dashboard.copies.busy || dashboard.folderBrowser.busy
             onEditRequested: dashboard.editSetRequested(index)
             onBackupRequested: dashboard.launcher.startBackup(setId)
+            onPauseRequested: dashboard.launcher.pauseBackup(setId)
+            onResumeRequested: dashboard.launcher.resumeBackup(setId)
+            onCancelRequested: dashboard.launcher.cancelBackup(setId)
             onRestoreRequested: dashboard.restoreRequested(setId)
             onOpenFolderRequested: dashboard.openFolderRequested(setId)
             onDetailsRequested: dashboard.detailsRequested(setId)

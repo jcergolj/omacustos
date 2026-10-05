@@ -56,6 +56,8 @@ ScrollView {
         scheduleDay.value = controller.currentScheduleDayOfMonth
         retentionSpin.value = controller.currentRetention
         acPowerCheck.checked = controller.currentOnlyOnAcPower
+        stagingField.text = controller.currentStagingDirectory || ""
+        stagingBudgetField.text = String(controller.currentStagingBudget === undefined ? 1000000000 : controller.currentStagingBudget)
         loadResourcePreset()
         if (changingSet) {
             const id = loadedSetId
@@ -133,7 +135,9 @@ ScrollView {
                 scheduleWeekday: scheduleWeekday.currentIndex + 1,
                 scheduleDayOfMonth: scheduleDay.value,
                 retention: retentionSpin.value,
-                onlyOnAcPower: acPowerCheck.checked
+                onlyOnAcPower: acPowerCheck.checked,
+                stagingDirectory: stagingField.text,
+                stagingBudget: Number(stagingBudgetField.text)
             })
         } finally {
             syncingCurrentSet = false
@@ -487,6 +491,32 @@ ScrollView {
                 CheckBox {
                     id: acPowerCheck
                     text: qsTr("Only back up on AC power")
+                }
+
+                Label {
+                    text: qsTr("Disk-backed staging")
+                    font.pixelSize: editor.style.sectionTitleSize
+                    color: editor.style.accentColor
+                }
+                TextField {
+                    id: stagingField
+                    objectName: "stagingDirectoryField"
+                    placeholderText: qsTr("Automatic disk-backed location (outside sources)")
+                    Accessible.name: qsTr("Staging directory")
+                    Layout.fillWidth: true
+                }
+                TextField {
+                    id: stagingBudgetField
+                    objectName: "stagingBudgetField"
+                    validator: RegularExpressionValidator { regularExpression: /[1-9][0-9]{0,14}/ }
+                    Accessible.name: qsTr("Staging budget in bytes")
+                    Layout.fillWidth: true
+                }
+                Label {
+                    text: qsTr("Budget in bytes (default 1 GB = 1000000000). Each batch also holds at most 1000 files. A larger individual file is staged alone when disk space permits. Pause, edit these settings, then Resume to use another disk.")
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                    color: editor.style.mutedColor
                 }
 
                 Label {

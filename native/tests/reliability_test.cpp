@@ -140,9 +140,9 @@ void ReliabilityTest::workerPersistsDistinctResultsAndFailureDetails_data()
     for (bool folderSource : {false, true}) {
         const QString prefix = folderSource ? "folder: " : "files: ";
         QTest::newRow(qPrintable(prefix + "successful")) << QString("none") << QString("success") << 2 << folderSource;
-        QTest::newRow(qPrintable(prefix + "partial upload")) << QString("partial") << QString("incomplete") << 1 << folderSource;
-        QTest::newRow(qPrintable(prefix + "all uploads failed")) << QString("all") << QString("failed") << 0 << folderSource;
-        QTest::newRow(qPrintable(prefix + "manifest upload failed")) << QString("manifest") << QString("failed") << 2 << folderSource;
+        QTest::newRow(qPrintable(prefix + "partial upload")) << QString("partial") << QString("retrying") << 1 << folderSource;
+        QTest::newRow(qPrintable(prefix + "all uploads failed")) << QString("all") << QString("retrying") << 0 << folderSource;
+        QTest::newRow(qPrintable(prefix + "manifest upload failed")) << QString("manifest") << QString("retrying") << 2 << folderSource;
     }
 }
 
@@ -190,7 +190,8 @@ case "$2" in
       exit 0
     fi
     [[ -f "$path" ]] || exit 1
-    printf '{"size":%s}' "$(stat -c %s "$path")"
+    checksum="$(sha256sum "$path")"
+    printf '{"size":%s,"sha256":"%s"}' "$(stat -c %s "$path")" "${checksum%% *}"
     ;;
   *) exit 1 ;;
 esac
@@ -230,9 +231,9 @@ esac
     const auto &record = *store.find("documents");
     QCOMPARE(record.status, status);
     QCOMPARE(record.result.verifiedFiles, verified);
-    QCOMPARE(record.result.manifestVerified, failure != "manifest");
+    QCOMPARE(record.result.manifestVerified, failure == "none");
     const QUrl browserUrl = ProtonFolderLink::cached(ProtonFolderLink::cachePath(configPath), record.remoteCopyPath);
-    if (failure == "none" || failure == "partial") {
+    if (failure == "none") {
         QCOMPARE(browserUrl.path(), QStringLiteral("/share/folder/copy-node"));
     } else {
         QVERIFY(browserUrl.isEmpty());
@@ -245,11 +246,10 @@ esac
         QVERIFY(record.nextAttempt.isValid());
         QCOMPARE(store.readyIndexes(record.nextAttempt).size(), 1);
     }
-    if (failure == "partial" || failure == "all") {
-        QCOMPARE(record.result.issues.size(), (failure == "all" ? 2 : 1) + (folderSource ? 1 : 0));
-        QCOMPARE(record.result.issues.first().path, folderSource ? sourceFolder : home.filePath("bad.txt"));
-        QCOMPARE(record.result.issues.first().phase, QString("uploading"));
-        QCOMPARE(record.result.issues.first().reason, QString("Connection interrupted"));
+    if (failure != "none") {
+        QVERIFY(record.unfinished);
+        QVERIFY(record.result.interrupted);
+        QCOMPARE(record.lastError, QString("Connection interrupted"));
     }
     QVERIFY(QDir(home.path()).entryList({"omacustos-backup-*"}, QDir::Dirs | QDir::NoDotAndDotDot).isEmpty());
 }

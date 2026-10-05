@@ -799,8 +799,8 @@ void BackupEngineTest::verifiesTransferredPayloadMetadata()
             const QByteArray contents = damage == "truncated" ? QByteArray("x") : QByteArray("corrupt");
             QCOMPARE(uploaded.write(contents), qint64(contents.size()));
         }, &result, {freshCopy}), success);
-    const auto cleanup = qScopeGuard([&] { QDir(QFileInfo(manifest).path()).removeRecursively(); });
-    QVERIFY(result.manifestVerified);
+    const auto cleanup = qScopeGuard([&] { if (!manifest.isEmpty()) QDir(QFileInfo(manifest).path()).removeRecursively(); });
+    QVERIFY2(result.manifestVerified, qPrintable(error));
     QCOMPARE(result.verifiedFiles, success ? 1 : 0);
     QCOMPARE(result.verifiedBytes, qint64(success ? 7 : 0));
     QCOMPARE(result.issues.size(), success ? 0 : 1);

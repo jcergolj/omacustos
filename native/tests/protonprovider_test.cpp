@@ -151,7 +151,8 @@ void ProtonProviderTest::folderUploadPreservesSelectionSnapshotsAndCleansStaging
                 sawVerification = true;
                 QCOMPARE(progress.processedFiles, expected.size());
                 QVERIFY(!runner.uploadedPaths.isEmpty());
-                QVERIFY(!QFileInfo::exists(QFileInfo(runner.uploadedPaths.first()).path()));
+                // Verification and the atomic checkpoint precede batch cleanup.
+                QVERIFY(QFileInfo::exists(QFileInfo(runner.uploadedPaths.first()).path()));
             }
         }, nullptr, {true}), qPrintable(error));
     const auto cleanup = qScopeGuard([&] { QDir(QFileInfo(manifest).path()).removeRecursively(); });
