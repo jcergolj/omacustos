@@ -377,6 +377,27 @@ void BackupRestoreController::startBrowse()
     }));
 }
 
+QVariantMap BackupRestoreController::downloadCost(const QVariantList &indexes) const
+{
+    qint64 bytes = 0;
+    QSet<QString> archives;
+    QSet<int> seen;
+    for (const QVariant &value : indexes) {
+        bool valid = false;
+        const int index = value.toInt(&valid);
+        if (!valid || index < 0 || index >= manifestEntries.size() || seen.contains(index)) continue;
+        seen.insert(index);
+        const BackupEntry &entry = manifestEntries.at(index);
+        if (entry.archive.id.isEmpty()) {
+            bytes += entry.size;
+        } else if (!archives.contains(entry.archive.id)) {
+            archives.insert(entry.archive.id);
+            bytes += entry.archive.size;
+        }
+    }
+    return {{QStringLiteral("bytes"), bytes}, {QStringLiteral("archiveCount"), archives.size()}};
+}
+
 void BackupRestoreController::restore(int index, const QString &destinationDirectory)
 {
     if (busy()) {

@@ -12,6 +12,7 @@
 #include <QScopeGuard>
 #include <QJsonArray>
 #include <QCryptographicHash>
+#include <QDirIterator>
 
 #include "../src/backupconfig.h"
 #include "../src/backuprunstore.h"
@@ -36,6 +37,35 @@ QVector<QJsonObject> logEntries(const QString &path)
     while (!file.atEnd()) entries.append(QJsonDocument::fromJson(file.readLine()).object());
     return entries;
 }
+
+class RestoreStagingProvider final : public BackupProvider {
+public:
+    explicit RestoreStagingProvider(BackupProvider &provider) : provider(provider) {}
+    BackupProvider &provider;
+    QStringList workspaces;
+    bool retainedWorkspace = false;
+    bool upload(const QString &source, const QString &path, QString *error) override { return provider.upload(source, path, error); }
+    bool ensureDirectory(const QString &path, QString *error) override { return provider.ensureDirectory(path, error); }
+    bool trash(const QString &path, QString *error) override { return provider.trash(path, error); }
+    bool permanentlyDelete(const QString &path, QString *error) override { return provider.permanentlyDelete(path, error); }
+    bool inspect(const QString &path, RemoteFile *file, QString *error) override { return provider.inspect(path, file, error); }
+    bool list(const QString &path, QVector<RemoteItem> *items, QString *error) override { return provider.list(path, items, error); }
+    bool download(const QString &path, const QString &destination, QString *error) override
+    {
+        for (const QString &workspace : workspaces) retainedWorkspace |= QFileInfo::exists(workspace);
+        workspaces.append(QFileInfo(destination).absolutePath());
+        return provider.download(path, destination, error);
+    }
+    qint64 stagedBytes() const
+    {
+        qint64 bytes = 0;
+        for (const QString &workspace : workspaces) {
+            QDirIterator files(workspace, QDir::Files, QDirIterator::Subdirectories);
+            while (files.hasNext()) { files.next(); bytes += files.fileInfo().size(); }
+        }
+        return bytes;
+    }
+};
 
 struct WorkerFixture {
     QTemporaryDir directory {QDir::current().filePath("worker-continuation-XXXXXX")};
@@ -245,8 +275,9 @@ void WorkerRecoveryTest::boundedArchivesRoundTrip()
     const auto reset = qScopeGuard([&] { qputenv("FIXTURE_REMOTE", oldRemote); qputenv("FIXTURE_COMMAND_LOG", oldLog); });
     QProcessRunner runner(fixture.config.protonBinary);
     ProtonProvider provider(runner);
+    RestoreStagingProvider stagingProvider(provider);
     BackupEngine engine;
-    BackupRestoreController controller(engine, &provider);
+    BackupRestoreController controller(engine, &stagingProvider);
     QSignalSpy completed(&controller, &BackupRestoreController::restoreCompleted);
     QSignalSpy failed(&controller, &BackupRestoreController::failed);
     controller.loadManifest(QDir(fixture.remoteCopy()).filePath("manifest.json"));
@@ -260,6 +291,11 @@ void WorkerRecoveryTest::boundedArchivesRoundTrip()
             requiredArchives.insert(entries.at(i).archive.id);
         }
         QVERIFY(!selected.isEmpty());
+        qint64 downloadBytes = 0;
+        for (const QString &id : requiredArchives) downloadBytes += archives.value(id).first().archive.size;
+        const auto cost = controller.downloadCost(selected);
+        QCOMPARE(cost.value("bytes").toLongLong(), downloadBytes);
+        QCOMPARE(cost.value("archiveCount").toInt(), requiredArchives.size());
         const int before = logEntries(fixture.directory.filePath("restore-commands.jsonl")).size();
         const QString destination = fixture.directory.filePath(QString("restore-%1").arg(operation));
         controller.restoreSelected(selected, destination);
@@ -287,7 +323,26 @@ void WorkerRecoveryTest::boundedArchivesRoundTrip()
         }
         QCOMPARE(downloaded, requiredArchives);
         QCOMPARE(downloads, requiredArchives.size());
+        QVERIFY(!stagingProvider.retainedWorkspace);
+        for (const QString &workspace : stagingProvider.workspaces) QVERIFY(!QFileInfo::exists(workspace));
     }
+
+    // Sample synchronously at the engine's placement boundary: compressed body
+    // plus only this archive's selected payloads must be the entire workspace.
+    qint64 restorePeak = 0;
+    qint64 bound = 0;
+    for (const auto &members : archives) {
+        qint64 bytes = members.first().archive.size;
+        for (const auto &entry : members) bytes += entry.size;
+        bound = qMax(bound, bytes);
+    }
+    const auto restored = engine.restoreFiles({entries, fixture.directory.filePath("measured-restore"), controller.currentCopyPath()},
+        stagingProvider, [&](int) { restorePeak = qMax(restorePeak, stagingProvider.stagedBytes()); });
+    QVERIFY2(restored.success, qPrintable(restored.error));
+    QVERIFY(restorePeak > 0);
+    QVERIFY(restorePeak <= bound);
+    QVERIFY(!stagingProvider.retainedWorkspace);
+    for (const QString &workspace : stagingProvider.workspaces) QVERIFY(!QFileInfo::exists(workspace));
 }
 
 void WorkerRecoveryTest::boundedArchivesStorageWaiting_data()
@@ -675,8 +730,9 @@ void WorkerRecoveryTest::singleArchiveRejectsDamage()
     const auto reset = qScopeGuard([&] { qputenv("FIXTURE_REMOTE", old); });
     QProcessRunner runner(fixture.config.protonBinary);
     ProtonProvider provider(runner);
+    RestoreStagingProvider stagingProvider(provider);
     BackupEngine engine;
-    BackupRestoreController controller(engine, &provider);
+    BackupRestoreController controller(engine, &stagingProvider);
     QSignalSpy completed(&controller, &BackupRestoreController::restoreCompleted);
     QSignalSpy failed(&controller, &BackupRestoreController::failed);
     // Local index loading is a public controller seam and allows outer-checksum
@@ -693,6 +749,8 @@ void WorkerRecoveryTest::singleArchiveRejectsDamage()
     QVERIFY(existing.open(QIODevice::ReadOnly));
     QCOMPARE(existing.readAll(), QByteArray("existing destination"));
     QVERIFY(!QFileInfo::exists(fixture.directory.filePath("escaped")));
+    QVERIFY(!stagingProvider.workspaces.isEmpty());
+    for (const QString &workspace : stagingProvider.workspaces) QVERIFY(!QFileInfo::exists(workspace));
 }
 
 void WorkerRecoveryTest::recoveryPreservesTheLogicalRun()

@@ -15,6 +15,12 @@ FormCard {
     property alias selectionLookup: selectionState.selectionLookup
     property alias selectionRevision: selectionState.selectionRevision
     property alias selectedCount: selectionState.selectedCount
+    readonly property var downloadCost: {
+        selectionRevision
+        controller.entries
+        controller.currentCopyPath
+        return controller.downloadCost(selectedIndexes)
+    }
     property var contextStates: ({})
     property string contextKey: ""
     property real screenScrollY: -1
@@ -305,6 +311,18 @@ FormCard {
             objectName: "restoreSelectionCount"
             text: qsTr("Selected files: %1").arg(panel.selectedCount)
             color: panel.style.mutedColor
+            Layout.fillWidth: true
+        }
+
+        Label {
+            objectName: "restoreDownloadCost"
+            text: panel.downloadCost.archiveCount > 0
+                ? (panel.downloadCost.archiveCount === 1
+                    ? qsTr("Required download: %1 bytes · 1 archive (compressed)").arg(panel.downloadCost.bytes)
+                    : qsTr("Required download: %1 bytes · %2 archives (compressed)").arg(panel.downloadCost.bytes).arg(panel.downloadCost.archiveCount))
+                : qsTr("Required download: %1 bytes").arg(panel.downloadCost.bytes)
+            color: panel.style.mutedColor
+            wrapMode: Text.WordWrap
             Layout.fillWidth: true
         }
 

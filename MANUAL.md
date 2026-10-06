@@ -321,6 +321,13 @@ clears the configured set list, while **Merge** keeps it.
 After a successful restore, the restore panel closes and OmaCustos returns to the
 dashboard. If a restore fails, the panel and your selection stay open for retry.
 
+**Required download** updates as you change the selection. For archive copies it
+shows compressed bytes and the number of unique archives required: selecting
+several files from one archive downloads that archive only once. Only selected
+files are placed in the destination, and each archive's temporary workspace is
+released before the next archive is downloaded. Older individual-file copies
+show the total bytes of the selected files. No download-time estimate is shown.
+
 Incomplete copies expose only verified entries. Missing, failed, malformed, or
 unverifiable items are not presented as successful restores.
 

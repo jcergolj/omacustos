@@ -70,6 +70,7 @@ public:
     Q_INVOKABLE void restore(int index, const QString &destinationDirectory);
     Q_INVOKABLE void restoreSelected(const QVariantList &indexes, const QString &destinationDirectory);
     Q_INVOKABLE void restoreFolder(const QString &folder, const QString &destinationDirectory);
+    Q_INVOKABLE QVariantMap downloadCost(const QVariantList &indexes) const;
 
 signals:
     void busyChanged();

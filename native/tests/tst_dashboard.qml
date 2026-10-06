@@ -765,6 +765,28 @@ TestCase {
         compare(panel.contextStates[panel.contextKey], undefined)
     }
 
+    function test_restoreDownloadCostTracksSelectionAndCopy() {
+        showRestoreFiles()
+        const panel = control("restorePanel")
+        const label = control("restoreDownloadCost")
+        compare(label.text, "Required download: 10 bytes")
+        restoreController.downloadObjects = [{ archive: "a", size: 123 }, { archive: "a", size: 123 }]
+        compare(label.text, "Required download: 123 bytes · 1 archive (compressed)")
+        panel.selection.toggleFile(1, false)
+        compare(label.text, "Required download: 123 bytes · 1 archive (compressed)")
+        compare(control("restoreFile-0").checked, true)
+        panel.selection.clear()
+        compare(label.text, "Required download: 0 bytes")
+        panel.selection.selectAll()
+        restoreController.downloadObjects = [{ archive: "b", size: 200 }, { archive: "c", size: 300 }]
+        restoreController.currentCopyIndex = 1
+        compare(panel.downloadCost.bytes, 0)
+        restoreController.entriesChanged()
+        compare(panel.downloadCost.bytes, 500)
+        compare(panel.downloadCost.archiveCount, 2)
+        restoreController.downloadObjects = []
+    }
+
     function test_failedRestoreKeepsThePanelAndSelectionOpenForRetry() {
         showRestoreFiles()
         mouseClick(control("restoreFile-1"))

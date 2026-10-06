@@ -858,6 +858,9 @@ void BackupRestoreControllerTest::restoresLegacySelections()
     BackupRestoreController controller(engine, &provider);
     controller.loadManifest(manifestPath);
     QCOMPARE(controller.entries().size(), 4);
+    QCOMPARE(controller.downloadCost({0, 1, 2, 3}).value("bytes").toLongLong(), 20);
+    QCOMPARE(controller.downloadCost({0, 0, -1, 99}).value("bytes").toLongLong(), 5);
+    QCOMPARE(controller.downloadCost({0, 1}).value("archiveCount").toInt(), 0);
     QSignalSpy completed(&controller, &BackupRestoreController::restoreCompleted);
     QSignalSpy failed(&controller, &BackupRestoreController::failed);
     QVariantList indexes;

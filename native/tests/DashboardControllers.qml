@@ -259,6 +259,22 @@ QtObject {
         signal restoreCompletedForContext(string folder, string setId, string copyPath)
         function discover(remoteRoot, setId) { discoveredRoot = remoteRoot; discoveredSetId = setId }
         function selectCopy(index) { selectedCopy = index; currentCopyIndex = index }
+        property var downloadObjects: []
+        function downloadCost(indexes) {
+            const seen = Object.create(null)
+            let bytes = 0
+            let archives = 0
+            for (const index of indexes) {
+                const object = downloadObjects[index] || { size: 5 }
+                if (object.archive) {
+                    if (seen[object.archive]) continue
+                    seen[object.archive] = true
+                    ++archives
+                }
+                bytes += object.size
+            }
+            return { bytes: bytes, archiveCount: archives }
+        }
         function restoreSelected(indexes, destination) {
             restoreBackupFolder = backupFolder
             restoreBackupId = backupId
