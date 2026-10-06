@@ -41,4 +41,6 @@ ctest --test-dir build --output-on-failure -j 4
 
 These are local correctness fixtures, not measurements of Proton throughput.
 Prepared-upload reconciliation and changes to selected sources or remote archives
-are the following #51 slice; unverified prepared groups are safely retried here.
+are covered by the #51 slice documented in `archivereconciliation.md`. Prepared
+groups require current local hashes and positive remote evidence before a new
+durable verified checkpoint; the prepared record alone never authorizes reuse.

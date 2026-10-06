@@ -164,7 +164,225 @@ private slots:
     void archiveInterruptionRecovery();
     void archiveReuseStorageWaiting_data();
     void archiveReuseStorageWaiting();
+    void archiveReconciliation_data();
+    void archiveReconciliation();
 };
+
+void WorkerRecoveryTest::archiveReconciliation_data()
+{
+    QTest::addColumn<QString>("change");
+    QTest::addColumn<bool>("sizeOnly");
+    for (const QString &change : {"same-size-edit", "addition", "deletion", "exclusion", "root-reorder",
+             "root-removal", "root-collision", "file-to-directory", "directory-to-file", "missing", "corrupt",
+             "prepared-upload", "prepared-edit", "prepared-corrupt", "prepared-missing"})
+        for (bool sizeOnly : {false, true})
+            QTest::newRow(qPrintable(change + (sizeOnly ? " size-only" : " checksum"))) << change << sizeOnly;
+}
+
+void WorkerRecoveryTest::archiveReconciliation()
+{
+    QFETCH(QString, change);
+    QFETCH(bool, sizeOnly);
+    WorkerFixture fixture;
+    QVERIFY(fixture.prepare(200000));
+    fixture.environment.insert("OMACUSTOS_INTERNAL_BOUNDED_ARCHIVES", "1");
+    fixture.environment.insert("OMACUSTOS_INTERNAL_ARCHIVE_TARGET", "8");
+    fixture.environment.insert("FIXTURE_SIZE_ONLY", sizeOnly ? "yes" : "no");
+    fixture.environment.insert("FIXTURE_COMMAND_LOG", fixture.directory.filePath("commands.jsonl"));
+    const QString source = fixture.directory.filePath("source");
+    QMap<QString, QByteArray> expected;
+    for (const QString &name : {"a", "b", "c", "d", "nested/e", "nested/f"}) {
+        const QString path = QDir(source).filePath(name);
+        expected.insert(path, name.right(1).toUtf8().repeated(4));
+        QVERIFY(writeFile(path, expected.value(path)));
+    }
+    const QString other = fixture.directory.filePath("other/source");
+    if (change.startsWith("root-")) {
+        fixture.config.sets[0].sourceDirectories.append(other);
+        expected.insert(other + "/a", "root");
+        QVERIFY(writeFile(other + "/a", "root"));
+        QVERIFY(fixture.save());
+    }
+    const bool prepared = change.startsWith("prepared-");
+    if (prepared) {
+        fixture.environment.insert("FIXTURE_BLOCK_ARCHIVE_PHASE", "upload");
+        QProcess worker;
+        fixture.start(worker);
+        QVERIFY(worker.waitForStarted());
+        QTRY_VERIFY_WITH_TIMEOUT(QFile::exists(fixture.directory.filePath("blocked")), 10000);
+        worker.kill();
+        QVERIFY(worker.waitForFinished(5000));
+        QVERIFY(fixture.runs.load());
+        fixture.environment.remove("FIXTURE_BLOCK_ARCHIVE_PHASE");
+    } else {
+        fixture.environment.insert("FIXTURE_FAIL_ITEM", "manifest.json");
+        QVERIFY2(fixture.run(), qPrintable(fixture.error));
+        QCOMPARE(fixture.record().status, QString("retrying"));
+    }
+    const QString copy = fixture.record().remoteCopyPath;
+    const QString journal = fixture.directory.filePath("continuations/")
+        + QString::fromLatin1(QCryptographicHash::hash(copy.toUtf8(), QCryptographicHash::Sha256).toHex());
+    QHash<QString, BackupEntry> original;
+    int durable = 0;
+    for (const QString &name : QDir(journal).entryList({"batch-*.json"}, QDir::Files, QDir::Name)) {
+        QFile file(QDir(journal).filePath(name));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const auto batch = QJsonDocument::fromJson(file.readAll()).object();
+        const auto archive = batch.value("archives").toArray().first().toObject();
+        for (const auto &value : batch.value("entries").toArray()) {
+            const auto item = value.toObject();
+            BackupEntry entry;
+            entry.sourcePath = item.value("source").toString();
+            entry.restorePath = item.value("restore").toString();
+            entry.memberPath = item.value("member").toString();
+            entry.archive.id = archive.value("id").toString();
+            entry.archive.remotePath = archive.value("remote").toString();
+            original.insert(entry.sourcePath, entry);
+            if (batch.value("verified").toBool()) ++durable;
+        }
+    }
+    QCOMPARE(durable, prepared ? 2 : expected.size());
+    QCOMPARE(original.size(), prepared ? 4 : expected.size());
+    QVERIFY(!QFile::exists(QDir(fixture.remoteCopy()).filePath("manifest.json")));
+    QSet<QString> affected;
+    const QString changed = source + (prepared ? "/c" : "/a");
+    if (change == "same-size-edit" || change == "prepared-edit") {
+        QVERIFY(writeFile(changed, "EDIT"));
+        expected[changed] = "EDIT";
+        affected.insert(original.value(changed).archive.id);
+    } else if (change == "addition") {
+        expected[source + "/aa"] = "new!";
+        QVERIFY(writeFile(source + "/aa", "new!"));
+    } else if (change == "deletion" || change == "exclusion") {
+        expected.remove(changed);
+        if (change == "deletion") QVERIFY(QFile::remove(changed));
+        else fixture.config.sets[0].exclusions.append(changed);
+        affected.insert(original.value(changed).archive.id);
+    } else if (change == "root-reorder") {
+        std::reverse(fixture.config.sets[0].sourceDirectories.begin(), fixture.config.sets[0].sourceDirectories.end());
+    } else if (change == "root-removal") {
+        fixture.config.sets[0].sourceDirectories.removeAll(other);
+        expected.remove(other + "/a");
+        affected.insert(original.value(other + "/a").archive.id);
+    } else if (change == "root-collision") {
+        const QString added = fixture.directory.filePath("third/source");
+        fixture.config.sets[0].sourceDirectories.prepend(added);
+        expected[added + "/a"] = "new!";
+        QVERIFY(writeFile(added + "/a", "new!"));
+    } else if (change == "file-to-directory") {
+        QVERIFY(QFile::remove(changed));
+        expected.remove(changed);
+        affected.insert(original.value(changed).archive.id);
+        expected[changed + "/child"] = "new!";
+        QVERIFY(writeFile(changed + "/child", "new!"));
+    } else if (change == "directory-to-file") {
+        QVERIFY(QDir(source + "/nested").removeRecursively());
+        for (const QString &name : {"e", "f"}) {
+            const QString path = source + "/nested/" + name;
+            expected.remove(path);
+            affected.insert(original.value(path).archive.id);
+        }
+        expected[source + "/nested"] = "new!";
+        QVERIFY(writeFile(source + "/nested", "new!"));
+    } else if (change.endsWith("missing") || change.endsWith("corrupt")) {
+        const auto archive = original.value(changed).archive;
+        affected.insert(archive.id);
+        const QString remote = fixture.directory.filePath("remote") + archive.remotePath;
+        if (change.endsWith("missing")) QVERIFY(QFile::remove(remote));
+        else {
+            QFile file(remote);
+            QVERIFY(file.open(QIODevice::ReadWrite));
+            const qint64 size = file.size();
+            QVERIFY(file.seek(size / 2));
+            const QByteArray byte = file.read(1);
+            QVERIFY(file.seek(size / 2));
+            QCOMPARE(file.write(QByteArray(1, byte.at(0) ^ 0x55)), qint64(1));
+            QCOMPARE(file.size(), size); // same-size remote corruption
+        }
+    }
+    QVERIFY(fixture.save());
+    fixture.environment.remove("OMACUSTOS_INTERNAL_BOUNDED_ARCHIVES");
+    // Reconcile twice to exercise superseded prepared/verified journal records.
+    fixture.environment.insert("FIXTURE_FAIL_ITEM", "manifest.json");
+    if (!prepared) QVERIFY(fixture.runs.requestControl("documents", "resume"));
+    QVERIFY2(fixture.run(), qPrintable(fixture.error));
+    QCOMPARE(fixture.record().status, QString("retrying"));
+    QCOMPARE(fixture.record().remoteCopyPath, copy);
+    QCOMPARE(fixture.record().result.verifiedFiles, expected.size());
+    QVERIFY(fixture.emptyStaging());
+    const auto reconciledTransfers = logEntries(fixture.directory.filePath("transfers.jsonl"));
+    fixture.environment.remove("FIXTURE_FAIL_ITEM");
+    QVERIFY(fixture.runs.requestControl("documents", "resume"));
+    QVERIFY2(fixture.run(), qPrintable(fixture.error));
+    QCOMPARE(fixture.record().status, QString("success"));
+    QCOMPARE(fixture.record().remoteCopyPath, copy);
+    QCOMPARE(logEntries(fixture.directory.filePath("transfers.jsonl")).size(), reconciledTransfers.size() + 1);
+    QVector<BackupEntry> entries;
+    BackupManifestInfo info;
+    QVERIFY(BackupManifest::load(QDir(fixture.remoteCopy()).filePath("manifest.json"), &entries, &info));
+    QCOMPARE(info.version, 3);
+    QCOMPARE(entries.size(), expected.size());
+    QSet<QString> paths;
+    qint64 bytes = 0;
+    for (const auto &entry : entries) {
+        QVERIFY(expected.contains(entry.sourcePath));
+        QVERIFY(!paths.contains(entry.restorePath));
+        paths.insert(entry.restorePath);
+        QCOMPARE(entry.checksum, QCryptographicHash::hash(expected.value(entry.sourcePath), QCryptographicHash::Sha256));
+        bytes += expected.value(entry.sourcePath).size();
+        QVERIFY(!affected.contains(entry.archive.id));
+        if (original.contains(entry.sourcePath)) {
+            const auto before = original.value(entry.sourcePath);
+            QCOMPARE(entry.restorePath, before.restorePath);
+            QCOMPARE(entry.memberPath, before.memberPath);
+            if (!affected.contains(before.archive.id)) QCOMPARE(entry.archive.id, before.archive.id);
+        }
+    }
+    QSet<QString> checked;
+    for (const auto &entry : original) {
+        if (checked.contains(entry.archive.id)) continue;
+        checked.insert(entry.archive.id);
+        QCOMPARE(fixture.transfers(entry.archive.id), 1); // reuse or supersede; never overwrite
+    }
+    QCOMPARE(fixture.record().result.verifiedBytes, bytes);
+    QCOMPARE(fixture.record().progress.verifiedFiles, expected.size());
+    QVERIFY(fixture.record().result.manifestVerified);
+    QVERIFY(fixture.emptyStaging());
+    for (const auto &command : logEntries(fixture.directory.filePath("commands.jsonl")))
+        QVERIFY(command.value("command").toString() != "trash" && command.value("command").toString() != "delete");
+    const auto oldEnvironment = QProcessEnvironment::systemEnvironment();
+    const QStringList keys {"FIXTURE_REMOTE", "FIXTURE_LOG", "FIXTURE_BATCH_LOG", "FIXTURE_SIZE_ONLY"};
+    for (const auto &key : keys) qputenv(key.toUtf8(), fixture.environment.value(key).toUtf8());
+    const auto resetEnvironment = qScopeGuard([&] {
+        for (const auto &key : keys) {
+            if (oldEnvironment.contains(key)) qputenv(key.toUtf8(), oldEnvironment.value(key).toUtf8());
+            else qunsetenv(key.toUtf8());
+        }
+    });
+    QProcessRunner runner(fixture.config.protonBinary);
+    ProtonProvider provider(runner);
+    BackupEngine engine;
+    BackupRestoreController controller(engine, &provider);
+    QSignalSpy completed(&controller, &BackupRestoreController::restoreCompleted);
+    QSignalSpy failed(&controller, &BackupRestoreController::failed);
+    controller.loadManifest(QDir(fixture.remoteCopy()).filePath("manifest.json"));
+    QVERIFY(controller.restoreEligible());
+    QVariantList selected;
+    for (int index = 0; index < entries.size(); ++index) selected.append(index);
+    controller.restoreSelected(selected, fixture.directory.filePath("restored"));
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.busy(), 10000);
+    QCOMPARE(failed.size(), 0);
+    QCOMPARE(completed.size(), 1);
+    for (const auto &entry : entries) {
+        QFile file(fixture.directory.filePath("restored/" + entry.restorePath));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QCOMPARE(file.readAll(), expected.value(entry.sourcePath));
+    }
+    int restoredCount = 0;
+    QDirIterator restored(fixture.directory.filePath("restored"), QDir::Files | QDir::Hidden, QDirIterator::Subdirectories);
+    while (restored.hasNext()) { restored.next(); ++restoredCount; }
+    QCOMPARE(restoredCount, expected.size());
+}
 
 void WorkerRecoveryTest::archiveInterruptionRecovery_data()
 {

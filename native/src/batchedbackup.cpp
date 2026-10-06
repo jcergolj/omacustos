@@ -215,6 +215,8 @@ bool BackupEngine::backupBatches(const QStringList &sources, const QString &remo
     const auto endOperation = qScopeGuard([&] { provider.endBackupOperation(); });
     QString providerError;
     if (!provider.ensureDirectory(root, &providerError)) return fail(providerError);
+    if (archiveMode && !provider.ensureDirectory(QDir(root).filePath(".omacustos-archives"), &providerError))
+        return fail(providerError);
     const bool directoryTransfer = provider.supportsDirectoryUpload()
         && std::any_of(sources.cbegin(), sources.cend(), [](const QString &path) { return QFileInfo(path).isDir(); });
 
@@ -241,7 +243,23 @@ bool BackupEngine::backupBatches(const QStringList &sources, const QString &remo
     const auto matchesRemote = [&](const BackupEntry &entry, QString *reason, bool oversizedArchive = false) {
         reuseStorageFailure = false;
         RemoteFile remote;
-        if (!provider.inspect(entry.remotePath, &remote, reason) || remote.size != entry.size) return false;
+        if (!provider.inspect(entry.remotePath, &remote, reason)) {
+            if (archiveMode) {
+                // Confirm absence through a successful directory listing. A
+                // transport/authentication error must keep the copy unfinished,
+                // rather than authorizing a replacement upload.
+                QVector<RemoteItem> items;
+                QString listingError;
+                if (provider.list(QFileInfo(entry.remotePath).path(), &items, &listingError)
+                    && std::none_of(items.cbegin(), items.cend(), [&](const RemoteItem &item) {
+                        return item.name == QFileInfo(entry.remotePath).fileName();
+                    })) {
+                    if (reason) reason->clear();
+                }
+            }
+            return false;
+        }
+        if (remote.size != entry.size) return false;
         if (!remote.checksum.isEmpty()) return PayloadMetadataPolicy::matchesForReuse(remote, entry.size, entry.checksum);
         // A size-only provider cannot prove reuse. Download and hash when the
         // CLI exposes no checksum; never mistake same-size content for identity.
@@ -410,13 +428,14 @@ bool BackupEngine::backupBatches(const QStringList &sources, const QString &remo
         return true;
     };
 
-    // Reuse only whole, durably verified groups. Prepared groups preserve
-    // identities but cannot authorize reuse, even if an upload reached remote.
+    // Reconcile whole groups from their latest prepared/verified records. A
+    // prepared record only identifies candidate bytes: current local hashes and
+    // checksum-grade remote evidence must precede a new durable checkpoint.
     QSet<QString> reusableSources;
     if (archiveMode && recovering) {
         const QSet<QString> selected(orderedFiles.cbegin(), orderedFiles.cend());
         QMap<QString, QVector<BackupEntry>> groups;
-        for (const auto &entry : continuation.verified) groups[entry.archive.id].append(entry);
+        for (const auto &entry : continuation.mappings) groups[entry.archive.id].append(entry);
         for (const auto &group : groups) {
             const BackupArchive archive = group.first().archive;
             bool valid = group.size() == archive.members.size();
@@ -441,6 +460,15 @@ bool BackupEngine::backupBatches(const QStringList &sources, const QString &remo
                 continue;
             }
             if (stopped()) return fail(QStringLiteral("The backup was stopped; its checkpoint is preserved."));
+            const bool needsCheckpoint = std::any_of(group.cbegin(), group.cend(), [&](const BackupEntry &entry) {
+                const auto verified = continuation.verified.constFind(entry.sourcePath);
+                return verified == continuation.verified.cend() || verified->archive.id != archive.id;
+            });
+            if (needsCheckpoint) {
+                report("checkpointing");
+                if (stopped()) return fail(QStringLiteral("The backup was stopped; its checkpoint is preserved."));
+                if (!continuation.checkpoint(group, error)) return checkpointFailed();
+            }
             draft.archives.append(archive);
             for (const auto &entry : group) {
                 reusableSources.insert(entry.sourcePath);
