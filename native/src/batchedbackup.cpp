@@ -312,7 +312,7 @@ bool BackupEngine::backupBatches(const QStringList &sources, const QString &remo
                 entry.archive = archive;
                 entry.remotePath = archive.remotePath;
             }
-            report("checkpointing");
+            report("prepared-checkpoint");
             if (stopped()) return fail(QStringLiteral("The backup was stopped; its checkpoint is preserved."));
             if (!continuation.checkpoint(batch, error, false)) return checkpointFailed();
             report("uploading", sources.first(), archive.size);

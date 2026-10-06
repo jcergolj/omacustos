@@ -1,8 +1,7 @@
 # Archive interruption recovery (#50)
 
-The archive execution path remains internally enabled with
-`OMACUSTOS_INTERNAL_BOUNDED_ARCHIVES=1`. Fresh production defaults are the later
-#52 slice. Recovery reads the durable `payload_format`, so a replacement worker
+Fresh workers now use bounded archives by default (#52).
+Recovery reads the durable `payload_format`, so a replacement worker
 does not require the original opt-in environment and never mixes formats.
 
 ## Deterministic integration coverage

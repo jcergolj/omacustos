@@ -216,6 +216,7 @@ void BackupLauncherTest::queuesDuringTransfer()
     auto environment = QProcessEnvironment::systemEnvironment();
     environment.insert("FAKE_REMOTE", home.filePath("remote"));
     environment.insert("BARRIERS", home.path());
+    environment.insert("OMACUSTOS_INTERNAL_BOUNDED_ARCHIVES", "0"); // named per-file transfer barriers
     environment.insert("OUTCOME", outcome);
     QProcess worker;
     worker.setProcessEnvironment(environment);

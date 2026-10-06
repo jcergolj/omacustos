@@ -1,7 +1,6 @@
 # Bounded archive groups (#47)
 
-The internal worker seam `OMACUSTOS_INTERNAL_BOUNDED_ARCHIVES=1` creates
-version-3 archive copies. Production rollout remains the #52 ticket. The normal
+Fresh workers create version-3 archive copies by default (#52). The normal
 payload target is 1,000,000,000 bytes; `OMACUSTOS_INTERNAL_ARCHIVE_TARGET` permits
 small equivalent boundaries in the real-worker/subprocess fixture.
 

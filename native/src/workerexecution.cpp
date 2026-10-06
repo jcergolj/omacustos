@@ -230,7 +230,10 @@ int runBackupWorker(const QString &configuredPath, BackupPrerequisiteProbe &prer
         BackupOptions options;
         options.freshCopy = true;
         options.singleArchive = qEnvironmentVariable("OMACUSTOS_INTERNAL_SINGLE_ARCHIVE") == "1";
-        options.boundedArchives = qEnvironmentVariable("OMACUSTOS_INTERNAL_BOUNDED_ARCHIVES") == "1";
+        // Fresh manual and scheduled copies share this default. Explicit zero
+        // is retained only for historical-format integration fixtures.
+        options.boundedArchives = !options.singleArchive
+            && qEnvironmentVariable("OMACUSTOS_INTERNAL_BOUNDED_ARCHIVES") != "0";
         bool archiveTargetValid = false;
         const qint64 archiveTarget = qEnvironmentVariable("OMACUSTOS_INTERNAL_ARCHIVE_TARGET").toLongLong(&archiveTargetValid);
         if (archiveTargetValid && archiveTarget > 0) options.archiveTargetBytes = archiveTarget;

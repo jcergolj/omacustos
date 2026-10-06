@@ -1,5 +1,6 @@
 #include "backupengine.h"
 #include "backupcontinuation.h"
+#include "archivebenchmark.h"
 
 #include <QCoreApplication>
 #include <QCryptographicHash>
@@ -95,6 +96,8 @@ public:
 int main(int argc, char *argv[])
 {
     QCoreApplication application(argc, argv);
+    if (application.arguments().value(1) == "--compare")
+        return compareArchiveBackups(application.arguments());
     const int count = application.arguments().value(1, "877172").toInt();
     const qint64 totalBytes = application.arguments().value(2, "95323650798").toLongLong();
     if (count <= 0 || totalBytes < count) return 2;

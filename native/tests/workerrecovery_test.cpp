@@ -89,6 +89,9 @@ struct WorkerFixture {
         environment.insert("FIXTURE_LOG", directory.filePath("transfers.jsonl"));
         environment.insert("FIXTURE_BATCH_LOG", directory.filePath("batches.jsonl"));
         environment.insert("FIXTURE_MARKER", directory.filePath("blocked"));
+        // Historical individual-file regressions deliberately create v2 work.
+        // Rollout regressions remove this internal override to use real defaults.
+        environment.insert("OMACUSTOS_INTERNAL_BOUNDED_ARCHIVES", "0");
         return QDir().mkpath(directory.filePath("remote")) && QDir().mkpath(directory.filePath("source"))
             && save() && runs.queueManual({"documents"}, true, &error);
     }
@@ -124,6 +127,8 @@ class WorkerRecoveryTest : public QObject
     Q_OBJECT
 
 private slots:
+    void archiveRolloutDefaults_data();
+    void archiveRolloutDefaults();
     void recoveryPreservesTheLogicalRun();
     void terminatedWorkerRecovers_data();
     void terminatedWorkerRecovers();
@@ -167,6 +172,123 @@ private slots:
     void archiveReconciliation_data();
     void archiveReconciliation();
 };
+
+void WorkerRecoveryTest::archiveRolloutDefaults_data()
+{
+    QTest::addColumn<int>("fileCount");
+    QTest::addColumn<bool>("scheduled");
+    QTest::newRow("manual 64 directories") << 64 << false;
+    QTest::newRow("manual 512 directories") << 512 << false;
+    QTest::newRow("scheduled existing backup") << 512 << true;
+}
+
+void WorkerRecoveryTest::archiveRolloutDefaults()
+{
+    QFETCH(int, fileCount);
+    QFETCH(bool, scheduled);
+    WorkerFixture fixture;
+    QVERIFY(fixture.prepare(16 * 1024 * 1024));
+    QVERIFY(writeFile(fixture.directory.filePath("source/legacy"), "historical bytes"));
+    fixture.environment.insert("FIXTURE_FAIL_ITEM", "manifest.json");
+    QVERIFY(fixture.run());
+    QCOMPARE(fixture.record().status, QString("retrying"));
+    const QString legacyCopy = fixture.record().remoteCopyPath;
+    // Upgrading an unfinished v2 run must obey its recorded format, even though
+    // the replacement worker has the production archive default.
+    fixture.environment.remove("OMACUSTOS_INTERNAL_BOUNDED_ARCHIVES");
+    fixture.environment.remove("FIXTURE_FAIL_ITEM");
+    QVERIFY(fixture.runs.requestControl("documents", "resume"));
+    QVERIFY(fixture.run());
+    QCOMPARE(fixture.record().status, QString("success"));
+    QCOMPARE(fixture.record().remoteCopyPath, legacyCopy);
+    QVector<BackupEntry> entries;
+    BackupManifestInfo info;
+    const QString legacyIndex = QDir(fixture.remoteCopy()).filePath("manifest.json");
+    QVERIFY(BackupManifest::load(legacyIndex, &entries, &info));
+    QCOMPARE(info.version, 2);
+    if (scheduled) {
+        // Actual v1 index shape: no provenance, expected/failed sets, or restore
+        // mapping. Its timestamped scoped namespace supplies compatibility identity.
+        BackupManifestDraft draft;
+        draft.verifiedEntries = entries;
+        draft.verifiedEntries.first().restorePath.clear();
+        QVERIFY(BackupManifest::write(legacyIndex, draft));
+    }
+    QFile historical(legacyIndex);
+    QVERIFY(historical.open(QIODevice::ReadOnly));
+    const QByteArray historicalBytes = historical.readAll();
+    historical.close();
+    QVERIFY(QFile::remove(fixture.directory.filePath("source/legacy")));
+    for (int i = 0; i < fileCount; ++i)
+        QVERIFY(writeFile(fixture.directory.filePath(QString("source/directory-%1/file").arg(i)), QByteArray(8192 / fileCount, char(i))));
+    fixture.environment.insert("OMACUSTOS_INTERNAL_ARCHIVE_TARGET", "2048");
+    fixture.environment.insert("FIXTURE_COMMAND_LOG", fixture.directory.filePath("default-commands.jsonl"));
+    if (scheduled) {
+        QVERIFY(fixture.runs.enqueue("documents", "scheduled", QDateTime::currentDateTimeUtc()));
+        QVERIFY(fixture.runs.save());
+    } else {
+        QVERIFY(fixture.runs.queueManual({"documents"}, true));
+    }
+    QVERIFY2(fixture.run(), qPrintable(fixture.error));
+    QCOMPARE(fixture.record().status, QString("success"));
+    QVERIFY(fixture.record().remoteCopyPath != legacyCopy);
+    QCOMPARE(fixture.record().result.verifiedFiles, fileCount);
+    QCOMPARE(fixture.record().result.verifiedBytes, qint64(8192));
+    QVERIFY(fixture.emptyStaging());
+    QVERIFY(BackupManifest::load(QDir(fixture.remoteCopy()).filePath("manifest.json"), &entries, &info));
+    QCOMPARE(info.version, 3);
+    QSet<QString> archives;
+    for (const auto &entry : entries) archives.insert(entry.archive.id);
+    QCOMPARE(archives.size(), 4);
+    int uploads = 0, metadataCalls = 0;
+    for (const auto &command : logEntries(fixture.directory.filePath("default-commands.jsonl"))) {
+        const QString name = command.value("command").toString();
+        if (name == "upload") ++uploads;
+        if (name == "list" || name == "info") ++metadataCalls;
+        if (name == "download") {
+            const auto args = command.value("args").toArray();
+            QCOMPARE(QFileInfo(args.at(args.size() - 2).toString()).fileName(), QString("manifest.json"));
+        }
+    }
+    QCOMPARE(uploads, archives.size() + 1); // four archives and final index
+    QVERIFY2(metadataCalls <= 30, qPrintable(QString::number(metadataCalls))); // constant copy/history overhead + archives
+    QVERIFY(historical.open(QIODevice::ReadOnly));
+    QCOMPARE(historical.readAll(), historicalBytes);
+
+    const QByteArray oldRemote = qgetenv("FIXTURE_REMOTE"), oldLog = qgetenv("FIXTURE_COMMAND_LOG");
+    qputenv("FIXTURE_REMOTE", fixture.directory.filePath("remote").toUtf8());
+    qputenv("FIXTURE_COMMAND_LOG", fixture.directory.filePath("catalog-commands.jsonl").toUtf8());
+    const auto reset = qScopeGuard([&] { qputenv("FIXTURE_REMOTE", oldRemote); qputenv("FIXTURE_COMMAND_LOG", oldLog); });
+    QProcessRunner runner(fixture.config.protonBinary);
+    ProtonProvider provider(runner);
+    BackupEngine engine;
+    BackupRestoreController controller(engine, &provider);
+    controller.discover(QFileInfo(fixture.record().remoteCopyPath).path(), "documents");
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.busy(), 10000);
+    QCOMPARE(controller.copies().size(), 2);
+    controller.selectCopy(0);
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.busy(), 10000);
+    QVERIFY(controller.restoreEligible());
+    QCOMPARE(controller.entries().size(), fileCount);
+    int catalogMetadata = 0, catalogDownloads = 0;
+    for (const auto &command : logEntries(fixture.directory.filePath("catalog-commands.jsonl"))) {
+        if (command.value("command") == "info" || command.value("command") == "list") ++catalogMetadata;
+        if (command.value("command") == "download") ++catalogDownloads;
+    }
+    QVERIFY(catalogMetadata <= 8); // mixed history listing and four archive checks
+    QCOMPARE(catalogDownloads, 1);
+    controller.selectCopy(1);
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.busy(), 10000);
+    QVERIFY(controller.restoreEligible());
+    QCOMPARE(controller.entries().size(), 1);
+    QSignalSpy restored(&controller, &BackupRestoreController::restoreCompleted);
+    controller.restoreSelected({0}, fixture.directory.filePath("historical-restore"));
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.busy(), 10000);
+    QCOMPARE(restored.size(), 1);
+    QFile restoredFile(fixture.directory.filePath("historical-restore/legacy"));
+    QVERIFY(restoredFile.open(QIODevice::ReadOnly));
+    QCOMPARE(restoredFile.readAll(), QByteArray("historical bytes"));
+}
 
 void WorkerRecoveryTest::archiveReconciliation_data()
 {
@@ -1066,6 +1188,7 @@ void WorkerRecoveryTest::singleArchiveRoundTrip()
     if (!sizeOnly) {
         const QString archivedCopy = fixture.record().remoteCopyPath;
         fixture.environment.remove("OMACUSTOS_INTERNAL_SINGLE_ARCHIVE");
+        fixture.environment.insert("OMACUSTOS_INTERNAL_BOUNDED_ARCHIVES", "0");
         fixture.environment.remove("FIXTURE_REPLACE_SOURCE");
         QVERIFY(fixture.runs.queueManual({"documents"}, true, &fixture.error));
         QVERIFY(fixture.run());
@@ -1781,6 +1904,7 @@ esac
     environment.insert("FAKE_REMOTE", home.filePath("remote"));
     environment.insert("BLOCK_MARKER", home.filePath("blocked"));
     environment.insert("BLOCK_PHASE", phase);
+    environment.insert("OMACUSTOS_INTERNAL_BOUNDED_ARCHIVES", "0"); // legacy worker-death fixture
     environment.insert("FAIL_VERIFICATION", "no");
     QProcess worker;
     worker.setProcessEnvironment(environment);

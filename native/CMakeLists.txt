@@ -176,5 +176,5 @@ target_compile_definitions(responsiveness-benchmark PRIVATE OMACUSTOS_SOURCE_DIR
 qt_add_executable(manifest-benchmark tests/manifest_benchmark.cpp)
 target_link_libraries(manifest-benchmark PRIVATE omacustos-core)
 
-qt_add_executable(largebackup-benchmark tests/largebackup_benchmark.cpp)
+qt_add_executable(largebackup-benchmark tests/largebackup_benchmark.cpp tests/archivebenchmark.cpp)
 target_link_libraries(largebackup-benchmark PRIVATE omacustos-core)

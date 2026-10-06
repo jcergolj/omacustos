@@ -46,6 +46,11 @@ If the terminal does not open, see [sign-in instructions](MANUAL.md#authenticate
 
 Each run creates a separate copy in Proton Drive. By default, copies are stored
 under `/my-files/backups`, and the latest **three successful copies** are kept.
+Fresh manual and scheduled runs use bounded tar.gz archives (gzip level 3),
+while the restore picker still shows individual files and their required download
+cost. Each fresh run is a full copy, including unchanged files. Older copies
+remain supported. See the [staging and archive details](MANUAL.md#advanced-settings)
+and [local performance measurements](native/tests/archiverollout.md).
 
 ### 4. Make it automatic
 

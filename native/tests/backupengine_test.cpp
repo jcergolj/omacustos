@@ -109,7 +109,8 @@ void BackupEngineTest::archiveControlsPreserveOnlyDurableProgress_data()
     QTest::newRow("preparation") << QString("preparing") << 2 << 1;
     QTest::newRow("upload") << QString("uploading") << 2 << 1;
     QTest::newRow("verification") << QString("verifying") << 2 << 1;
-    QTest::newRow("verified checkpoint") << QString("checkpointing") << 5 << 1;
+    QTest::newRow("prepared checkpoint") << QString("prepared-checkpoint") << 2 << 1;
+    QTest::newRow("verified checkpoint") << QString("checkpointing") << 3 << 1;
     QTest::newRow("finalization") << QString("finalizing") << 1 << 3;
 }
 

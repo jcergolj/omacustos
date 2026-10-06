@@ -66,6 +66,8 @@ QString phaseLabel(const QString &phase)
     if (phase == QStringLiteral("selection")) return QObject::tr("Selecting sources");
     if (phase == QStringLiteral("finalizing")) return QObject::tr("Finalizing backup");
     if (phase == QStringLiteral("scanning")) return QObject::tr("Scanning sources");
+    if (phase == QStringLiteral("preparing")) return QObject::tr("Preparing / compressing payloads");
+    if (phase == QStringLiteral("prepared-checkpoint")) return QObject::tr("Saving prepared work (not yet uploaded)");
     if (phase == QStringLiteral("checkpointing")) return QObject::tr("Saving verified progress");
     return QObject::tr("Preparing backup");
 }

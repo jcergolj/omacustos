@@ -82,7 +82,55 @@ private slots:
     void browsingRecordedCopyNeedsNoManifestOrWorkerLock();
     void browsingRejectsUnsafeRecordedPath();
     void archiveCopyDeletionRetainsWholeCopyScope();
+    void versionOneHistoryRemainsBrowsableRestorableAndDeletable();
 };
+
+void RecentBackupCopiesTest::versionOneHistoryRemainsBrowsableRestorableAndDeletable()
+{
+    CopyFixture fixture;
+    QVERIFY(fixture.prepare());
+    const QString id = "20261001T093000000-legacy";
+    QVERIFY(fixture.engine.backup(fixture.set.sourceDirectories, fixture.path(id), {}, fixture.provider, nullptr));
+    QVector<RemoteCopy> catalog;
+    QString error;
+    QVERIFY(BackupCatalog::discoverCopies(fixture.provider, fixture.set.remoteFolder("computer"), fixture.set.id, &catalog, &error));
+    QCOMPARE(catalog.size(), 1);
+    QCOMPARE(catalog.first().setId, fixture.set.id);
+    QCOMPARE(catalog.first().computerName, QString("computer"));
+    QCOMPARE(catalog.first().entries.size(), 1);
+    QCOMPARE(BackupCleanup::eligibleTargets(catalog, 0, "computer", fixture.set.id), QStringList {fixture.path(id)});
+    QTemporaryDir destination;
+    QVERIFY(fixture.engine.restoreFiles({catalog.first().entries, destination.path(), fixture.path(id)}, fixture.provider).success);
+    QFile restored(destination.filePath("notes.txt"));
+    QVERIFY(restored.open(QIODevice::ReadOnly));
+    QCOMPARE(restored.readAll(), QByteArray("important notes"));
+    BackupRunStore runs(fixture.runPath);
+    QVERIFY(runs.load());
+    runs.find(fixture.set.id)->remoteCopyPath = fixture.path(id);
+    QVERIFY(runs.save());
+    RecentBackupCopies copies(fixture.provider, fixture.configPath, "computer");
+    QSignalSpy confirmation(&copies, &RecentBackupCopies::deleteConfirmationReady);
+    QSignalSpy deleted(&copies, &RecentBackupCopies::copyDeleted);
+    QSignalSpy failed(&copies, &RecentBackupCopies::failed);
+    const QString index = fixture.remote.filePath(fixture.path(id) + "/manifest.json");
+    BackupManifestDraft unsafe;
+    unsafe.verifiedEntries = catalog.first().entries;
+    unsafe.verifiedEntries.first().remotePath = fixture.path("unrelated") + "/notes.txt";
+    QVERIFY(BackupManifest::write(index, unsafe));
+    RemoteCopy rejected;
+    QVERIFY(!BackupCatalog::verifyCopy(fixture.provider, fixture.path(id), fixture.set.id, &rejected, &error));
+    copies.requestDelete(fixture.set.id);
+    QTRY_COMPARE(failed.size(), 1);
+    QCOMPARE(confirmation.size(), 0);
+    QVERIFY(fixture.provider.trashed.isEmpty());
+    unsafe.verifiedEntries = catalog.first().entries;
+    QVERIFY(BackupManifest::write(index, unsafe));
+    copies.requestDelete(fixture.set.id);
+    QTRY_COMPARE(confirmation.size(), 1);
+    copies.confirmDelete();
+    QTRY_COMPARE(deleted.size(), 1);
+    QCOMPARE(fixture.provider.trashed, QStringList {fixture.path(id)});
+}
 
 void RecentBackupCopiesTest::archiveCopyDeletionRetainsWholeCopyScope()
 {

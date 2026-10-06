@@ -133,20 +133,41 @@ may stay at its current step while being transferred.
 
 **Advanced settings** lets you change the remote folder and number of copies
 to keep, run only on AC power, or choose a **staging directory** and **staging
-budget in bytes**. The default budget is **1 GB (1000000000 bytes)**, with at most
-1000 files in each batch. Preparation, upload, verification, and saving progress
-finish for one batch before the next is prepared. Total selection size does not
-determine required temporary payload space.
+budget in bytes**. The default budget is **1 GB (1000000000 bytes)**.
+Every fresh manual or scheduled run, including future runs of existing saved
+backups, creates bounded **tar.gz archives using gzip level 3**. There is no
+storage-format or compression-level setting. Selected source roots remain
+separate; small directories share archives rather than creating remote objects
+for every directory or file.
+
+The normal grouping target is approximately **1 GB of uncompressed contents**.
+Groups are smaller when necessary to fit immutable snapshots, compressed output,
+and tar/gzip overhead together within the staging budget. Preparation/compression,
+upload, verification, and saving verified progress finish for one archive before
+the next is prepared. The progress counts describe original source files and
+bytes; preparation is not completed upload. Total selection size does not
+determine required temporary payload space. Final-index work also uses the
+staging disk and requires additional free space.
 
 Automatic staging uses disk-backed application storage outside your sources,
 falling back to a private directory in `/var/tmp` when necessary. RAM-backed
 storage such as `/tmp` on Omarchy, source overlaps, and unusable locations are
 rejected. Leave the staging directory blank to select it automatically.
 
-A file larger than the budget is processed alone if the staging disk can hold
-it. If space or your disk quota is insufficient, the copy waits with completed
+A file larger than the normal target or preparation allowance stays whole in its
+own oversized archive. It is never split. This exception can exceed the normal
+budget: the staging disk must accommodate the entire immutable snapshot plus
+compressed output and overhead, without assuming useful compression. If space
+or your disk quota is insufficient, the copy waits with completed
 work preserved. Free space or choose another staging disk, save the settings,
 then press **Resume**. Files are never silently omitted for being too large.
+
+Fresh daily runs still create **full copies**, including unchanged files.
+Changed-content/incremental backups and cross-copy deduplication are not provided.
+Existing version-1/version-2 individual-file copies remain browsable, restorable,
+deletable, and subject to retention without conversion or re-upload. An unfinished
+older attempt resumes its original format and exact copy namespace; a fresh run
+after success, Incomplete, failure, or cancellation uses archives.
 
 ### Pause, Resume, and Cancel
 
@@ -324,7 +345,10 @@ dashboard. If a restore fails, the panel and your selection stay open for retry.
 **Required download** updates as you change the selection. For archive copies it
 shows compressed bytes and the number of unique archives required: selecting
 several files from one archive downloads that archive only once. Only selected
-files are placed in the destination, and each archive's temporary workspace is
+files are restored, but downloading even one small file requires downloading its
+entire containing compressed archive. This is the selective-restore download
+amplification shown by **Required download**; it is not a transfer-time estimate.
+Each archive's temporary workspace is
 released before the next archive is downloaded. Older individual-file copies
 show the total bytes of the selected files. No download-time estimate is shown.
 

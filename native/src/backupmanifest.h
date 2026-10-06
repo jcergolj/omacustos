@@ -65,4 +65,8 @@ public:
     static bool write(const QString &path, const BackupManifestDraft &draft, QString *error = nullptr);
     static bool load(const QString &path, QVector<BackupEntry> *entries, QString *error = nullptr);
     static bool load(const QString &path, QVector<BackupEntry> *entries, BackupManifestInfo *info, QString *error = nullptr);
+    // V1 has no provenance. Compatibility derives identity only from a scoped,
+    // timestamped copy folder with all validated payload references inside it.
+    static bool identifyLegacyCopy(const QString &copyFolder, const QString &setId,
+        const QVector<BackupEntry> &entries, BackupManifestInfo *info);
 };

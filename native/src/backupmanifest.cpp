@@ -7,6 +7,7 @@
 #include <QDir>
 #include <QSaveFile>
 #include <QDateTime>
+#include <QTimeZone>
 #include <QtMath>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -16,6 +17,32 @@
 
 #include <algorithm>
 #include <cmath>
+
+bool BackupManifest::identifyLegacyCopy(const QString &copyFolder, const QString &setId,
+    const QVector<BackupEntry> &entries, BackupManifestInfo *info)
+{
+    if (!info || info->version != 1 || entries.isEmpty()
+        || QDir::cleanPath(copyFolder) != copyFolder || copyFolder == "/"
+        || copyFolder.split('/').contains("..")) return false;
+    const QString copyId = QFileInfo(copyFolder).fileName();
+    const QString timestamp = copyId.section('-', 0, 0);
+    QDateTime created = QDateTime::fromString(timestamp,
+        timestamp.size() == 18 ? "yyyyMMddTHHmmsszzz" : "yyyyMMddTHHmmss");
+    if (!created.isValid()) return false;
+    created.setTimeZone(QTimeZone::UTC);
+    const QString parent = QFileInfo(copyFolder).path();
+    const QString computer = QFileInfo(QFileInfo(parent).path()).fileName();
+    if (computer.isEmpty() || QFileInfo(parent).fileName().isEmpty()) return false;
+    for (const auto &entry : entries)
+        if (QDir::cleanPath(entry.remotePath) != entry.remotePath
+            || !entry.remotePath.startsWith(copyFolder + '/')) return false;
+    info->computerName = computer;
+    info->setId = setId.isEmpty() ? QFileInfo(parent).fileName() : setId;
+    info->setName = QFileInfo(parent).fileName();
+    info->copyId = copyId;
+    info->createdAt = created;
+    return true;
+}
 
 namespace {
 

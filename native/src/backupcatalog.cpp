@@ -135,7 +135,9 @@ bool BackupCatalog::verifyCopy(BackupProvider &provider, const QString &copyFold
         warning(error, QStringLiteral("The remote manifest %1 is unavailable.").arg(remoteManifest));
         return false;
     }
-    if ((info.version != 2 && info.version != 3) || info.application != QStringLiteral("omacustos")
+    const bool legacy = info.version == 1
+        && BackupManifest::identifyLegacyCopy(root, expectedSetId, entries, &info);
+    if ((!legacy && ((info.version != 2 && info.version != 3) || info.application != QStringLiteral("omacustos")))
         || (!expectedSetId.isEmpty() && (info.setId != expectedSetId || info.copyId != QFileInfo(root).fileName()))) {
         warning(error, QStringLiteral("The remote manifest %1 is not the expected OmaCustos backup copy.").arg(remoteManifest));
         return false;

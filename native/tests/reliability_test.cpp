@@ -221,6 +221,7 @@ esac
     auto environment = QProcessEnvironment::systemEnvironment();
     environment.insert("FAKE_REMOTE", home.filePath("remote"));
     environment.insert("FAILURE", failure);
+    environment.insert("OMACUSTOS_INTERNAL_BOUNDED_ARCHIVES", "0"); // historical per-file failure fixture
     environment.insert("TMPDIR", home.path());
     worker.setProcessEnvironment(environment);
     worker.start(QStringLiteral(OMACUSTOS_WORKER_BINARY), {"--config", configPath});
