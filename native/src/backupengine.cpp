@@ -99,10 +99,11 @@ bool hasParentPathSegment(const QString &path)
     });
 }
 
-bool copyAndHash(QFile &source, QFileDevice &snapshot, QByteArray *checksum)
+bool copyAndHash(QFile &source, QFileDevice &snapshot, QByteArray *checksum, const std::function<bool()> &stopped = {})
 {
     QCryptographicHash hash(QCryptographicHash::Sha256);
     while (!source.atEnd()) {
+        if (stopped && stopped()) return false;
         const QByteArray chunk = source.read(1024 * 1024);
         if ((chunk.isEmpty() && source.error() != QFileDevice::NoError)
             || snapshot.write(chunk) != chunk.size()) {
@@ -703,9 +704,28 @@ BackupRestoreResult BackupEngine::restoreFiles(const BackupRestoreRequest &reque
     const std::function<void(int)> &reportProgress) const
 {
     BackupRestoreResult result;
+    QString issuePath = request.destinationDirectory;
+    QString phase = QStringLiteral("Preparing restore");
+    const auto checkpoint = [&] {
+        if ((request.stopped && request.stopped()) || (request.checkpoint && !request.checkpoint())) {
+            result.stopped = true;
+            return false;
+        }
+        return true;
+    };
+    const auto failure = [&] {
+        if (result.stopped || (request.stopped && request.stopped())) {
+            result.stopped = true;
+            result.error.clear();
+        } else {
+            if (result.error.isEmpty()) result.error = QStringLiteral("The selected restore file could not be restored.");
+            result.issues.append({issuePath, phase, result.error});
+        }
+        return result;
+    };
     if (request.entries.isEmpty()) {
         result.error = QStringLiteral("At least one restore file must be selected.");
-        return result;
+        return failure();
     }
     QSet<QString> completedArchives;
     QSet<QString> identities;
@@ -713,13 +733,19 @@ BackupRestoreResult BackupEngine::restoreFiles(const BackupRestoreRequest &reque
         const QString identity = QDir::cleanPath(effectiveRestorePath(entry));
         if (identities.contains(identity)) {
             result.error = QStringLiteral("The restore selection contains duplicate destinations.");
-            return result;
+            issuePath = identity;
+            return failure();
         }
         identities.insert(identity);
     }
     for (const BackupEntry &entry : request.entries) {
+        // An archive group may already have placed the entire selection. Do not
+        // acknowledge a late stop/pause while merely skipping its other members.
+        if (!entry.archive.id.isEmpty() && completedArchives.contains(entry.archive.id)) continue;
+        issuePath = effectiveRestorePath(entry);
+        phase = QStringLiteral("Preparing restore");
+        if (!checkpoint()) return failure();
         if (!entry.archive.id.isEmpty()) {
-            if (completedArchives.contains(entry.archive.id)) continue;
             QVector<BackupEntry> selected;
             for (const auto &candidate : request.entries) {
                 if (candidate.archive.id != entry.archive.id) continue;
@@ -732,35 +758,38 @@ BackupRestoreResult BackupEngine::restoreFiles(const BackupRestoreRequest &reque
                             || candidate.remotePath != QDir::cleanPath(candidate.remotePath)
                             || hasParentPathSegment(candidate.remotePath)))) {
                     result.error = QStringLiteral("The restore selection contains ambiguous archive references.");
-                    return result;
+                    return failure();
                 }
                 selected.append(candidate);
             }
             QTemporaryDir workspace;
             const QString downloaded = workspace.filePath("archive.tar.gz");
             QVector<BackupEntry> payloads;
-            if (!workspace.isValid() || !provider.download(entry.archive.remotePath, downloaded, &result.error)) return result;
+            issuePath = entry.archive.remotePath;
+            phase = QStringLiteral("Downloading archive");
+            if (!workspace.isValid() || !provider.download(entry.archive.remotePath, downloaded, &result.error)) return failure();
+            if (!checkpoint()) return failure();
+            phase = QStringLiteral("Verifying archive");
             if (!BackupArchiveIO::verify(downloaded, entry.archive.size, entry.archive.checksum)) {
                 result.error = QStringLiteral("The downloaded archive failed size/SHA-256 verification.");
-                return result;
+                return failure();
             }
-            if (!BackupArchiveIO::extract(downloaded, selected, workspace.path(), &payloads, &result.error)) return result;
+            if (!checkpoint()) return failure();
+            phase = QStringLiteral("Extracting archive");
+            if (!BackupArchiveIO::extract(downloaded, selected, workspace.path(), &payloads, &result.error)) return failure();
+            if (!checkpoint()) return failure();
             LocalProvider extracted(workspace.path());
             for (BackupEntry payload : payloads) {
+                issuePath = effectiveRestorePath(payload);
                 payload.remotePath = QFileInfo(payload.remotePath).fileName();
-                if (!restoreEntry(payload, request.destinationDirectory, extracted, &result.error)) return result;
+                if (!restoreEntry(payload, request.destinationDirectory, extracted, &result.error, checkpoint, &phase, request.stopped)) return failure();
                 ++result.restoredCount;
                 if (reportProgress) reportProgress(result.restoredCount);
             }
             completedArchives.insert(entry.archive.id);
             continue;
         }
-        if (!restoreEntry(entry, request.destinationDirectory, provider, &result.error)) {
-            if (result.error.isEmpty()) {
-                result.error = QStringLiteral("The selected restore file could not be restored.");
-            }
-            return result;
-        }
+        if (!restoreEntry(entry, request.destinationDirectory, provider, &result.error, checkpoint, &phase, request.stopped)) return failure();
         ++result.restoredCount;
         if (reportProgress) reportProgress(result.restoredCount);
     }
@@ -768,8 +797,11 @@ BackupRestoreResult BackupEngine::restoreFiles(const BackupRestoreRequest &reque
     return result;
 }
 
-bool BackupEngine::restoreEntry(const BackupEntry &entry, const QString &destinationDirectory, BackupProvider &provider, QString *error) const
+bool BackupEngine::restoreEntry(const BackupEntry &entry, const QString &destinationDirectory, BackupProvider &provider,
+    QString *error, const std::function<bool()> &checkpoint, QString *phase, const std::function<bool()> &stopped) const
 {
+    if (phase) *phase = QStringLiteral("Preparing destination");
+    if (checkpoint && !checkpoint()) return false;
     if (error != nullptr) {
         error->clear();
     }
@@ -825,11 +857,15 @@ bool BackupEngine::restoreEntry(const BackupEntry &entry, const QString &destina
         return false;
     }
     const QString temporaryDestination = restoreStaging.filePath(QStringLiteral("payload"));
+    if (phase) *phase = QStringLiteral("Downloading file");
+    if (checkpoint && !checkpoint()) return false;
     if (!provider.download(entry.remotePath, temporaryDestination, error)) {
         QFile::remove(temporaryDestination);
         return false;
     }
 
+    if (checkpoint && !checkpoint()) return false;
+    if (phase) *phase = QStringLiteral("Verifying and placing file");
     QFile restoredFile(temporaryDestination);
     if (!restoredFile.open(QIODevice::ReadOnly)) {
         QFile::remove(temporaryDestination);
@@ -868,7 +904,7 @@ bool BackupEngine::restoreEntry(const BackupEntry &entry, const QString &destina
     };
     if (!replacement.open(QIODevice::WriteOnly)) return placementFailure();
     QByteArray checksum;
-    if (!copyAndHash(restoredFile, replacement, &checksum)) return placementFailure();
+    if (!copyAndHash(restoredFile, replacement, &checksum, stopped)) return placementFailure();
     if (replacement.size() != entry.size
         || (!entry.checksum.isEmpty() && checksum != entry.checksum)) {
         if (error != nullptr) {
@@ -877,6 +913,7 @@ bool BackupEngine::restoreEntry(const BackupEntry &entry, const QString &destina
         return false;
     }
     // Copying a large file can take time; recheck immediately before commit too.
+    if (checkpoint && !checkpoint()) return false;
     if (!destinationUnchanged()) {
         if (error != nullptr) {
             *error = QStringLiteral("The restore destination is outside the selected folder.");

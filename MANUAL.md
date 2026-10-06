@@ -339,8 +339,13 @@ clears the configured set list, while **Merge** keeps it.
 5. Press **Start restore** at the bottom. The button is available when at least
    one file is selected and a destination folder is specified.
 
-After a successful restore, the restore panel closes and OmaCustos returns to the
-dashboard. If a restore fails, the panel and your selection stay open for retry.
+Pressing **Start restore** replaces the selection panel with a progress screen.
+It shows the backup, chosen copy, destination, required download, and completed-file
+count. After success, the completion summary stays visible until you press **Done**
+to return to the dashboard. Failure details stay visible; **View issues** shows the
+affected file or archive, the failed step, and its reason. Restore stops at the
+first error. **Back to selection** retains your original selection and destination
+for retry; starting again restores the full selection, including completed files.
 
 **Required download** updates as you change the selection. For archive copies it
 shows compressed bytes and the number of unique archives required: selecting
@@ -357,12 +362,22 @@ unverifiable items are not presented as successful restores.
 
 ### While restoring
 
-You can close the Restore panel, edit a backup, or open another backup while files
-are restoring. The active restore keeps running; its file-count progress bar and
-**View restore** action stay available above the current screen. Returning to a
-backup preserves the Restore destination, valid ticks, and file-list position.
-Cached file information is marked and must be verified again before a new restore.
-Loading other copies may wait for an active restore to finish.
+The progress screen stays open while restoring; navigation to other screens is
+locked. The bar counts verified files placed in the destination, rather than
+downloaded bytes, so it may stay unchanged while a large file or archive downloads
+or is verified. A working indicator shows that the operation is still active.
+
+**Pause** waits for the current download or file operation to reach a safe boundary,
+then shows **Paused**. **Resume** continues the same operation, retaining downloaded
+data. Pause works within the current application session; it is not saved across
+an application restart.
+
+**Stop restore** also works while paused. It stops safely and cleans up unfinished
+temporary work. Already restored files remain in the destination, and existing
+files that have not been replaced remain intact. The stopped summary offers
+**Back to selection** and **Done**. Closing the application requests a stop and
+waits for cleanup before exiting. Cached file information is marked and must be
+verified again before a new restore after returning to another backup context.
 
 ### Reinstall or move to another computer
 

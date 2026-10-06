@@ -99,7 +99,54 @@ private slots:
     void restoresLegacyEntriesWithEffectiveDestinations();
     void archiveControlsPreserveOnlyDurableProgress_data();
     void archiveControlsPreserveOnlyDurableProgress();
+    void lateStopAfterFinalRestoreCommitReportsSuccess_data();
+    void lateStopAfterFinalRestoreCommitReportsSuccess();
 };
+
+void BackupEngineTest::lateStopAfterFinalRestoreCommitReportsSuccess_data()
+{
+    QTest::addColumn<bool>("archived");
+    QTest::newRow("individual-files") << false;
+    QTest::newRow("archive-members") << true;
+}
+
+void BackupEngineTest::lateStopAfterFinalRestoreCommitReportsSuccess()
+{
+    QFETCH(bool, archived);
+    QTemporaryDir directory(QDir::current().filePath("restore-late-stop-XXXXXX"));
+    QVERIFY(directory.isValid());
+    const QString source = directory.filePath("source");
+    QVERIFY(QDir().mkpath(source));
+    for (const QString &name : {QString("one.txt"), QString("two.txt")}) {
+        QFile file(QDir(source).filePath(name));
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QCOMPARE(file.write("notes"), 5);
+    }
+    QVERIFY(QDir().mkpath(directory.filePath("remote")));
+    LocalProvider provider(directory.filePath("remote"));
+    BackupEngine engine;
+    BackupOptions options;
+    options.freshCopy = true;
+    options.boundedArchives = archived;
+    options.stagingDirectory = directory.filePath("stage");
+    options.stagingBudget = 200000;
+    const BackupCopyMetadata metadata {"computer", "documents", "Documents", "copy", QDateTime::currentDateTimeUtc()};
+    QString manifest, error;
+    QVERIFY2(engine.backup({source}, "copies/copy", {}, metadata, provider, &manifest, &error, {}, nullptr, options), qPrintable(error));
+    QVector<BackupEntry> entries;
+    QVERIFY2(BackupManifest::load(manifest, &entries, &error), qPrintable(error));
+    QCOMPARE(entries.size(), 2);
+    bool stopped = false;
+    BackupRestoreRequest request {entries, directory.filePath("destination"), "copies/copy"};
+    request.stopped = [&] { return stopped; };
+    const auto result = engine.restoreFiles(request, provider, [&](int count) { stopped = count == entries.size(); });
+    QVERIFY(stopped);
+    QVERIFY2(result.success, qPrintable(result.error));
+    QVERIFY(!result.stopped);
+    QCOMPARE(result.restoredCount, 2);
+    QVERIFY(result.issues.isEmpty());
+    for (const auto &entry : entries) QVERIFY(QFile::exists(QDir(request.destinationDirectory).filePath(entry.restorePath)));
+}
 
 void BackupEngineTest::archiveControlsPreserveOnlyDurableProgress_data()
 {

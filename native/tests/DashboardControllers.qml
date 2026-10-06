@@ -236,6 +236,14 @@ QtObject {
         property string restoreBackupFolder: ""
         property string restoreBackupId: ""
         property string restoreCopyPath: ""
+        property string restoreState: ""
+        property string restoreBackupName: ""
+        property string restoreCopyLabel: ""
+        property var restoreDownloadCost: ({ bytes: 0, archiveCount: 0 })
+        property string restoreError: ""
+        property var restoreIssues: []
+        property bool holdRestoreOpen: false
+        property int stopCount: 0
         property string loadingMessage: ""
         property bool showingCachedData: false
         property bool verified: false
@@ -256,6 +264,7 @@ QtObject {
         signal statusChanged(string status)
         signal failed(string error)
         signal restoreCompleted()
+        signal restoreStarted()
         signal restoreCompletedForContext(string folder, string setId, string copyPath)
         function discover(remoteRoot, setId) { discoveredRoot = remoteRoot; discoveredSetId = setId }
         function selectCopy(index) { selectedCopy = index; currentCopyIndex = index }
@@ -279,13 +288,42 @@ QtObject {
             restoreBackupFolder = backupFolder
             restoreBackupId = backupId
             restoreCopyPath = currentCopyPath
+            restoreBackupName = "Documents"
+            restoreCopyLabel = copies[currentCopyIndex] || restoreCopyPath
+            restoreDownloadCost = downloadCost(indexes)
+            restoreError = ""
+            restoreIssues = []
             restoredIndexes = indexes.slice()
             restoreDestination = destination
             restoreCount++
+            restoreProgress = "0 of " + indexes.length + " files restored"
+            restoreProgressFraction = 0
+            restoreState = "running"
+            busy = true
+            restoring = true
+            restoreStarted()
+            if (!holdRestoreOpen) finishRestore()
+        }
+        function pauseRestore() { restoreState = "pausing" }
+        function resumeRestore() { restoreState = "running" }
+        function stopRestore() { stopCount++; restoreState = "stopping" }
+        function finishRestore() {
+            restoring = false
+            busy = false
+            if (restoreState === "stopping") {
+                restoreState = "stopped"
+                return
+            }
             if (restoreSucceeds) {
+                restoreState = "succeeded"
+                restoreProgress = restoredIndexes.length + " of " + restoredIndexes.length + " files restored"
+                restoreProgressFraction = 1
                 restoreCompleted()
                 restoreCompletedForContext(restoreBackupFolder, restoreBackupId, restoreCopyPath)
             } else {
+                restoreState = "failed"
+                restoreError = "Restore failed"
+                restoreIssues = [{ path: "notes.txt", phase: "Downloading file", reason: "Restore failed" }]
                 failed("Restore failed")
             }
         }

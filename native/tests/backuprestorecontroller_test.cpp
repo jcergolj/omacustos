@@ -135,7 +135,13 @@ private slots:
     void boundsProgressNotificationsForLargeSelections();
     void restoresWithoutBlockingTheControllerThread();
     void navigationSupersedesDiscoveryWithoutPublishingOldResults();
-    void navigationDuringRestoreKeepsTransferIndependent();
+    void navigationDuringRestoreKeepsContextLocked();
+    void pauseResumeAndStopPreserveCommittedFiles_data();
+    void pauseResumeAndStopPreserveCommittedFiles();
+    void destructionStopsPausedRestore();
+    void archivePauseRetainsDownloadAndReportsIssues_data();
+    void archivePauseRetainsDownloadAndReportsIssues();
+    void stopDuringDownloadDoesNotPublishDestination();
     void supersededVerificationCannotReplaceCurrentCopy();
     void supersededVerificationStopsBeforeInspectingRemainingFiles();
     void qmlEligibilityTracksVerificationAndRestore_data();
@@ -239,7 +245,7 @@ void BackupRestoreControllerTest::navigationSupersedesDiscoveryWithoutPublishing
     QVERIFY(!controller.restoreEligible());
 }
 
-void BackupRestoreControllerTest::navigationDuringRestoreKeepsTransferIndependent()
+void BackupRestoreControllerTest::navigationDuringRestoreKeepsContextLocked()
 {
     QTemporaryDir remote, destination;
     const QString first = "backups/computer/Documents";
@@ -263,9 +269,11 @@ void BackupRestoreControllerTest::navigationDuringRestoreKeepsTransferIndependen
     provider.entered.acquire();
     QCOMPARE(controller.restoreProgressFraction(), 0.0);
     controller.discover(second, "photos");
-    QVERIFY(controller.entries().isEmpty());
+    controller.selectCopy(-1);
+    QCOMPARE(controller.backupFolder(), first);
+    QCOMPARE(controller.entries().size(), 3);
     QVERIFY(controller.property("restoring").toBool());
-    QVERIFY(controller.property("browsing").toBool());
+    QVERIFY(!controller.property("browsing").toBool());
     bool heartbeat = false;
     QTimer::singleShot(0, &controller, [&] { heartbeat = true; });
     QTRY_VERIFY(heartbeat);
@@ -285,10 +293,206 @@ void BackupRestoreControllerTest::navigationDuringRestoreKeepsTransferIndependen
     }
     QCOMPARE(completed.count(), 1);
     QCOMPARE(completed.first(), (QVariantList {first, "documents", first + "/copy"}));
-    QCOMPARE(provider.listedPaths.last(), second);
-    QVERIFY(controller.entries().isEmpty());
+    QCOMPARE(provider.listedPaths.last(), first);
+    QCOMPARE(controller.entries().size(), 3);
     QCOMPARE(controller.property("restoreProgress").toString(), QString("3 of 3 files restored"));
     QCOMPARE(controller.restoreProgressFraction(), 1.0);
+}
+
+void BackupRestoreControllerTest::pauseResumeAndStopPreserveCommittedFiles_data()
+{
+    QTest::addColumn<bool>("stop");
+    QTest::newRow("resume") << false;
+    QTest::newRow("stop-while-paused") << true;
+}
+
+void BackupRestoreControllerTest::pauseResumeAndStopPreserveCommittedFiles()
+{
+    QFETCH(bool, stop);
+    QTemporaryDir remote, destination;
+    const QString folder = "backups/computer/Documents";
+    QVERIFY(createCopy(remote, folder + "/copy", "documents", "copy", 2));
+    BackupEngine engine;
+    RestoreTestProvider provider(remote.path());
+    BackupRestoreController controller(engine, &provider);
+    const auto unblock = qScopeGuard([&] { provider.release.release(10); });
+    controller.discover(folder, "documents");
+    QTRY_VERIFY(!controller.busy());
+    controller.selectCopy(0);
+    QTRY_VERIFY(!controller.busy());
+    QVERIFY(QDir().mkpath(destination.filePath("nested")));
+    QFile existing(destination.filePath("nested/notes-1.txt"));
+    QVERIFY(existing.open(QIODevice::WriteOnly));
+    QCOMPARE(existing.write("original"), 8);
+    existing.close();
+    provider.blockDownload = true;
+    QSignalSpy completed(&controller, &BackupRestoreController::restoreCompleted);
+    QSignalSpy failed(&controller, &BackupRestoreController::failed);
+    controller.restoreSelected({0, 1}, destination.path());
+    QCOMPARE(controller.restoreState(), QString("running"));
+    QCOMPARE(controller.restoreDestination(), destination.path());
+    QCOMPARE(controller.restoreBackupName(), QString("Documents"));
+    QCOMPARE(controller.restoreDownloadCost().value("bytes").toLongLong(), 10);
+    QTRY_VERIFY(provider.entered.available() > 0);
+    provider.entered.acquire();
+    provider.release.release();
+    QTRY_VERIFY(provider.entered.available() > 0);
+    provider.entered.acquire();
+    QTRY_COMPARE(controller.restoreProgress(), QString("1 of 2 files restored"));
+    controller.pauseRestore();
+    QCOMPARE(controller.restoreState(), QString("pausing"));
+    provider.release.release();
+    QTRY_COMPARE(controller.restoreState(), QString("paused"));
+    QVERIFY(controller.busy());
+    QVERIFY(!controller.restoreEligible());
+    QCOMPARE(completed.count(), 0);
+    const int downloads = provider.downloadedPaths.size();
+    QVERIFY(existing.open(QIODevice::ReadOnly));
+    QCOMPARE(existing.readAll(), QByteArray("original"));
+    existing.close();
+    if (stop) controller.stopRestore();
+    else controller.resumeRestore();
+    QTRY_VERIFY(!controller.busy());
+    QCOMPARE(controller.restoreState(), stop ? QString("stopped") : QString("succeeded"));
+    QCOMPARE(controller.restoreProgress(), stop ? QString("1 of 2 files restored") : QString("2 of 2 files restored"));
+    QCOMPARE(completed.count(), stop ? 0 : 1);
+    QCOMPARE(failed.count(), 0);
+    QVERIFY(controller.restoreIssues().isEmpty());
+    QCOMPARE(provider.downloadedPaths.size(), downloads); // Resume reuses the download.
+    QVERIFY(existing.open(QIODevice::ReadOnly));
+    QCOMPARE(existing.readAll(), stop ? QByteArray("original") : QByteArray("notes"));
+    existing.close();
+    QVERIFY(QFile::exists(destination.filePath("nested/notes-0.txt")));
+    QCOMPARE(QDir(destination.filePath("nested")).entryList({".omacustos-restore-*"}, QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot).size(), 0);
+    QVERIFY(controller.restoreEligible());
+}
+
+void BackupRestoreControllerTest::destructionStopsPausedRestore()
+{
+    QTemporaryDir remote, destination;
+    const QString folder = "backups/computer/Documents";
+    QVERIFY(createCopy(remote, folder + "/copy", "documents", "copy"));
+    BackupEngine engine;
+    RestoreTestProvider provider(remote.path());
+    auto controller = std::make_unique<BackupRestoreController>(engine, &provider);
+    const auto unblock = qScopeGuard([&] { provider.release.release(10); });
+    controller->discover(folder, "documents");
+    QTRY_VERIFY(!controller->busy());
+    controller->selectCopy(0);
+    QTRY_VERIFY(!controller->busy());
+    provider.blockDownload = true;
+    controller->restoreSelected({0}, destination.path());
+    QTRY_VERIFY(provider.entered.available() > 0);
+    provider.entered.acquire();
+    controller->pauseRestore();
+    provider.release.release();
+    QTRY_COMPARE(controller->restoreState(), QString("paused"));
+    QElapsedTimer timer;
+    timer.start();
+    controller.reset();
+    QVERIFY(timer.elapsed() < 1000);
+    QVERIFY(!QFile::exists(destination.filePath("nested/notes.txt")));
+    QCOMPARE(QDir(destination.filePath("nested")).entryList({".omacustos-restore-*"}, QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot).size(), 0);
+}
+
+void BackupRestoreControllerTest::stopDuringDownloadDoesNotPublishDestination()
+{
+    QTemporaryDir remote, destination;
+    const QString copy = "backups/computer/Documents/copy";
+    QVERIFY(createCopy(remote, copy, "documents", "copy"));
+    BackupEngine engine;
+    RestoreTestProvider provider(remote.path());
+    BackupRestoreController controller(engine, &provider);
+    const auto unblock = qScopeGuard([&] { provider.release.release(10); });
+    controller.loadManifest(remote.filePath(copy + "/manifest.json"));
+    provider.blockDownload = true;
+    QSignalSpy failed(&controller, &BackupRestoreController::failed);
+    controller.restoreSelected({0}, destination.path());
+    QTRY_VERIFY(provider.entered.available() > 0);
+    provider.entered.acquire();
+    controller.stopRestore();
+    QCOMPARE(controller.restoreState(), QString("stopping"));
+    QVERIFY(controller.stopRequested());
+    QVERIFY(controller.isRestoring());
+    provider.release.release();
+    QTRY_VERIFY(!controller.busy());
+    QCOMPARE(controller.restoreState(), QString("stopped"));
+    QCOMPARE(controller.restoreProgress(), QString("0 of 1 files restored"));
+    QCOMPARE(failed.count(), 0);
+    QVERIFY(!controller.stopRequested());
+    QVERIFY(!QFile::exists(destination.filePath("nested/notes.txt")));
+    // A stopped token must not poison subsequent provider calls or retries.
+    provider.blockDownload = false;
+    controller.restoreSelected({0}, destination.path());
+    QTRY_VERIFY(!controller.busy());
+    QCOMPARE(controller.restoreState(), QString("succeeded"));
+}
+
+void BackupRestoreControllerTest::archivePauseRetainsDownloadAndReportsIssues_data()
+{
+    QTest::addColumn<QString>("action");
+    QTest::newRow("resume-archive") << QString("resume");
+    QTest::newRow("stop-archive") << QString("stop");
+    QTest::newRow("corrupt-archive") << QString("corrupt");
+}
+
+void BackupRestoreControllerTest::archivePauseRetainsDownloadAndReportsIssues()
+{
+    QFETCH(QString, action);
+    QTemporaryDir directory(QDir::current().filePath("restore-archive-controls-XXXXXX"));
+    QVERIFY(directory.isValid());
+    const QString source = directory.filePath("source");
+    QVERIFY(QDir().mkpath(source));
+    QFile file(QDir(source).filePath("notes.txt"));
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QCOMPARE(file.write("notes"), 5);
+    file.close();
+    QVERIFY(QDir().mkpath(directory.filePath("remote")));
+    RestoreTestProvider provider(directory.filePath("remote"));
+    BackupEngine engine;
+    BackupOptions options;
+    options.freshCopy = true;
+    options.boundedArchives = true;
+    options.stagingDirectory = directory.filePath("stage");
+    options.stagingBudget = 200000;
+    const BackupCopyMetadata metadata {"computer", "documents", "Documents", "copy", QDateTime::currentDateTimeUtc()};
+    QString manifest, error;
+    QVERIFY2(engine.backup({source}, "copies/copy", {}, metadata, provider, &manifest, &error, {}, nullptr, options), qPrintable(error));
+    QVector<BackupEntry> entries;
+    QVERIFY2(BackupManifest::load(manifest, &entries, &error), qPrintable(error));
+    QCOMPARE(entries.size(), 1);
+    QVERIFY(!entries.first().archive.id.isEmpty());
+    if (action == "corrupt") {
+        QFile archive(directory.filePath("remote/" + entries.first().archive.remotePath));
+        QVERIFY(archive.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        QCOMPARE(archive.write("corrupt"), 7);
+    }
+    BackupRestoreController controller(engine, &provider);
+    const auto unblock = qScopeGuard([&] { provider.release.release(10); });
+    controller.loadManifest(manifest);
+    const QString destination = directory.filePath("destination");
+    provider.blockDownload = true;
+    controller.restoreSelected({0}, destination);
+    QTRY_VERIFY(provider.entered.available() > 0);
+    provider.entered.acquire();
+    controller.pauseRestore();
+    provider.release.release();
+    QTRY_COMPARE(controller.restoreState(), QString("paused"));
+    QCOMPARE(controller.restoreProgress(), QString("0 of 1 files restored"));
+    QCOMPARE(provider.downloadedPaths.size(), 1);
+    if (action == "stop") controller.stopRestore();
+    else controller.resumeRestore();
+    QTRY_VERIFY(!controller.busy());
+    QCOMPARE(provider.downloadedPaths.size(), 1);
+    QCOMPARE(controller.restoreState(), action == "stop" ? QString("stopped")
+        : action == "corrupt" ? QString("failed") : QString("succeeded"));
+    QCOMPARE(QFile::exists(QDir(destination).filePath(entries.first().restorePath)), action == "resume");
+    if (action == "corrupt") {
+        QCOMPARE(controller.restoreIssues().size(), 1);
+        const auto issue = controller.restoreIssues().first().toMap();
+        QCOMPARE(issue.value("path").toString(), entries.first().archive.remotePath);
+        QCOMPARE(issue.value("phase").toString(), QString("Verifying archive"));
+    } else QVERIFY(controller.restoreIssues().isEmpty());
 }
 
 void BackupRestoreControllerTest::restoresSurvivingFileAfterUploadFailure_data()
@@ -806,6 +1010,15 @@ void BackupRestoreControllerTest::completesOnlyAfterAllSelectedFilesAreRestored(
     QCOMPARE(failed.count(), failSecondFile ? 1 : 0);
     QCOMPARE(provider.downloadedPaths, (QStringList {"one.txt", "two.txt"}));
     QCOMPARE(controller.restoreProgress(), failSecondFile ? QString("1 of 2 files restored") : QString("2 of 2 files restored"));
+    QCOMPARE(controller.restoreState(), failSecondFile ? QString("failed") : QString("succeeded"));
+    QCOMPARE(controller.restoreIssues().size(), failSecondFile ? 1 : 0);
+    if (failSecondFile) {
+        const QVariantMap issue = controller.restoreIssues().first().toMap();
+        QCOMPARE(issue.value("path").toString(), QString("two.txt"));
+        QVERIFY(!issue.value("phase").toString().isEmpty());
+        QCOMPARE(issue.value("reason").toString(), controller.restoreError());
+        QVERIFY(!controller.restoreError().isEmpty());
+    }
     if (failSecondFile) QVERIFY(!failed.first().first().toString().isEmpty());
     QFile first(destination.filePath("one.txt"));
     QVERIFY(first.open(QIODevice::ReadOnly));

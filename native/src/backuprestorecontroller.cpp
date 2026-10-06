@@ -7,6 +7,22 @@
 #include <QElapsedTimer>
 #include <QtConcurrentRun>
 
+namespace {
+QVariantMap requiredDownload(const QVector<BackupEntry> &entries)
+{
+    qint64 bytes = 0;
+    QSet<QString> archives;
+    for (const auto &entry : entries) {
+        if (entry.archive.id.isEmpty()) bytes += entry.size;
+        else if (!archives.contains(entry.archive.id)) {
+            archives.insert(entry.archive.id);
+            bytes += entry.archive.size;
+        }
+    }
+    return {{QStringLiteral("bytes"), bytes}, {QStringLiteral("archiveCount"), archives.size()}};
+}
+}
+
 BackupRestoreController::BackupRestoreController(BackupEngine &engine, BackupProvider *provider, QObject *parent)
     : QObject(parent)
     , engine(engine)
@@ -88,9 +104,20 @@ BackupRestoreController::BackupRestoreController(BackupEngine &engine, BackupPro
         const QString completedSet = transferBackupId;
         const QString completedCopy = transferCopyPath;
         restoring = false;
+        restoreControl->stop.store(false);
         transferred = result.restoredCount;
+        transferState = result.success ? QStringLiteral("succeeded")
+            : result.stopped ? QStringLiteral("stopped") : QStringLiteral("failed");
+        transferError = result.error;
+        transferIssues.clear();
+        for (const auto &issue : result.issues) {
+            transferIssues.append(QVariantMap {{QStringLiteral("path"), issue.path},
+                {QStringLiteral("phase"), issue.phase}, {QStringLiteral("reason"), issue.reason}});
+        }
         emit restoreProgressChanged();
+        emit restoreStateChanged();
         emit busyChanged();
+        if (result.stopped) return;
         if (!result.success) {
             emit failed(result.error);
             return;
@@ -107,6 +134,7 @@ BackupRestoreController::BackupRestoreController(BackupEngine &engine, BackupPro
 BackupRestoreController::~BackupRestoreController()
 {
     if (browseCancelled) browseCancelled->store(true);
+    stopRestore();
     watcher.waitForFinished();
     restoreWatcher.waitForFinished();
 }
@@ -208,6 +236,7 @@ QString BackupRestoreController::copySearch() const
 
 void BackupRestoreController::setCopySearch(const QString &search)
 {
+    if (restoring) return;
     if (searchText == search) {
         return;
     }
@@ -284,6 +313,7 @@ void BackupRestoreController::loadManifest(const QString &path)
 
 void BackupRestoreController::discover(const QString &backupFolder, const QString &setId)
 {
+    if (restoring) return;
     if (provider == nullptr) {
         emit failed(QStringLiteral("No backup provider is configured."));
         return;
@@ -322,6 +352,7 @@ void BackupRestoreController::discover(const QString &backupFolder, const QStrin
 
 void BackupRestoreController::selectCopy(int index)
 {
+    if (restoring) return;
     if (provider == nullptr) {
         return;
     }
@@ -379,23 +410,16 @@ void BackupRestoreController::startBrowse()
 
 QVariantMap BackupRestoreController::downloadCost(const QVariantList &indexes) const
 {
-    qint64 bytes = 0;
-    QSet<QString> archives;
+    QVector<BackupEntry> entries;
     QSet<int> seen;
     for (const QVariant &value : indexes) {
         bool valid = false;
         const int index = value.toInt(&valid);
         if (!valid || index < 0 || index >= manifestEntries.size() || seen.contains(index)) continue;
         seen.insert(index);
-        const BackupEntry &entry = manifestEntries.at(index);
-        if (entry.archive.id.isEmpty()) {
-            bytes += entry.size;
-        } else if (!archives.contains(entry.archive.id)) {
-            archives.insert(entry.archive.id);
-            bytes += entry.archive.size;
-        }
+        entries.append(manifestEntries.at(index));
     }
-    return {{QStringLiteral("bytes"), bytes}, {QStringLiteral("archiveCount"), archives.size()}};
+    return requiredDownload(entries);
 }
 
 void BackupRestoreController::restore(int index, const QString &destinationDirectory)
@@ -478,9 +502,43 @@ void BackupRestoreController::startRestore(const QVector<BackupEntry> &entries, 
     transferCopyPath = currentCopyPath();
     transferTotal = entries.size();
     transferred = 0;
-    const BackupRestoreRequest request {entries, destination, transferCopyPath};
+    transferState = QStringLiteral("running");
+    transferDestination = destination;
+    transferError.clear();
+    transferIssues.clear();
+    transferName = selectedCopyIndex >= 0 ? remoteCopies.at(selectedCopyIndex).setName : expectedSetId;
+    transferCopyLabel = selectedCopyIndex >= 0 ? copies().value(currentCopyIndex()) : transferCopyPath;
+    transferCost = requiredDownload(entries);
+    const auto control = restoreControl;
+    {
+        std::lock_guard<std::mutex> lock(control->mutex);
+        control->pause = false;
+        control->stop.store(false);
+    }
+    BackupRestoreRequest request {entries, destination, transferCopyPath};
+    request.stopped = [control] { return control->stop.load(); };
+    request.checkpoint = [this, control] {
+        std::unique_lock<std::mutex> lock(control->mutex);
+        if (control->pause && !control->stop.load()) {
+            QMetaObject::invokeMethod(this, [this, control] {
+                bool paused;
+                {
+                    std::lock_guard<std::mutex> lock(control->mutex);
+                    paused = control->pause && !control->stop.load();
+                }
+                if (restoring && paused) {
+                    transferState = QStringLiteral("paused");
+                    emit restoreStateChanged();
+                }
+            }, Qt::QueuedConnection);
+            control->changed.wait(lock, [&] { return !control->pause || control->stop.load(); });
+        }
+        return !control->stop.load();
+    };
     emit restoreProgressChanged();
+    emit restoreStateChanged();
     emit busyChanged();
+    emit restoreStarted();
     restoreWatcher.setFuture(QtConcurrent::run(&operations, [this, enginePointer, providerPointer, request] {
         QElapsedTimer progressTimer;
         progressTimer.start();
@@ -496,6 +554,46 @@ void BackupRestoreController::startRestore(const QVector<BackupEntry> &entries, 
             }
         });
     }));
+}
+
+bool BackupRestoreController::stopRequested() const
+{
+    return restoreControl->stop.load();
+}
+
+void BackupRestoreController::pauseRestore()
+{
+    if (!restoring || transferState != QStringLiteral("running")) return;
+    {
+        std::lock_guard<std::mutex> lock(restoreControl->mutex);
+        restoreControl->pause = true;
+    }
+    transferState = QStringLiteral("pausing");
+    emit restoreStateChanged();
+}
+
+void BackupRestoreController::resumeRestore()
+{
+    if (!restoring || (transferState != QStringLiteral("paused") && transferState != QStringLiteral("pausing"))) return;
+    {
+        std::lock_guard<std::mutex> lock(restoreControl->mutex);
+        restoreControl->pause = false;
+    }
+    restoreControl->changed.notify_all();
+    transferState = QStringLiteral("running");
+    emit restoreStateChanged();
+}
+
+void BackupRestoreController::stopRestore()
+{
+    if (!restoring) return;
+    {
+        std::lock_guard<std::mutex> lock(restoreControl->mutex);
+        restoreControl->stop.store(true);
+    }
+    restoreControl->changed.notify_all();
+    transferState = QStringLiteral("stopping");
+    emit restoreStateChanged();
 }
 
 void BackupRestoreController::restoreFolder(const QString &folder, const QString &destinationDirectory)

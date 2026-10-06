@@ -37,13 +37,16 @@ int main(int argc, char *argv[])
     const QString protonBinary = BackupConfigStore(configPath).load(&config, &configError)
         ? config.protonBinary
         : qEnvironmentVariable("OMACUSTOS_PROTON_BIN", QStringLiteral("proton-drive"));
-    QProcessRunner restoreRunner(
+    QProcessRunner browserRunner(
         protonBinary
     );
+    ProtonProvider browserProvider(browserRunner);
+    ProtonFolderBrowser protonFolderBrowser(browserRunner, ProtonFolderLink::cachePath(configPath));
+    RecentBackupCopies recentBackupCopies(browserProvider, configPath, QSysInfo::machineHostName());
+    QProcessRunner restoreRunner(protonBinary);
     ProtonProvider restoreProvider(restoreRunner);
-    ProtonFolderBrowser protonFolderBrowser(restoreRunner, ProtonFolderLink::cachePath(configPath));
-    RecentBackupCopies recentBackupCopies(restoreProvider, configPath, QSysInfo::machineHostName());
     BackupRestoreController restoreController(backupEngine, &restoreProvider);
+    restoreRunner.setStopRequested([&restoreController] { return restoreController.stopRequested(); });
     ProtonAuthController protonAuth(protonBinary);
     ThemeColors themeColors;
     ResourceUsage resourceUsage;

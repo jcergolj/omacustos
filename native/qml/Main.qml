@@ -14,6 +14,15 @@ ApplicationWindow {
     title: qsTr("OmaCustos")
     property bool showEditor: false
     property bool showRestore: false
+    property bool showRestoreProgress: false
+    property bool closeAfterRestore: false
+    onClosing: function(close) {
+        if (restoreController.restoring) {
+            close.accepted = false
+            closeAfterRestore = true
+            restoreController.stopRestore()
+        }
+    }
     property string notificationMessage: ""
 
     // Keep the window's dashboard/test API while state lives with its presentation.
@@ -85,6 +94,7 @@ ApplicationWindow {
     }
 
     function createNewSet() {
+        if (restoreController.restoring) return
         rememberRestoreContext()
         showRestore = false
         backupSetController.discardUnsavedSet()
@@ -95,6 +105,7 @@ ApplicationWindow {
     }
 
     function editSet(index) {
+        if (restoreController.restoring) return
         rememberRestoreContext()
         showRestore = false
         backupSetController.discardUnsavedSet()
@@ -127,6 +138,8 @@ ApplicationWindow {
     }
 
     function openRestoreContext(folder, setId) {
+        if (restoreController.restoring) return
+        showRestoreProgress = false
         rememberRestoreContext()
         backupSetController.discardUnsavedSet()
         restorePanel.activateContext(folder, setId)
@@ -345,6 +358,55 @@ ApplicationWindow {
     }
 
     Dialog {
+        id: restoreIssuesDialog
+        objectName: "restoreIssuesDialog"
+        anchors.centerIn: parent
+        title: qsTr("Restore issues")
+        width: Math.min(root.width - 2 * root.contentPadding, 640)
+        height: Math.min(root.height - 2 * root.contentPadding, 500)
+        modal: true
+        standardButtons: Dialog.Close
+        contentItem: ScrollView {
+            clip: true
+            contentWidth: availableWidth
+            ColumnLayout {
+                width: parent.width
+                spacing: 12
+                Label {
+                    text: restoreController.restoreProgress
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                }
+                Repeater {
+                    objectName: "restoreIssues"
+                    model: restoreController.restoreIssues
+                    delegate: ColumnLayout {
+                        id: restoreIssueRow
+                        required property var modelData
+                        required property int index
+                        Layout.fillWidth: true
+                        spacing: 4
+                        Label {
+                            objectName: "restoreIssuePath-" + restoreIssueRow.index
+                            text: restoreIssueRow.modelData.path
+                            textFormat: Text.PlainText
+                            wrapMode: Text.WrapAnywhere
+                            Layout.fillWidth: true
+                        }
+                        Label {
+                            objectName: "restoreIssueReason-" + restoreIssueRow.index
+                            text: qsTr("%1: %2").arg(restoreIssueRow.modelData.phase).arg(restoreIssueRow.modelData.reason)
+                            textFormat: Text.PlainText
+                            wrapMode: Text.WrapAnywhere
+                            Layout.fillWidth: true
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Dialog {
         id: backupDetailsDialog
         objectName: "backupDetailsDialog"
         anchors.centerIn: parent
@@ -480,7 +542,7 @@ ApplicationWindow {
                 id: backupSetsMenuButton
                 style: uiStyle
                 objectName: "backupSetsMenuButton"
-                visible: !root.showEditor && !root.showRestore
+                visible: !root.showEditor && !root.showRestore && !root.showRestoreProgress && !restoreController.restoring
                 text: "⋯"
                 Layout.preferredWidth: 40
                 Accessible.name: qsTr("Backup set options")
@@ -595,39 +657,6 @@ ApplicationWindow {
             }
         }
 
-        FormCard {
-            style: uiStyle
-            visible: restoreController.restoring
-            Layout.fillWidth: true
-            Layout.leftMargin: root.contentPadding
-            Layout.rightMargin: root.contentPadding
-            Layout.bottomMargin: 12
-
-            TransferProgress {
-                style: uiStyle
-                statusObjectName: "activeRestoreProgress"
-                detailObjectName: "restoreTransferProgress"
-                barObjectName: "restoreProgressBar"
-                statusText: {
-                    const index = backupSetController.setIds.indexOf(restoreController.restoreBackupId)
-                    const name = index >= 0 ? backupSetController.setNames[index] : restoreController.restoreBackupId
-                    return qsTr("Restoring %1…").arg(name)
-                }
-                detailText: restoreController.restoreProgress
-                fraction: restoreController.restoreProgressFraction
-                indeterminate: false
-                accessibleName: qsTr("Files restored")
-                Layout.fillWidth: true
-            }
-            ActionButton {
-                style: uiStyle
-                objectName: "returnToRestoreButton"
-                text: qsTr("View restore")
-                Layout.alignment: Qt.AlignRight
-                onClicked: root.openRestoreContext(restoreController.restoreBackupFolder, restoreController.restoreBackupId)
-            }
-        }
-
         Label {
             objectName: "dashboardRefreshError"
             visible: backupSetController.dashboardRefreshError.length > 0
@@ -639,7 +668,7 @@ ApplicationWindow {
         }
 
         StackLayout {
-            currentIndex: root.showEditor ? 1 : root.showRestore ? 2 : 0
+            currentIndex: root.showRestoreProgress || restoreController.restoring ? 3 : root.showEditor ? 1 : root.showRestore ? 2 : 0
             Layout.fillWidth: true
             Layout.fillHeight: true
 
@@ -698,13 +727,48 @@ ApplicationWindow {
                         id: restorePanel
                         style: uiStyle
                         controller: restoreController
-                        onCompleted: {
-                            root.showRestore = false
-                            dashboardScrollView.scrollToTop()
-                        }
                         onCloseRequested: {
+                            if (restoreController.restoring) return
                             root.rememberRestoreContext()
                             root.showRestore = false
+                        }
+                    }
+                }
+            }
+
+            ScrollView {
+                id: restoreProgressScrollView
+                objectName: "restoreProgressScrollView"
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                contentWidth: availableWidth
+                ColumnLayout {
+                    width: parent.width
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.leftMargin: root.contentPadding
+                    anchors.rightMargin: root.contentPadding
+                    RestoreProgressPanel {
+                        id: restoreProgressPanel
+                        style: uiStyle
+                        controller: restoreController
+                        onIssuesRequested: restoreIssuesDialog.open()
+                        onSelectionRequested: {
+                            if (restoreController.restoring) return
+                            root.showRestoreProgress = false
+                            root.showRestore = true
+                            Qt.callLater(function () { restorePanel.focusControls(restoreScrollView) })
+                        }
+                        onDoneRequested: {
+                            if (restoreController.restoring) return
+                            if (restoreController.restoreState === "succeeded") {
+                                restorePanel.reset()
+                                delete restorePanel.contextStates[restorePanel.contextKey]
+                            } else root.rememberRestoreContext()
+                            root.showRestoreProgress = false
+                            root.showRestore = false
+                            root.showEditor = false
+                            dashboardScrollView.scrollToTop()
                         }
                     }
                 }
@@ -777,6 +841,20 @@ ApplicationWindow {
 
     Connections {
         target: restoreController
+        function onRestoreStarted() {
+            root.rememberRestoreContext()
+            root.showEditor = false
+            root.showRestoreProgress = true
+            restoreProgressScrollView.contentItem.contentY = 0
+            Qt.callLater(function () { restoreProgressPanel.focusControls(restoreProgressScrollView) })
+        }
+        function onBusyChanged() {
+            if (root.closeAfterRestore && !restoreController.restoring) Qt.callLater(function () { root.close() })
+        }
+        function onRestoreStateChanged() {
+            if (!restoreController.restoring && root.showRestoreProgress)
+                Qt.callLater(function () { restoreProgressPanel.focusControls(restoreProgressScrollView) })
+        }
         function onStatusChanged(status) { root.setStatus(status) }
         function onFailed(error) { root.setStatus(error) }
     }

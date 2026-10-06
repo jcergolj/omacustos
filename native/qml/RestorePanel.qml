@@ -26,7 +26,6 @@ FormCard {
     property real screenScrollY: -1
     property bool restoringContext: false
     property alias folderRows: selectionState.folderRows
-    signal completed()
     signal closeRequested()
 
     objectName: "restorePanel"
@@ -394,13 +393,6 @@ FormCard {
 
     Connections {
         target: panel.controller
-        function onRestoreCompletedForContext(folder, setId, copyPath) {
-            if (panel.contextKey !== JSON.stringify([folder, setId])
-                || panel.selectedCopyPath !== copyPath) return
-            panel.reset()
-            delete panel.contextStates[panel.contextKey]
-            panel.completed()
-        }
         function onEntriesChanged() {
             if (panel.restoringContext) return
             panel.selection.reconcileEntries(panel.controller.entries, panel.controller.browsing)

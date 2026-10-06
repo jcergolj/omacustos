@@ -101,6 +101,14 @@ TestCase {
         restoreController.restoreDestination = ""
         restoreController.restoreCount = 0
         restoreController.restoreSucceeds = true
+        restoreController.restoreState = ""
+        restoreController.restoreBackupName = ""
+        restoreController.restoreCopyLabel = ""
+        restoreController.restoreError = ""
+        restoreController.restoreIssues = []
+        restoreController.restoreDownloadCost = { bytes: 0, archiveCount: 0 }
+        restoreController.holdRestoreOpen = false
+        restoreController.stopCount = 0
         protonFolderBrowser.requestedPath = ""
         protonFolderBrowser.busy = false
         recentBackupCopies.busy = false
@@ -312,7 +320,7 @@ TestCase {
         compare(control("setStatus-1").visible, false)
         compare(control("viewIssues-1").visible, false)
         compare(control("activeRestoreProgress").visible, false)
-        compare(control("returnToRestoreButton").visible, false)
+        compare(control("restoreProgressScrollView").visible, false)
         compare(control("backUpNow-1").enabled, false)
         mouseClick(control("backUpNow-1"))
         compare(backupLauncher.launchedId, "")
@@ -537,19 +545,19 @@ TestCase {
         compare(control("restore-0").enabled, true)
     }
 
-    function test_restoreNavigationAndFocusRemainAvailableDuringTransfer() {
-        mouseClick(control("restore-0"))
-        restoreController.restoring = true
-        restoreController.busy = true
-        restoreController.restoreProgress = "0 of 2 files restored"
-        restoreController.restoreBackupId = "documents-id"
-        restoreController.restoreBackupFolder = "/backups/documents-id"
+    function test_restoreReplacesSelectionAndLocksNavigationDuringTransfer() {
+        startHeldRestore()
         waitForRendering(app.contentItem)
-        verify(control("restore-0").enabled)
-        mouseClick(control("closeRestoreButton"))
-        compare(app.showRestore, false)
-        compare(control("dashboardScrollView").visible, true)
+        compare(control("dashboardScrollView").visible, false)
         compare(control("restoreScrollView").visible, false)
+        compare(control("restoreProgressScrollView").visible, true)
+        compare(control("backupSetsMenuButton").visible, false)
+        compare(control("restoreDoneButton").visible, false)
+        app.editSet(1)
+        app.createNewSet()
+        app.openRestoreContext("/another", "photos-id")
+        compare(app.showEditor, false)
+        compare(restoreController.discoveredSetId, "documents-id")
         verify(control("activeRestoreProgress").visible)
         compare(control("activeRestoreProgress").text, "Restoring Documents…")
         const bar = control("restoreProgressBar")
@@ -560,17 +568,82 @@ TestCase {
         restoreController.restoreProgressFraction = 0.5
         tryCompare(bar, "value", 0.5)
         compare(control("restoreTransferProgress").text, "1 of 2 files restored")
-        mouseClick(control("returnToRestoreButton"))
-        compare(app.showRestore, true)
-        tryVerify(function () {
-            const focused = app.activeFocusItem
-            if (!focused || !focused.enabled) return false
-            const viewport = control("restoreScrollView")
-            const position = focused.mapToItem(viewport, 0, 0)
-            return position.y >= 0 && position.y + focused.height <= viewport.height
-        })
+        compare(control("restoreOperationDestination").text, "Destination: /safe/restore")
+        verify(control("restoreWorkingIndicator").running)
+        compare(control("restoreOperationDownloadCost").text, "Required download: 10 bytes")
         compare(restoreController.restoring, true)
         compare(control("startRestoreButton").enabled, false)
+    }
+
+    function startHeldRestore(destination) {
+        showRestoreFiles()
+        restoreController.holdRestoreOpen = true
+        control("restoreDestinationField").text = destination || "/safe/restore"
+        const scroll = control("restoreScrollView").contentItem
+        scroll.contentY = scroll.contentHeight - scroll.height
+        waitForRendering(app.contentItem)
+        mouseClick(control("startRestoreButton"))
+        waitForRendering(app.contentItem)
+    }
+
+    function test_restorePauseResumeAndStopKeepProgressVisible() {
+        startHeldRestore()
+        mouseClick(control("pauseRestoreButton"))
+        compare(restoreController.restoreState, "pausing")
+        compare(control("pauseRestoreButton").enabled, false)
+        restoreController.restoreState = "paused"
+        compare(control("pauseRestoreButton").text, "Resume")
+        compare(control("restoreWorkingIndicator").running, false)
+        mouseClick(control("pauseRestoreButton"))
+        compare(restoreController.restoreState, "running")
+        restoreController.restoreState = "paused"
+        mouseClick(control("stopRestoreButton"))
+        compare(restoreController.stopCount, 1)
+        compare(control("stopRestoreButton").enabled, false)
+        compare(control("activeRestoreProgress").text, "Stopping restore…")
+        restoreController.finishRestore()
+        compare(control("activeRestoreProgress").text, "Restore stopped")
+        compare(control("restoreProgressScrollView").visible, true)
+        clickRestoreProgressAction("restoreBackToSelectionButton")
+        compare(control("restoreScrollView").visible, true)
+        compare(app.selectedRestoreIndexes, [0, 1])
+        compare(control("restoreDestinationField").text, "/safe/restore")
+    }
+
+    function test_closingActiveRestoreStopsBeforeClosingWindow() {
+        startHeldRestore()
+        app.close()
+        compare(app.visible, true)
+        compare(restoreController.stopCount, 1)
+        compare(restoreController.restoreState, "stopping")
+        restoreController.finishRestore()
+        tryCompare(app, "visible", false)
+    }
+
+    function clickRestoreProgressAction(name) {
+        waitForRendering(app.contentItem)
+        const scroll = control("restoreProgressScrollView").contentItem
+        scroll.contentY = Math.max(0, scroll.contentHeight - scroll.height)
+        waitForRendering(app.contentItem)
+        mouseClick(control(name))
+    }
+
+    function test_restoreKeyboardFocusStaysVisibleWithLongPathsAtMinimumSize() {
+        app.width = 760
+        app.height = 480
+        startHeldRestore("/safe/" + "long-folder-name/".repeat(40))
+        const viewport = control("restoreProgressScrollView")
+        function focusedActionIsVisible(name) {
+            const action = control(name)
+            const position = action.mapToItem(viewport, 0, 0)
+            return action.activeFocus && position.y >= 0 && position.y + action.height <= viewport.height + 1
+        }
+        tryVerify(function () { return focusedActionIsVisible("pauseRestoreButton") })
+        keyClick(Qt.Key_Space)
+        compare(restoreController.restoreState, "pausing")
+        restoreController.restoreSucceeds = false
+        restoreController.finishRestore()
+        tryVerify(function () { return focusedActionIsVisible("restoreDoneButton") })
     }
 
     function test_returningToRestorePreservesDestinationTicksAndScroll() {
@@ -754,6 +827,11 @@ TestCase {
         compare(restoreController.restoreCount, 1)
         compare(restoreController.restoredIndexes, [0])
         compare(restoreController.restoreDestination, "/safe/chosen restore")
+        compare(control("restoreScrollView").visible, false)
+        compare(control("restoreProgressScrollView").visible, true)
+        compare(control("activeRestoreProgress").text, "Restore completed")
+        compare(app.selectedRestoreIndexes, [0])
+        mouseClick(control("restoreDoneButton"))
         compare(app.showRestore, false)
         compare(app.selectedRestoreIndexes, [])
         compare(destination.text, "")
@@ -801,6 +879,20 @@ TestCase {
         compare(app.selectedRestoreIndexes, [0])
         compare(destination.text, "/safe/restore")
         compare(control("notificationMessageLabel").text, "Restore failed")
+        compare(control("restoreScrollView").visible, false)
+        compare(control("restoreResultError").text, "Restore failed")
+        clickRestoreProgressAction("restoreViewIssuesButton")
+        tryCompare(control("restoreIssuesDialog"), "opened", true)
+        const issues = control("restoreIssues")
+        tryCompare(issues, "count", 1)
+        const issue = issues.itemAt(0)
+        compare(findChild(issue, "restoreIssuePath-0").text, "notes.txt")
+        compare(findChild(issue, "restoreIssueReason-0").text, "Downloading file: Restore failed")
+        control("restoreIssuesDialog").close()
+        clickRestoreProgressAction("restoreBackToSelectionButton")
+        compare(control("restoreScrollView").visible, true)
+        compare(app.selectedRestoreIndexes, [0])
+        compare(destination.text, "/safe/restore")
     }
 
     function test_refreshingRestoreFilesPreservesValidTicksAndSelection() {

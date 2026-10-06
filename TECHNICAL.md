@@ -504,22 +504,32 @@ traversal and symbolic-link escapes are rejected. The UI requires users to tick
 files and specify a destination folder before enabling its single **Start
 restore** action. Restore metadata is not added to the local backup queue.
 The controller emits completion only after every selected file restores
-successfully. If that copy is still displayed, the UI closes the restore panel,
-clears its selection and destination, and scrolls back to the dashboard.
-Failures keep the panel open.
+successfully. Starting replaces the selection screen with `RestoreProgressPanel`,
+using the same `TransferProgress` component as backup. Terminal summaries remain
+visible until Done or Back to selection. Done clears selection/destination after
+success; failure and stop preserve them for an explicit full-selection retry.
 
 Restore transfers retain their backup/copy identity and selected payload snapshot
-independently of the currently displayed context. A controller-owned serial
-executor keeps provider calls serialized while allowing immediate local navigation;
-copy discovery/verification can wait behind an active transfer. Superseded browse
-results, including errors, cannot publish into the current context. Successful
-completion only closes the displayed panel if its backup and copy still match.
-File-count progress remains available above both the dashboard and editor.
+along with immutable display context, destination and download cost. Navigation
+and controller context changes are locked during a transfer. A controller-owned
+serial executor keeps its provider calls serialized. Superseded browse results,
+including errors, cannot publish into the current context.
 The controller submits the complete captured selection, destination, and copy path
 to `BackupEngine::restoreFiles` once per operation. The engine owns execution and
 reports successfully placed files and the final partial/success outcome; the
 controller bounds GUI progress notifications. Single-file engine callers delegate
 to this same operation, sharing staging, verification, and atomic placement.
+An operation-owned control token supports in-session cooperative Pause/Resume at
+safe engine checkpoints. A condition variable retains the live workspace while
+paused; Stop wakes it and unwinds temporary work, retaining committed destination
+files. Stop is checked during atomic replacement copying and before commit. Active
+Proton downloads use a dedicated restore runner with a stop predicate; unrelated
+copy management and folder lookup use a separate runner. Archive verification and
+extraction finish their current phase before acknowledging controls. Window close
+requests Stop and waits for completion; controller destruction also wakes paused
+work before waiting. No durable restore continuation is written. Fail-fast restore
+results include `{path, phase, reason}` issues, shown as wrapped plain text in the
+restore issues dialog; intentional stopping is a distinct outcome, not an error.
 Superseded verification is cancelled between provider calls, including before a
 queued task starts and after manifest download. An already-running provider call
 finishes under its normal timeout before the latest browse request proceeds.

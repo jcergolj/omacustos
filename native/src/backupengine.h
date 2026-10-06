@@ -38,12 +38,17 @@ struct BackupRestoreRequest {
     QVector<BackupEntry> entries;
     QString destinationDirectory;
     QString copyPath;
+    // May wait at a safe boundary for Resume; false requests a clean stop.
+    std::function<bool()> checkpoint;
+    std::function<bool()> stopped;
 };
 
 struct BackupRestoreResult {
     int restoredCount = 0;
     QString error;
     bool success = false;
+    bool stopped = false;
+    QVector<BackupIssue> issues;
 };
 
 class BackupEngine final : public QObject
@@ -68,7 +73,9 @@ public:
     BackupPreview preview(const QStringList &sourceDirectories, const QStringList &exclusions, const std::function<bool()> &cancelled = {}) const;
 
 private:
-    bool restoreEntry(const BackupEntry &entry, const QString &destinationDirectory, BackupProvider &provider, QString *error) const;
+    bool restoreEntry(const BackupEntry &entry, const QString &destinationDirectory, BackupProvider &provider,
+        QString *error, const std::function<bool()> &checkpoint = {}, QString *phase = nullptr,
+        const std::function<bool()> &stopped = {}) const;
     bool backupBatches(const QStringList &sources, const QString &remoteRoot, const QStringList &exclusions,
         const BackupCopyMetadata &metadata, BackupProvider &provider, QString *manifestPath, QString *error,
         const std::function<void(const BackupProgress &)> &reportProgress, BackupResult *result, const BackupOptions &options) const;

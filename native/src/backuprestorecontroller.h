@@ -12,6 +12,8 @@
 #include <QThreadPool>
 #include <atomic>
 #include <memory>
+#include <mutex>
+#include <condition_variable>
 
 class BackupRestoreController final : public QObject
 {
@@ -33,6 +35,13 @@ class BackupRestoreController final : public QObject
     Q_PROPERTY(QString restoreBackupFolder READ restoreBackupFolder NOTIFY restoreProgressChanged)
     Q_PROPERTY(QString restoreBackupId READ restoreBackupId NOTIFY restoreProgressChanged)
     Q_PROPERTY(QString restoreCopyPath READ restoreCopyPath NOTIFY restoreProgressChanged)
+    Q_PROPERTY(QString restoreState READ restoreState NOTIFY restoreStateChanged)
+    Q_PROPERTY(QString restoreDestination READ restoreDestination NOTIFY restoreProgressChanged)
+    Q_PROPERTY(QString restoreBackupName READ restoreBackupName NOTIFY restoreProgressChanged)
+    Q_PROPERTY(QString restoreCopyLabel READ restoreCopyLabel NOTIFY restoreProgressChanged)
+    Q_PROPERTY(QVariantMap restoreDownloadCost READ restoreDownloadCost NOTIFY restoreProgressChanged)
+    Q_PROPERTY(QString restoreError READ restoreError NOTIFY restoreStateChanged)
+    Q_PROPERTY(QVariantList restoreIssues READ restoreIssues NOTIFY restoreStateChanged)
     Q_PROPERTY(QString loadingMessage READ loadingMessage NOTIFY busyChanged)
     Q_PROPERTY(bool showingCachedData READ showingCachedData NOTIFY cachedDataChanged)
     Q_PROPERTY(bool restoreEligible READ restoreEligible NOTIFY restoreEligibilityChanged)
@@ -61,6 +70,17 @@ public:
     QString restoreBackupFolder() const { return transferBackupFolder; }
     QString restoreBackupId() const { return transferBackupId; }
     QString restoreCopyPath() const { return transferCopyPath; }
+    QString restoreState() const { return transferState; }
+    QString restoreDestination() const { return transferDestination; }
+    QString restoreBackupName() const { return transferName; }
+    QString restoreCopyLabel() const { return transferCopyLabel; }
+    QVariantMap restoreDownloadCost() const { return transferCost; }
+    QString restoreError() const { return transferError; }
+    QVariantList restoreIssues() const { return transferIssues; }
+    Q_INVOKABLE void pauseRestore();
+    Q_INVOKABLE void resumeRestore();
+    Q_INVOKABLE void stopRestore();
+    bool stopRequested() const;
     QString loadingMessage() const;
     bool showingCachedData() const;
     bool restoreEligible() const;
@@ -84,6 +104,8 @@ signals:
     void restoreCompleted();
     void restoreCompletedForContext(const QString &backupFolder, const QString &setId, const QString &copyPath);
     void restoreProgressChanged();
+    void restoreStarted();
+    void restoreStateChanged();
 
 private:
     struct BrowseResult {
@@ -109,7 +131,7 @@ private:
     QFutureWatcher<BrowseResult> watcher;
     QFutureWatcher<BackupRestoreResult> restoreWatcher;
     // Provider/runner instances are not assumed to support simultaneous calls.
-    // Navigation is immediate; metadata requests queue behind an active transfer.
+    // Active restores lock context changes, including while paused.
     QThreadPool operations;
     QCache<QString, Snapshot> snapshots {20};
     BrowseRequest pendingBrowse;
@@ -130,6 +152,20 @@ private:
     QString transferCopyPath;
     int transferTotal = 0;
     int transferred = 0;
+    QString transferState;
+    QString transferDestination;
+    QString transferName;
+    QString transferCopyLabel;
+    QVariantMap transferCost;
+    QString transferError;
+    QVariantList transferIssues;
+    struct RestoreControl {
+        std::mutex mutex;
+        std::condition_variable changed;
+        bool pause = false;
+        std::atomic_bool stop {false};
+    };
+    const std::shared_ptr<RestoreControl> restoreControl = std::make_shared<RestoreControl>();
     BackupEngine &engine;
     BackupProvider *provider;
     QVector<BackupEntry> manifestEntries;
