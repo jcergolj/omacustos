@@ -55,6 +55,23 @@ is a temporary **payload** bound, not a constant-memory assertion. Each fresh ru
 still uploads a full copy. Selecting a file requires downloading its containing
 archive, although only selected indexed members reach the restore destination.
 
+## Incomplete copies and mixed-format retention (#49)
+
+`sourceFailuresFinalizeIncompleteAndProtectSuccessfulCopies` exercises source
+disappearance during preparation for individual files, a single archive, and
+bounded archives with either legacy or archive successful history. The surviving
+file is exposed by the verified Incomplete index and restored through the public
+controller with exact bytes; the failed path is absent from recoverable entries.
+The worker records its exact source path, reading phase, and reason, and retains
+the older successful copy despite a retention count of one.
+
+`archiveSourceFailuresWithoutSurvivors` proves that source failure without any
+verified recoverable files is terminal Failed, preserves successful history,
+and releases staging. Existing archive storage/verification interruption tests
+cover unfinished Waiting/Retrying instead of false partial finalization.
+Catalog, retention/discovery, and recent-copy management fixtures cover shared
+archive verification, mixed-format browsing, and exact whole-copy deletion.
+
 ```sh
 cmake --build build -j2
 build/workerrecovery-test boundedArchivesRoundTrip boundedArchivesStorageWaiting

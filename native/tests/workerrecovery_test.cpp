@@ -145,6 +145,7 @@ private slots:
     void prerequisiteWaitingCanBeCancelledWithoutTouchingHistoricalCopies();
     void sourceFailuresFinalizeIncompleteAndProtectSuccessfulCopies_data();
     void sourceFailuresFinalizeIncompleteAndProtectSuccessfulCopies();
+    void archiveSourceFailuresWithoutSurvivors();
     void singleArchiveRoundTrip_data();
     void singleArchiveRoundTrip();
     void singleArchiveRejectsDamage_data();
@@ -1172,17 +1173,21 @@ void WorkerRecoveryTest::prerequisiteWaitingCanBeCancelledWithoutTouchingHistori
 
 void WorkerRecoveryTest::sourceFailuresFinalizeIncompleteAndProtectSuccessfulCopies_data()
 {
-    QTest::addColumn<bool>("archiveCopy");
-    QTest::newRow("individual payloads") << false;
-    QTest::newRow("single archive") << true;
+    QTest::addColumn<bool>("historyUsesSingleArchive");
+    QTest::addColumn<bool>("currentRunUsesBoundedArchives");
+    QTest::newRow("individual payloads") << false << false;
+    QTest::newRow("single archive") << true << false;
+    QTest::newRow("bounded archives with legacy history") << false << true;
+    QTest::newRow("bounded archives with archive history") << true << true;
 }
 
 void WorkerRecoveryTest::sourceFailuresFinalizeIncompleteAndProtectSuccessfulCopies()
 {
-    QFETCH(bool, archiveCopy);
+    QFETCH(bool, historyUsesSingleArchive);
+    QFETCH(bool, currentRunUsesBoundedArchives);
     WorkerFixture fixture;
-    QVERIFY(fixture.prepare(archiveCopy ? 1024 * 1024 : 4));
-    if (archiveCopy) fixture.environment.insert("OMACUSTOS_INTERNAL_SINGLE_ARCHIVE", "1");
+    QVERIFY(fixture.prepare(historyUsesSingleArchive || currentRunUsesBoundedArchives ? 1024 * 1024 : 4));
+    if (historyUsesSingleArchive) fixture.environment.insert("OMACUSTOS_INTERNAL_SINGLE_ARCHIVE", "1");
     const QString missing = fixture.directory.filePath("source/a.txt");
     QVERIFY(writeFile(missing, "good"));
     QVERIFY(writeFile(fixture.directory.filePath("source/b.txt"), "more"));
@@ -1191,6 +1196,11 @@ void WorkerRecoveryTest::sourceFailuresFinalizeIncompleteAndProtectSuccessfulCop
     QVERIFY(fixture.run());
     QCOMPARE(fixture.record().status, QString("success"));
     const QString successfulCopy = fixture.remoteCopy();
+    if (currentRunUsesBoundedArchives) {
+        fixture.environment.remove("OMACUSTOS_INTERNAL_SINGLE_ARCHIVE");
+        fixture.environment.insert("OMACUSTOS_INTERNAL_BOUNDED_ARCHIVES", "1");
+        fixture.environment.insert("OMACUSTOS_INTERNAL_ARCHIVE_TARGET", "4");
+    }
     fixture.environment.insert("FIXTURE_DELETE_SOURCE", missing);
     QVERIFY(fixture.runs.queueManual({"documents"}, true));
     QVERIFY(fixture.run());
@@ -1201,14 +1211,14 @@ void WorkerRecoveryTest::sourceFailuresFinalizeIncompleteAndProtectSuccessfulCop
     QCOMPARE(fixture.record().result.issues.first().path, missing);
     QCOMPARE(fixture.record().result.issues.first().phase, QString("reading"));
     QVERIFY(QFileInfo::exists(QDir(successfulCopy).filePath("manifest.json")));
-    if (!archiveCopy) QVERIFY(QFileInfo::exists(QDir(successfulCopy).filePath("a.txt")));
+    if (!historyUsesSingleArchive) QVERIFY(QFileInfo::exists(QDir(successfulCopy).filePath("a.txt")));
     QVector<BackupEntry> entries;
     BackupManifestInfo info;
     QVERIFY(BackupManifest::load(QDir(fixture.remoteCopy()).filePath("manifest.json"), &entries, &info));
     QCOMPARE(info.status, QString("incomplete"));
     QCOMPARE(entries.size(), 1);
     QCOMPARE(entries.first().restorePath, QString("b.txt"));
-    if (archiveCopy) {
+    if (historyUsesSingleArchive || currentRunUsesBoundedArchives) {
         QCOMPARE(info.version, 3);
         const QByteArray old = qgetenv("FIXTURE_REMOTE");
         qputenv("FIXTURE_REMOTE", fixture.directory.filePath("remote").toUtf8());
@@ -1227,6 +1237,32 @@ void WorkerRecoveryTest::sourceFailuresFinalizeIncompleteAndProtectSuccessfulCop
         QCOMPARE(recovered.readAll(), QByteArray("more"));
         QVERIFY(!QFileInfo::exists(fixture.directory.filePath("recovered-incomplete/a.txt")));
     }
+}
+
+void WorkerRecoveryTest::archiveSourceFailuresWithoutSurvivors()
+{
+    WorkerFixture fixture;
+    QVERIFY(fixture.prepare(1024 * 1024));
+    fixture.environment.insert("OMACUSTOS_INTERNAL_BOUNDED_ARCHIVES", "1");
+    const QString source = fixture.directory.filePath("source/a.txt");
+    QVERIFY(writeFile(source, "good"));
+    fixture.config.sets[0].retention = 1;
+    QVERIFY(fixture.save());
+    QVERIFY(fixture.run());
+    QCOMPARE(fixture.record().status, QString("success"));
+    const QString successfulCopy = fixture.remoteCopy();
+    fixture.environment.insert("FIXTURE_DELETE_SOURCE", source);
+    QVERIFY(fixture.runs.queueManual({"documents"}, true));
+    QVERIFY(fixture.run());
+    QCOMPARE(fixture.record().status, QString("failed"));
+    QVERIFY(!fixture.record().unfinished);
+    QCOMPARE(fixture.record().result.verifiedFiles, 0);
+    QCOMPARE(fixture.record().result.issues.size(), 1);
+    QCOMPARE(fixture.record().result.issues.first().path, source);
+    QCOMPARE(fixture.record().result.issues.first().phase, QString("reading"));
+    QVERIFY(!fixture.record().result.issues.first().reason.isEmpty());
+    QVERIFY(QFileInfo::exists(QDir(successfulCopy).filePath("manifest.json")));
+    QVERIFY(fixture.emptyStaging());
 }
 
 void WorkerRecoveryTest::terminatedWorkerRecovers_data()
