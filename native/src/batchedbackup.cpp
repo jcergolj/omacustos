@@ -97,15 +97,19 @@ bool BackupEngine::backupBatches(const QStringList &sources, const QString &remo
         return false;
     };
     const auto stopped = [&] { return options.stopped && options.stopped(); };
+    const bool archiveMode = options.singleArchive || options.boundedArchives;
     const auto checkpointFailed = [&] {
         outcome.interrupted = true;
         const QString reason = error ? error->toLower() : QString();
         outcome.waitingForSpace = reason.contains("disk quota exceeded") || reason.contains("no space left")
             || reason.contains("read-only file system");
+        if (outcome.waitingForSpace && error)
+            *error += QStringLiteral(" Free space/quota on the checkpoint disk before Resume.");
         return false;
     };
     const QString root = QDir::cleanPath(remoteRoot);
-    if (root.isEmpty() || root == "." || root.split('/').contains("..") || options.stagingBudget <= 0 || options.batchFileLimit <= 0)
+    if (root.isEmpty() || root == "." || root.split('/').contains("..") || options.stagingBudget <= 0
+        || options.batchFileLimit <= 0 || (options.boundedArchives && options.archiveTargetBytes <= 0))
         return fail(QStringLiteral("The backup destination or staging budget is invalid."));
 
     BackupStaging staging;
@@ -116,12 +120,12 @@ bool BackupEngine::backupBatches(const QStringList &sources, const QString &remo
     if (options.stagingReady && !options.stagingReady(staging.root(), error)) { outcome.interrupted = true; return false; }
     const bool recovering = !options.continuationDirectory.isEmpty()
         && QFileInfo::exists(QDir(options.continuationDirectory).filePath("identity.json"));
-    // This opt-in slice does not resume archive checkpoints. Never reinterpret
+    // Archive recovery is the dependent #50 slice. Never reinterpret
     // an existing individual-file attempt as an archive copy.
-    if (options.singleArchive && recovering)
-        return fail(QStringLiteral("The internal single-archive path requires a fresh attempt; archive recovery follows in a dependent issue."));
+    if (archiveMode && recovering)
+        return fail(QStringLiteral("The internal archive path requires a fresh attempt; archive recovery follows in #50."));
     BackupContinuation continuation(options.continuationDirectory);
-    if (!continuation.open(root, metadata, error, options.singleArchive ? 3 : 2)) {
+    if (!continuation.open(root, metadata, error, archiveMode ? 3 : 2)) {
         return checkpointFailed();
     }
     QSet<QString> prefixes;
@@ -165,7 +169,29 @@ bool BackupEngine::backupBatches(const QStringList &sources, const QString &remo
         return false;
     }
     progress.totalFiles = selection.includedFiles.size();
+    QHash<QString, QPair<qint64, qint64>> directoryPayloads;
+    QHash<QString, QString> sourceOwnership;
     for (const QString &path : selection.includedFiles) progress.totalBytes += qMax(qint64(0), QFileInfo(path).size());
+    for (const QString &path : selection.includedFiles) {
+        for (const QString &source : sources) {
+            const QString absolute = QFileInfo(source).absoluteFilePath();
+            if (within(path, absolute)) { sourceOwnership.insert(path, absolute); break; }
+        }
+    }
+    QStringList orderedFiles = selection.includedFiles;
+    if (options.boundedArchives) {
+        for (const QString &path : selection.includedFiles) {
+            auto &payload = directoryPayloads[QFileInfo(path).absolutePath()];
+            payload.first += qMax(qint64(0), QFileInfo(path).size());
+            ++payload.second;
+        }
+        std::sort(orderedFiles.begin(), orderedFiles.end(), [&](const QString &left, const QString &right) {
+            const QString leftSource = sourceOwnership.value(left), rightSource = sourceOwnership.value(right);
+            if (leftSource != rightSource) return leftSource < rightSource;
+            const QString leftDirectory = QFileInfo(left).absolutePath(), rightDirectory = QFileInfo(right).absolutePath();
+            return leftDirectory == rightDirectory ? left < right : leftDirectory < rightDirectory;
+        });
+    }
     if (options.singleArchive) {
         if (progress.totalBytes > options.stagingBudget / 2)
             return fail(QStringLiteral("Waiting: this selection exceeds the internal single-archive staging allowance."), true);
@@ -179,9 +205,9 @@ bool BackupEngine::backupBatches(const QStringList &sources, const QString &remo
     draft.metadata = continuation.metadata;
     draft.failedItems = selection.missingPaths + selection.skippedPaths;
     QSet<QString> assigned {QStringLiteral("manifest.json")};
-    const QString archiveName = options.singleArchive
-        ? "omacustos-" + QUuid::createUuid().toString(QUuid::WithoutBraces) + ".tar.gz" : QString();
-    if (options.singleArchive) assigned.insert(archiveName);
+    // Archive objects occupy a reserved namespace; member identities remain
+    // separate from object names, including sources named like the manifest.
+    if (archiveMode) assigned.insert(QStringLiteral(".omacustos-archives"));
     QSet<QString> remoteDirectories, restoreFiles, restoreDirectories;
     // Keep historical mappings reserved, including deleted sources. New paths
     // must not overwrite another source's previous identity during reconciliation.
@@ -198,6 +224,9 @@ bool BackupEngine::backupBatches(const QStringList &sources, const QString &remo
 
     QVector<BackupEntry> batch;
     qint64 batchBytes = 0;
+    QString batchSource;
+    QString previousDirectory;
+    bool oversizedBatch = false;
     const QString tree = QDir(staging.path()).filePath("payloads/" + QFileInfo(root).fileName());
     const auto report = [&](const QString &phase, const QString &path = QString(), qint64 size = 0) {
         progress.phase = phase;
@@ -228,32 +257,46 @@ bool BackupEngine::backupBatches(const QStringList &sources, const QString &remo
     const auto flushBatch = [&]() {
         if (batch.isEmpty()) return true;
         if (stopped()) return fail(QStringLiteral("The backup was stopped; its checkpoint is preserved."));
-        if (options.singleArchive) {
+        if (archiveMode) {
             report("preparing");
             // Conservative incompressible tar/gzip allowance, alongside snapshots.
             const qint64 allowance = conservativeArchiveAllowance(batchBytes, batch.size());
-            if (batchBytes > options.stagingBudget - allowance || !staging.hasSpace(allowance, error))
-                return fail(QStringLiteral("Waiting: this selection exceeds the internal single-archive staging allowance."), true);
+            if ((!oversizedBatch && batchBytes > options.stagingBudget - allowance) || !staging.hasSpace(allowance, error))
+                return fail(QStringLiteral("Waiting for archive staging storage: free space/quota or choose another staging disk."), true);
+            const QString archiveName = "omacustos-" + QUuid::createUuid().toString(QUuid::WithoutBraces) + ".tar.gz";
             const QString packed = QDir(staging.path()).filePath(archiveName);
             if (!BackupArchiveIO::pack(tree, root, packed, allowance, &batch, error, options.stopped)) {
                 outcome.interrupted = true;
                 const QString reason = error ? error->toLower() : QString();
-                outcome.waitingForSpace = reason.contains("quota") || reason.contains("no space") || reason.contains("read-only");
+                outcome.waitingForSpace = reason.contains("quota") || reason.contains("no space") || reason.contains("read-only")
+                    || reason.contains("archive staging write failed") || reason.contains("archive staging flush failed")
+                    || reason.contains("archive staging could not be opened");
+                if (outcome.waitingForSpace && error)
+                    *error += QStringLiteral(" Free space/quota or choose another staging disk before Resume.");
                 return false;
             }
-            BackupArchive archive {archiveName, QDir(root).filePath(archiveName)};
+            BackupArchive archive {archiveName, QDir(root).filePath(".omacustos-archives/" + archiveName)};
             if (!hashFile(packed, &archive.checksum, &archive.size, options.stopped))
                 return fail(QStringLiteral("The prepared archive could not be hashed."));
             if (archive.size > allowance) return fail(QStringLiteral("Waiting: compressed archive exceeded its staging allowance."), true);
             for (const auto &entry : batch) archive.members.append(entry.memberPath);
+            for (BackupEntry &entry : batch) {
+                entry.archive = archive;
+                entry.remotePath = archive.remotePath;
+            }
+            report("checkpointing");
+            if (!continuation.checkpoint(batch, error, false)) return checkpointFailed();
             report("uploading", sources.first(), archive.size);
-            if (!provider.upload(packed, archive.remotePath, error)) return fail(error ? *error : QStringLiteral("Archive upload failed."));
+            if (!provider.ensureDirectory(QFileInfo(archive.remotePath).path(), error)
+                || !provider.upload(packed, archive.remotePath, error)) return fail(error ? *error : QStringLiteral("Archive upload failed."));
             if (stopped()) return fail(QStringLiteral("The backup was stopped."));
             report("verifying", sources.first(), archive.size);
             RemoteFile remote;
             if (!provider.inspect(archive.remotePath, &remote, error)
                 || !PayloadMetadataPolicy::matchesAfterTransfer(remote, archive.size, archive.checksum))
                 return fail(QStringLiteral("Remote archive verification failed."));
+            report("checkpointing");
+            if (!continuation.checkpoint(batch, error)) return checkpointFailed();
             draft.archives.append(archive);
             for (BackupEntry &entry : batch) {
                 entry.archive = archive;
@@ -263,9 +306,11 @@ bool BackupEngine::backupBatches(const QStringList &sources, const QString &remo
             progress.processedFiles += batch.size();
             progress.processedBytes += batchBytes;
             report("checkpointing");
+            if (!QFile::remove(packed)) return fail(QStringLiteral("Unable to release compressed archive staging."), true);
             if (!staging.reset(error)) return fail(QStringLiteral("Unable to release archive staging."), true);
             batch.clear();
             batchBytes = 0;
+            oversizedBatch = false;
             return true;
         }
         // Mapping identities must survive upload-before-checkpoint crashes too.
@@ -351,8 +396,12 @@ bool BackupEngine::backupBatches(const QStringList &sources, const QString &remo
         return true;
     };
 
-    for (const QString &sourcePath : selection.includedFiles) {
+    for (const QString &sourcePath : orderedFiles) {
         if (stopped()) return fail(QStringLiteral("The backup was stopped; its checkpoint is preserved."));
+        const QString sourceIdentity = sourceOwnership.value(sourcePath);
+        if (options.boundedArchives && !batch.isEmpty() && sourceIdentity != batchSource)
+            if (!flushBatch()) return false;
+        batchSource = sourceIdentity;
         QString mapped;
         QString remoteMapped;
         const auto previous = continuation.verified.constFind(sourcePath);
@@ -362,19 +411,49 @@ bool BackupEngine::backupBatches(const QStringList &sources, const QString &remo
             remoteMapped = mapping->remotePath.mid(root.size() + 1);
         }
         else {
-            for (const QString &source : sources) {
-                const QString absolute = QFileInfo(source).absoluteFilePath();
-                if (!within(sourcePath, absolute)) continue;
-                QString relative = QFileInfo(source).isDir() ? QDir(absolute).relativeFilePath(sourcePath) : QFileInfo(sourcePath).fileName();
-                const QString prefix = continuation.roots.value(absolute);
-                mapped = prefix.isEmpty() ? relative : QDir(prefix).filePath(relative);
-                break;
-            }
+            const QString relative = QFileInfo(sourceIdentity).isDir() ? QDir(sourceIdentity).relativeFilePath(sourcePath) : QFileInfo(sourcePath).fileName();
+            const QString prefix = continuation.roots.value(sourceIdentity);
+            mapped = prefix.isEmpty() ? relative : QDir(prefix).filePath(relative);
             remoteMapped = allocateFilePath(mapped, assigned, remoteDirectories);
             mapped = allocateFilePath(mapped, restoreFiles, restoreDirectories);
         }
         draft.expectedItems.append(mapped);
         qint64 plannedSize = qMax(qint64(0), QFileInfo(sourcePath).size());
+        bool oversizedFile = false;
+        if (options.boundedArchives) {
+            const QString directory = QFileInfo(sourcePath).absolutePath();
+            if (!batch.isEmpty() && directory != previousDirectory) {
+                const auto payload = directoryPayloads.value(directory);
+                const qint64 together = batchBytes + payload.first;
+                // Keep a directory that fits an ordinary archive together when
+                // moving it to the next group avoids splitting it. Tiny adjacent
+                // directories still share an archive; large ones split by file.
+                if (payload.first <= options.archiveTargetBytes
+                    && payload.first + conservativeArchiveAllowance(payload.first, payload.second) <= options.stagingBudget
+                    && (together > options.archiveTargetBytes
+                        || together + conservativeArchiveAllowance(together, batch.size() + payload.second) > options.stagingBudget))
+                    if (!flushBatch()) return false;
+            }
+            previousDirectory = directory;
+            const qint64 singleWorking = plannedSize + conservativeArchiveAllowance(plannedSize, 1);
+            oversizedFile = plannedSize > options.archiveTargetBytes || singleWorking > options.stagingBudget;
+            const qint64 proposed = batchBytes + plannedSize;
+            if (!batch.isEmpty() && (oversizedFile || proposed > options.archiveTargetBytes
+                || proposed + conservativeArchiveAllowance(proposed, batch.size() + 1) > options.stagingBudget))
+                if (!flushBatch()) return false;
+            const qint64 required = batchBytes + plannedSize
+                + conservativeArchiveAllowance(batchBytes + plannedSize, batch.size() + 1);
+            // Free space is checked before snapshots, without counting on
+            // compression. Only a single whole file may exceed the normal budget.
+            if (!staging.hasSpace(required - batchBytes, error)) {
+                return fail(QStringLiteral("Waiting for archive staging storage for %1: %2 bytes of additional working space required%3. Free space/quota or choose another staging disk. %4")
+                    .arg(sourcePath).arg(required - batchBytes)
+                    .arg(oversizedFile ? QStringLiteral(" (oversized file kept whole; exceeds normal archive allowance)") : QString())
+                    .arg(error ? *error : QString()), true);
+            }
+            oversizedBatch = oversizedFile;
+            if (oversizedFile) report("preparing-oversized-file", sourcePath, singleWorking);
+        }
         if (previous != continuation.verified.cend()) {
             report("checking", sourcePath, plannedSize);
             QByteArray checksum;
@@ -417,10 +496,10 @@ bool BackupEngine::backupBatches(const QStringList &sources, const QString &remo
             }
             if (stopped()) return fail(QStringLiteral("The backup was stopped; its checkpoint is preserved."));
         }
-        if (!options.singleArchive && !batch.isEmpty() && (batch.size() >= options.batchFileLimit || plannedSize > options.stagingBudget - batchBytes))
+        if (!archiveMode && !batch.isEmpty() && (batch.size() >= options.batchFileLimit || plannedSize > options.stagingBudget - batchBytes))
             if (!flushBatch()) return false;
         if (!staging.hasSpace(plannedSize, error)) {
-            if (options.singleArchive) { outcome.interrupted = outcome.waitingForSpace = true; return false; }
+            if (archiveMode) { outcome.interrupted = outcome.waitingForSpace = true; return false; }
             if (!flushBatch()) return false;
             if (!staging.hasSpace(plannedSize, error)) { outcome.interrupted = outcome.waitingForSpace = true; return false; }
         }
@@ -444,7 +523,8 @@ bool BackupEngine::backupBatches(const QStringList &sources, const QString &remo
         if (!snapshot.open(QIODevice::WriteOnly)) return fail(QStringLiteral("Waiting for staging storage: %1. Choose another staging disk.").arg(snapshot.errorString()), true);
         QCryptographicHash hash(QCryptographicHash::Sha256);
         bool readFailed = false;
-        const qint64 allowance = options.singleArchive ? options.stagingBudget / 2 - batchBytes
+        const qint64 allowance = options.boundedArchives ? plannedSize
+            : options.singleArchive ? options.stagingBudget / 2 - batchBytes
             : qMax(options.stagingBudget, plannedSize) - batchBytes;
         while (!source.atEnd()) {
             if (stopped()) return fail(QStringLiteral("The backup was stopped; its checkpoint is preserved."));
@@ -473,7 +553,8 @@ bool BackupEngine::backupBatches(const QStringList &sources, const QString &remo
         BackupEntry entry {sourcePath, QDir(root).filePath(remoteMapped), size, hash.result(), mapped};
         batch.append(entry);
         batchBytes += size;
-        if (!options.singleArchive && (size > options.stagingBudget || batch.size() >= options.batchFileLimit || batchBytes >= options.stagingBudget))
+        if ((options.boundedArchives && oversizedFile)
+            || (!archiveMode && (size > options.stagingBudget || batch.size() >= options.batchFileLimit || batchBytes >= options.stagingBudget)))
             if (!flushBatch()) return false;
     }
     if (!flushBatch()) return false;

@@ -6,6 +6,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSaveFile>
+#include <QSet>
 #ifdef Q_OS_UNIX
 #include <fcntl.h>
 #include <unistd.h>
@@ -159,13 +160,28 @@ bool BackupContinuation::checkpoint(const QVector<BackupEntry> &entries, QString
 {
     if (entries.isEmpty()) return true;
     QJsonArray items;
+    QJsonArray archives;
+    QSet<QString> recordedArchives;
     for (const BackupEntry &entry : entries) {
-        items.append(QJsonObject {{"source", entry.sourcePath}, {"remote", entry.remotePath}, {"size", entry.size},
-            {"sha256", QString::fromLatin1(entry.checksum.toHex())}, {"restore", entry.restorePath}});
+        QJsonObject item {{"source", entry.sourcePath}, {"remote", entry.remotePath}, {"size", entry.size},
+            {"sha256", QString::fromLatin1(entry.checksum.toHex())}, {"restore", entry.restorePath}};
+        if (!entry.archive.id.isEmpty()) {
+            item.insert("member", entry.memberPath);
+            item.insert("archive_id", entry.archive.id);
+            if (!recordedArchives.contains(entry.archive.id)) {
+                recordedArchives.insert(entry.archive.id);
+                archives.append(QJsonObject {{"id", entry.archive.id}, {"remote", entry.archive.remotePath},
+                    {"size", entry.archive.size}, {"sha256", QString::fromLatin1(entry.archive.checksum.toHex())},
+                    {"members", QJsonArray::fromStringList(entry.archive.members)}});
+            }
+        }
+        items.append(item);
     }
+    QJsonObject batch {{"version", 1}, {"entries", items}, {"verified", verifiedPayloads}};
+    if (!archives.isEmpty()) batch.insert("archives", archives);
     if (!directory.isEmpty() && !publish(QDir(directory).filePath(
             QStringLiteral("batch-%1.json").arg(nextBatch, 8, 10, QChar('0'))),
-            {{"version", 1}, {"entries", items}, {"verified", verifiedPayloads}}, error)) return false;
+            batch, error)) return false;
     ++nextBatch;
     for (const BackupEntry &entry : entries) {
         mappings.insert(entry.sourcePath, entry);

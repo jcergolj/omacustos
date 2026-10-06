@@ -229,6 +229,10 @@ int runBackupWorker(const QString &configuredPath, BackupPrerequisiteProbe &prer
         BackupOptions options;
         options.freshCopy = true;
         options.singleArchive = qEnvironmentVariable("OMACUSTOS_INTERNAL_SINGLE_ARCHIVE") == "1";
+        options.boundedArchives = qEnvironmentVariable("OMACUSTOS_INTERNAL_BOUNDED_ARCHIVES") == "1";
+        bool archiveTargetValid = false;
+        const qint64 archiveTarget = qEnvironmentVariable("OMACUSTOS_INTERNAL_ARCHIVE_TARGET").toLongLong(&archiveTargetValid);
+        if (archiveTargetValid && archiveTarget > 0) options.archiveTargetBytes = archiveTarget;
         options.stagingDirectory = setIterator->stagingDirectory;
         options.stagingBudget = setIterator->stagingBudget;
         options.continuationDirectory = QDir(stateDirectory).filePath(QStringLiteral("continuations/")

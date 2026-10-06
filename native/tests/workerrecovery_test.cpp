@@ -125,7 +125,236 @@ private slots:
     void singleArchiveStorageFailure();
     void singleArchiveVerificationFailure_data();
     void singleArchiveVerificationFailure();
+    void boundedArchivesRoundTrip_data();
+    void boundedArchivesRoundTrip();
+    void boundedArchivesStorageWaiting_data();
+    void boundedArchivesStorageWaiting();
 };
+
+void WorkerRecoveryTest::boundedArchivesRoundTrip_data()
+{
+    QTest::addColumn<QString>("workload");
+    QTest::newRow("incompressible input exceeds capacity") << QString("budget");
+    QTest::newRow("target boundary and related directories") << QString("target");
+    QTest::newRow("many tiny directories") << QString("tiny");
+    QTest::newRow("multiple roots and reserved names") << QString("roots");
+    QTest::newRow("whole oversized file") << QString("oversized");
+}
+
+void WorkerRecoveryTest::boundedArchivesRoundTrip()
+{
+    QFETCH(QString, workload);
+    const qint64 budget = 200000;
+    WorkerFixture fixture;
+    QVERIFY(fixture.prepare(budget));
+    fixture.environment.insert("OMACUSTOS_INTERNAL_BOUNDED_ARCHIVES", "1");
+    fixture.environment.insert("OMACUSTOS_INTERNAL_ARCHIVE_TARGET", workload == "budget" ? "1000000000" : "40000");
+    fixture.environment.insert("LD_PRELOAD", QStringLiteral(OMACUSTOS_QUOTA_FIXTURE));
+    fixture.environment.insert("FIXTURE_STAGING_PEAK_LOG", fixture.directory.filePath("peak"));
+    fixture.environment.insert("FIXTURE_TOTAL_STAGING_CAPACITY", workload == "oversized" ? "610000" : QString::number(budget));
+    fixture.environment.insert("FIXTURE_COMMAND_LOG", fixture.directory.filePath("commands.jsonl"));
+    QHash<QString, QByteArray> originals;
+    const auto add = [&](const QString &relative, const QByteArray &bytes) {
+        const QString path = fixture.directory.filePath(relative);
+        originals.insert(path, bytes);
+        return writeFile(path, bytes);
+    };
+    quint32 random = 12345;
+    const auto noise = [&](int size) {
+        QByteArray bytes(size, '\0');
+        for (char &byte : bytes) { random ^= random << 13; random ^= random >> 17; random ^= random << 5; byte = char(random); }
+        return bytes;
+    };
+    for (int i = 0; i < 60; ++i)
+        QVERIFY(add(QString("source/dir-%1/file-%2").arg(i / 5, 2, 10, QChar('0')).arg(i, 3, 10, QChar('0')), noise(4000)));
+    if (workload == "tiny") {
+        for (int i = 0; i < 80; ++i) QVERIFY(add(QString("source/tiny/%1/.hidden").arg(i), QByteArray(10, char(i))));
+    }
+    if (workload == "target") {
+        // Lexical source order interleaves these parent files with a child
+        // directory; direct-directory scheduling must keep them together.
+        QVERIFY(add("source/related/a", noise(6000)));
+        QVERIFY(add("source/related/z", noise(6000)));
+        QVERIFY(add("source/related/sub/file", noise(30000)));
+    }
+    if (workload == "roots") {
+        fixture.config.sets[0].sourceDirectories += {fixture.directory.filePath("other/source"), fixture.directory.filePath("manifest.json")};
+        QVERIFY(add("other/source/dir-00/file-000", "different root"));
+        QVERIFY(add("other/source/.hidden", "hidden root"));
+        QVERIFY(add("other/source/.omacustos-archives/file", "reserved directory"));
+        QVERIFY(add("source/manifest.json", "reserved file"));
+        QVERIFY(add("manifest.json", "individual file"));
+        QVERIFY(fixture.save());
+    }
+    if (workload == "oversized") QVERIFY(add("source/z-oversized", noise(300000)));
+    QVERIFY(add("source/empty", {}));
+    QVERIFY2(fixture.run(), qPrintable(fixture.error));
+    QVERIFY2(fixture.record().status == "success", qPrintable(fixture.record().lastError));
+    QCOMPARE(fixture.record().result.verifiedFiles, originals.size());
+    QVERIFY(fixture.emptyStaging());
+    QVector<BackupEntry> entries;
+    BackupManifestInfo info;
+    QVERIFY2(BackupManifest::load(QDir(fixture.remoteCopy()).filePath("manifest.json"), &entries, &info, &fixture.error), qPrintable(fixture.error));
+    QCOMPARE(info.version, 3);
+    QHash<QString, QVector<BackupEntry>> archives;
+    QSet<QString> restorePaths;
+    for (const auto &entry : entries) {
+        QCOMPARE(entry.size, qint64(originals.value(entry.sourcePath).size()));
+        QCOMPARE(entry.checksum, QCryptographicHash::hash(originals.value(entry.sourcePath), QCryptographicHash::Sha256));
+        QVERIFY(!restorePaths.contains(entry.restorePath));
+        restorePaths.insert(entry.restorePath);
+        archives[entry.archive.id].append(entry);
+    }
+    QVERIFY(archives.size() > 1);
+    QVERIFY(archives.size() < originals.size() / 2); // tiny directories are not remote objects
+    if (workload == "target") {
+        QString parentArchive;
+        for (const auto &entry : entries) {
+            if (!entry.sourcePath.endsWith("/related/a") && !entry.sourcePath.endsWith("/related/z")) continue;
+            if (parentArchive.isEmpty()) parentArchive = entry.archive.id;
+            QCOMPARE(entry.archive.id, parentArchive);
+        }
+    }
+    for (const auto &members : archives) {
+        qint64 bytes = 0;
+        QSet<QString> roots;
+        for (const auto &entry : members) {
+            bytes += entry.size;
+            for (const auto &root : fixture.config.sets[0].sourceDirectories)
+                if (entry.sourcePath == root || entry.sourcePath.startsWith(root + '/')) roots.insert(root);
+        }
+        QCOMPARE(roots.size(), 1);
+        if (bytes > 40000 && workload != "budget") {
+            QCOMPARE(members.size(), 1);
+            QCOMPARE(bytes, qint64(300000));
+        }
+        QCOMPARE(fixture.transfers(members.first().archive.id), 1);
+    }
+    // Measure retained snapshot + compressed output bytes, not indexed payload.
+    QFile peakFile(fixture.directory.filePath("peak"));
+    QVERIFY(peakFile.open(QIODevice::ReadOnly));
+    qint64 peak = 0;
+    while (!peakFile.atEnd()) peak = qMax(peak, peakFile.readLine().trimmed().toLongLong());
+    QVERIFY(peak > 0);
+    QVERIFY2(peak <= (workload == "oversized" ? 610000 : budget), qPrintable(QString::number(peak)));
+    if (workload == "oversized") QVERIFY(peak > 600000); // output and immutable snapshot really coexisted
+
+    const QByteArray oldRemote = qgetenv("FIXTURE_REMOTE"), oldLog = qgetenv("FIXTURE_COMMAND_LOG");
+    qputenv("FIXTURE_REMOTE", fixture.directory.filePath("remote").toUtf8());
+    qputenv("FIXTURE_COMMAND_LOG", fixture.directory.filePath("restore-commands.jsonl").toUtf8());
+    const auto reset = qScopeGuard([&] { qputenv("FIXTURE_REMOTE", oldRemote); qputenv("FIXTURE_COMMAND_LOG", oldLog); });
+    QProcessRunner runner(fixture.config.protonBinary);
+    ProtonProvider provider(runner);
+    BackupEngine engine;
+    BackupRestoreController controller(engine, &provider);
+    QSignalSpy completed(&controller, &BackupRestoreController::restoreCompleted);
+    QSignalSpy failed(&controller, &BackupRestoreController::failed);
+    controller.loadManifest(QDir(fixture.remoteCopy()).filePath("manifest.json"));
+    for (int operation = 0; operation < 3; ++operation) {
+        QVariantList selected;
+        QSet<QString> requiredArchives;
+        for (int i = 0; i < entries.size(); ++i) {
+            if (operation == 0 && i % 11 != 0) continue; // cross-archive selected files
+            if (operation == 1 && !entries.at(i).sourcePath.contains("/dir-00/")) continue; // a folder
+            selected.append(i);
+            requiredArchives.insert(entries.at(i).archive.id);
+        }
+        QVERIFY(!selected.isEmpty());
+        const int before = logEntries(fixture.directory.filePath("restore-commands.jsonl")).size();
+        const QString destination = fixture.directory.filePath(QString("restore-%1").arg(operation));
+        controller.restoreSelected(selected, destination);
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.busy(), 10000);
+        QCOMPARE(failed.size(), 0);
+        QCOMPARE(completed.size(), operation + 1);
+        QSet<int> indexes;
+        for (const auto &index : selected) indexes.insert(index.toInt());
+        for (int i = 0; i < entries.size(); ++i) {
+            QFile restored(QDir(destination).filePath(entries.at(i).restorePath));
+            QCOMPARE(restored.exists(), indexes.contains(i));
+            if (indexes.contains(i)) {
+                QVERIFY(restored.open(QIODevice::ReadOnly));
+                QCOMPARE(restored.readAll(), originals.value(entries.at(i).sourcePath));
+            }
+        }
+        QSet<QString> downloaded;
+        const auto commands = logEntries(fixture.directory.filePath("restore-commands.jsonl"));
+        int downloads = 0;
+        for (int i = before; i < commands.size(); ++i) {
+            if (commands.at(i).value("command") != "download") continue;
+            ++downloads;
+            const auto args = commands.at(i).value("args").toArray();
+            downloaded.insert(QFileInfo(args.at(args.size() - 2).toString()).fileName());
+        }
+        QCOMPARE(downloaded, requiredArchives);
+        QCOMPARE(downloads, requiredArchives.size());
+    }
+}
+
+void WorkerRecoveryTest::boundedArchivesStorageWaiting_data()
+{
+    QTest::addColumn<QString>("failure");
+    QTest::newRow("oversized conservative preflight after verified work") << QString("oversized");
+    QTest::newRow("compressed output quota") << QString("archive");
+    QTest::newRow("immutable snapshot quota") << QString("snapshot");
+    QTest::newRow("durable checkpoint quota") << QString("checkpoint");
+    QTest::newRow("archive write EIO after verified work") << QString("write-eio");
+    QTest::newRow("archive flush EIO after verified work") << QString("flush-eio");
+}
+
+void WorkerRecoveryTest::boundedArchivesStorageWaiting()
+{
+    QFETCH(QString, failure);
+    WorkerFixture fixture;
+    QVERIFY(fixture.prepare(200000));
+    fixture.environment.insert("OMACUSTOS_INTERNAL_BOUNDED_ARCHIVES", "1");
+    fixture.environment.insert("OMACUSTOS_INTERNAL_ARCHIVE_TARGET", "40000");
+    fixture.environment.insert("LD_PRELOAD", QStringLiteral(OMACUSTOS_QUOTA_FIXTURE));
+    if (failure == "oversized") fixture.environment.insert("FIXTURE_STAGING_AVAILABLE", QString::number(16 * 1024 * 1024 + 200000));
+    if (failure == "archive") fixture.environment.insert("FIXTURE_ARCHIVE_QUOTA", "1");
+    if (failure == "snapshot") fixture.environment.insert("FIXTURE_STAGING_QUOTA", "1");
+    if (failure == "checkpoint") fixture.environment.insert("FIXTURE_CHECKPOINT_FAILURE", "yes");
+    if (failure == "write-eio") fixture.environment.insert("FIXTURE_ARCHIVE_WRITE_EIO_AFTER", "1");
+    if (failure == "flush-eio") fixture.environment.insert("FIXTURE_ARCHIVE_FLUSH_EIO_AFTER", "1");
+    QVERIFY(writeFile(fixture.directory.filePath("source/a-small"), QByteArray(10000, 'a')));
+    QVERIFY(writeFile(fixture.directory.filePath("source/z-large"), QByteArray(300000, 'b')));
+    QVERIFY(fixture.run());
+    QCOMPARE(fixture.record().status, QString("waiting"));
+    QVERIFY(fixture.record().unfinished);
+    QVERIFY(!fixture.record().result.manifestVerified);
+    const bool retainedWork = failure == "oversized" || failure.endsWith("-eio");
+    QCOMPARE(fixture.record().result.verifiedFiles, retainedWork ? 1 : 0);
+    if (retainedWork) {
+        QVERIFY(fixture.record().lastError.contains("choose another staging disk"));
+        if (failure == "oversized") {
+            QVERIFY(fixture.record().lastError.contains("oversized"));
+            QVERIFY(fixture.record().lastError.contains("bytes"));
+        }
+        const QString checkpoint = fixture.directory.filePath("continuations/")
+            + QString::fromLatin1(QCryptographicHash::hash(fixture.record().remoteCopyPath.toUtf8(), QCryptographicHash::Sha256).toHex());
+        int verified = 0;
+        for (const QString &name : QDir(checkpoint).entryList({"batch-*.json"}, QDir::Files)) {
+            QFile journal(QDir(checkpoint).filePath(name));
+            QVERIFY(journal.open(QIODevice::ReadOnly));
+            const auto object = QJsonDocument::fromJson(journal.readAll()).object();
+            if (!object.value("verified").toBool()) continue;
+            ++verified;
+            const auto entry = object.value("entries").toArray().first().toObject();
+            QCOMPARE(object.value("archives").toArray().size(), 1);
+            const auto archive = object.value("archives").toArray().first().toObject();
+            QVERIFY(!archive.value("id").toString().isEmpty());
+            QCOMPARE(entry.value("archive_id").toString(), archive.value("id").toString());
+            QCOMPARE(archive.value("members").toArray().size(), 1);
+            QCOMPARE(entry.value("member").toString(), archive.value("members").toArray().first().toString());
+            QFile remote(fixture.directory.filePath("remote") + archive.value("remote").toString());
+            QVERIFY(remote.open(QIODevice::ReadOnly));
+            QCOMPARE(remote.size(), archive.value("size").toInteger());
+            QCOMPARE(QCryptographicHash::hash(remote.readAll(), QCryptographicHash::Sha256).toHex(), archive.value("sha256").toString().toLatin1());
+        }
+        QCOMPARE(verified, 1);
+    }
+    QVERIFY(!QFileInfo::exists(QDir(fixture.remoteCopy()).filePath("manifest.json")));
+    QVERIFY(fixture.emptyStaging());
+}
 
 void WorkerRecoveryTest::singleArchiveVerificationFailure_data()
 {

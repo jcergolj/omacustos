@@ -727,7 +727,10 @@ BackupRestoreResult BackupEngine::restoreFiles(const BackupRestoreRequest &reque
                     || candidate.remotePath != entry.archive.remotePath
                     || candidate.archive.size != entry.archive.size || candidate.archive.checksum != entry.archive.checksum
                     || candidate.archive.members != entry.archive.members || !BackupArchiveIO::safeMember(candidate.restorePath)
-                    || (!request.copyPath.isEmpty() && QFileInfo(candidate.remotePath).path() != QDir::cleanPath(request.copyPath))) {
+                    || (!request.copyPath.isEmpty()
+                        && (!isWithinPath(candidate.remotePath, QDir::cleanPath(request.copyPath))
+                            || candidate.remotePath != QDir::cleanPath(candidate.remotePath)
+                            || hasParentPathSegment(candidate.remotePath)))) {
                     result.error = QStringLiteral("The restore selection contains ambiguous archive references.");
                     return result;
                 }

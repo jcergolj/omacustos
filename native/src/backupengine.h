@@ -23,6 +23,8 @@ struct BackupPreview {
 struct BackupOptions {
     bool freshCopy = false;
     bool singleArchive = false; // Internal execution seam; rollout belongs to #52.
+    bool boundedArchives = false;
+    qint64 archiveTargetBytes = 1000 * 1000 * 1000;
     QString stagingDirectory;
     qint64 stagingBudget = 1000 * 1000 * 1000;
     int batchFileLimit = 1000;

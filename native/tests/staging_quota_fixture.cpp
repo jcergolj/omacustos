@@ -6,7 +6,10 @@
 #include <cstdio>
 #include <cstring>
 #include <string_view>
+#include <string>
 #include <filesystem>
+#include <algorithm>
+#include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <sys/vfs.h>
 #include <unistd.h>
@@ -20,12 +23,49 @@ extern "C" ssize_t write(int fd, const void *buffer, size_t count)
     const char *capacity = std::getenv("FIXTURE_STAGING_CAPACITY");
     const char *archiveQuota = std::getenv("FIXTURE_ARCHIVE_QUOTA");
     const char *mutate = std::getenv("FIXTURE_MUTATE_DURING_STAGING");
-    if (quota || checkpoint || capacity || archiveQuota || mutate) {
+    const char *totalCapacity = std::getenv("FIXTURE_TOTAL_STAGING_CAPACITY");
+    const char *peakLog = std::getenv("FIXTURE_STAGING_PEAK_LOG");
+    const char *archiveIO = std::getenv("FIXTURE_ARCHIVE_WRITE_EIO_AFTER");
+    if (quota || checkpoint || capacity || archiveQuota || mutate || totalCapacity || peakLog || archiveIO) {
         char link[64], path[4096];
         std::snprintf(link, sizeof(link), "/proc/self/fd/%d", fd);
         const ssize_t length = ::readlink(link, path, sizeof(path) - 1);
         if (length >= 0) {
             path[length] = 0;
+            if (archiveIO && std::strstr(path, "/attempt-") && std::strstr(path, ".tar.gz")) {
+                static std::string previousArchive;
+                static int archives = 0;
+                if (previousArchive != path) { previousArchive = path; ++archives; }
+                if (archives > std::atoi(archiveIO)) { errno = EIO; return -1; }
+            }
+            if ((totalCapacity || peakLog) && std::strstr(path, "/attempt-")) {
+                const char *attempt = std::strstr(path, "/attempt-");
+                const char *end = std::strchr(attempt + 1, '/');
+                if (end) {
+                    const std::filesystem::path root(std::string(path, end - path));
+                    std::error_code error;
+                    long long used = 0;
+                    for (const auto &entry : std::filesystem::recursive_directory_iterator(root, error)) {
+                        if (entry.is_regular_file(error)) used += entry.file_size(error);
+                    }
+                    const off_t position = ::lseek(fd, 0, SEEK_CUR);
+                    struct stat current {};
+                    if (position >= 0 && ::fstat(fd, &current) == 0)
+                        used += std::max(0LL, static_cast<long long>(position + count) - current.st_size);
+                    static long long peak = 0;
+                    if (peakLog && used > peak) {
+                        peak = used;
+                        const int log = ::open(peakLog, O_WRONLY | O_CREAT | O_APPEND, 0600);
+                        if (log >= 0) {
+                            char bytes[64];
+                            const int size = std::snprintf(bytes, sizeof(bytes), "%lld\n", peak);
+                            realWrite(log, bytes, size);
+                            ::close(log);
+                        }
+                    }
+                    if (totalCapacity && used > std::atoll(totalCapacity)) { errno = EDQUOT; return -1; }
+                }
+            }
             if (archiveQuota && std::strstr(path, "/attempt-") && std::strstr(path, ".tar.gz")) {
                 errno = EDQUOT;
                 return -1;
@@ -80,6 +120,23 @@ extern "C" ssize_t write(int fd, const void *buffer, size_t count)
         }
     }
     return realWrite(fd, buffer, count);
+}
+
+// QFile's unbuffered sink normally has nothing left to flush. Inject the same
+// libarchive close-callback error contract to exercise a failed stream flush.
+struct archive;
+extern "C" int archive_write_close(struct archive *writer)
+{
+    static const auto realClose = reinterpret_cast<int (*)(struct archive *)>(dlsym(RTLD_NEXT, "archive_write_close"));
+    const int status = realClose(writer);
+    const char *after = std::getenv("FIXTURE_ARCHIVE_FLUSH_EIO_AFTER");
+    static int archives = 0;
+    if (after && status == 0 && ++archives > std::atoi(after)) {
+        const auto setError = reinterpret_cast<void (*)(struct archive *, int, const char *, ...)>(dlsym(RTLD_NEXT, "archive_set_error"));
+        setError(writer, EIO, "Archive staging flush failed: injected input/output error");
+        return -30; // ARCHIVE_FATAL
+    }
+    return status;
 }
 
 extern "C" int statvfs(const char *path, struct statvfs *storage)
