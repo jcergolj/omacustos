@@ -94,7 +94,72 @@ private slots:
     void reportsFailuresAndKeepsOnlyVerifiedFilesRestorable();
     void ensuresEachPayloadDirectoryOnceAndRechecksFailedUploads();
     void progressPersistenceBoundsWritesAndKeepsFinalSamples();
+    void restoresLegacyEntriesWithEffectiveDestinations_data();
+    void restoresLegacyEntriesWithEffectiveDestinations();
 };
+
+void BackupEngineTest::restoresLegacyEntriesWithEffectiveDestinations_data()
+{
+    QTest::addColumn<QString>("firstSource");
+    QTest::addColumn<QString>("secondSource");
+    QTest::addColumn<QString>("secondRestore");
+    QTest::addColumn<bool>("success");
+    QTest::newRow("distinct absolute source basenames") << QString("/old/first.txt") << QString("/other/second.txt") << QString() << true;
+    QTest::newRow("distinct relative source paths") << QString("first.txt") << QString("nested/second.txt") << QString() << true;
+    QTest::newRow("duplicate implicit basename") << QString("/old/first.txt") << QString("/other/first.txt") << QString() << false;
+    QTest::newRow("implicit and explicit destination collide") << QString("/old/first.txt") << QString("/other/second.txt") << QString("first.txt") << false;
+    QTest::newRow("dot alias of implicit destination") << QString("/old/first.txt") << QString("/other/second.txt") << QString("./first.txt") << false;
+    QTest::newRow("separator alias of relative destination") << QString("nested/first.txt") << QString("/other/second.txt") << QString("nested//first.txt") << false;
+}
+
+void BackupEngineTest::restoresLegacyEntriesWithEffectiveDestinations()
+{
+    QFETCH(QString, firstSource);
+    QFETCH(QString, secondSource);
+    QFETCH(QString, secondRestore);
+    QFETCH(bool, success);
+    QTemporaryDir remote;
+    QTemporaryDir destination;
+    QVERIFY(remote.isValid());
+    QVERIFY(destination.isValid());
+    const QByteArray firstBytes("first legacy payload"), secondBytes("second legacy payload");
+    const auto write = [](const QString &path, const QByteArray &bytes) {
+        QFile file(path);
+        return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size();
+    };
+    QVERIFY(write(remote.filePath("payload-one"), firstBytes));
+    QVERIFY(write(remote.filePath("payload-two"), secondBytes));
+    const QString firstDestination = firstSource.startsWith('/') ? QFileInfo(firstSource).fileName() : firstSource;
+    QVERIFY(QDir().mkpath(QFileInfo(destination.filePath(firstDestination)).path()));
+    QVERIFY(write(destination.filePath(firstDestination), "existing destination"));
+    LocalProvider provider(remote.path());
+    BackupEngine engine;
+    const QVector<BackupEntry> entries {
+        {firstSource, "payload-one", firstBytes.size(), QCryptographicHash::hash(firstBytes, QCryptographicHash::Sha256), {}},
+        {secondSource, "payload-two", secondBytes.size(), QCryptographicHash::hash(secondBytes, QCryptographicHash::Sha256), secondRestore}
+    };
+    QVector<int> progress;
+    const BackupRestoreResult result = engine.restoreFiles({entries, destination.path(), {}}, provider,
+        [&](int count) { progress.append(count); });
+    QCOMPARE(result.success, success);
+    QFile firstRestored(destination.filePath(firstDestination));
+    QVERIFY(firstRestored.open(QIODevice::ReadOnly));
+    if (success) {
+        QCOMPARE(result.restoredCount, 2);
+        QVERIFY(result.error.isEmpty());
+        QCOMPARE(progress, QVector<int>({1, 2}));
+        QCOMPARE(firstRestored.readAll(), firstBytes);
+        const QString secondDestination = secondSource.startsWith('/') ? QFileInfo(secondSource).fileName() : secondSource;
+        QFile secondRestored(destination.filePath(secondDestination));
+        QVERIFY(secondRestored.open(QIODevice::ReadOnly));
+        QCOMPARE(secondRestored.readAll(), secondBytes);
+    } else {
+        QCOMPARE(result.restoredCount, 0);
+        QVERIFY(result.error.contains("duplicate destinations"));
+        QVERIFY(progress.isEmpty());
+        QCOMPARE(firstRestored.readAll(), QByteArray("existing destination"));
+    }
+}
 
 void BackupEngineTest::ensuresEachPayloadDirectoryOnceAndRechecksFailedUploads()
 {

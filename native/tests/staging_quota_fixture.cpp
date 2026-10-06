@@ -10,6 +10,7 @@
 #include <sys/statvfs.h>
 #include <sys/vfs.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 extern "C" ssize_t write(int fd, const void *buffer, size_t count)
 {
@@ -17,12 +18,38 @@ extern "C" ssize_t write(int fd, const void *buffer, size_t count)
     const char *quota = std::getenv("FIXTURE_STAGING_QUOTA");
     const char *checkpoint = std::getenv("FIXTURE_CHECKPOINT_FAILURE");
     const char *capacity = std::getenv("FIXTURE_STAGING_CAPACITY");
-    if (quota || checkpoint || capacity) {
+    const char *archiveQuota = std::getenv("FIXTURE_ARCHIVE_QUOTA");
+    const char *mutate = std::getenv("FIXTURE_MUTATE_DURING_STAGING");
+    if (quota || checkpoint || capacity || archiveQuota || mutate) {
         char link[64], path[4096];
         std::snprintf(link, sizeof(link), "/proc/self/fd/%d", fd);
         const ssize_t length = ::readlink(link, path, sizeof(path) - 1);
         if (length >= 0) {
             path[length] = 0;
+            if (archiveQuota && std::strstr(path, "/attempt-") && std::strstr(path, ".tar.gz")) {
+                errno = EDQUOT;
+                return -1;
+            }
+            static bool mutated = false;
+            if (mutate && !mutated && std::strstr(path, "/attempt-") && std::strstr(path, "/payloads/")) {
+                mutated = true;
+                const ssize_t written = realWrite(fd, buffer, count);
+                if (std::getenv("FIXTURE_REPLACE_DURING_STAGING")) {
+                    ::unlink(mutate);
+                    const int source = ::open(mutate, O_WRONLY | O_CREAT, 0600);
+                    if (source >= 0) { realWrite(source, "replacement", 11); ::close(source); }
+                } else {
+                    const int source = ::open(mutate, O_WRONLY);
+                    if (source >= 0) {
+                        char changed[4096];
+                        std::memset(changed, 'b', sizeof(changed));
+                        for (off_t offset = 1024 * 1024; offset < 3 * 1024 * 1024; offset += sizeof(changed))
+                            ::pwrite(source, changed, sizeof(changed), offset);
+                        ::close(source);
+                    }
+                }
+                return written;
+            }
             if (checkpoint && std::strstr(path, "/continuations/")
                 && std::string_view(static_cast<const char *>(buffer), count).find("\"verified\":true") != std::string_view::npos) {
                 errno = EDQUOT;

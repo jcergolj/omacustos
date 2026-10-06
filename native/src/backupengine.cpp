@@ -1,4 +1,6 @@
 #include "backupengine.h"
+#include "backuparchive.h"
+#include "localprovider.h"
 #include "payloadmetadatapolicy.h"
 #include "remotemetadatacache.h"
 
@@ -18,6 +20,13 @@
 #include <optional>
 
 namespace {
+
+QString effectiveRestorePath(const BackupEntry &entry)
+{
+    return entry.restorePath.isEmpty()
+        ? (entry.sourcePath.startsWith('/') ? QFileInfo(entry.sourcePath).fileName() : entry.sourcePath)
+        : entry.restorePath;
+}
 
 QString cleanAbsolutePath(const QString &path)
 {
@@ -698,7 +707,51 @@ BackupRestoreResult BackupEngine::restoreFiles(const BackupRestoreRequest &reque
         result.error = QStringLiteral("At least one restore file must be selected.");
         return result;
     }
+    QSet<QString> completedArchives;
+    QSet<QString> identities;
+    for (const auto &entry : request.entries) {
+        const QString identity = QDir::cleanPath(effectiveRestorePath(entry));
+        if (identities.contains(identity)) {
+            result.error = QStringLiteral("The restore selection contains duplicate destinations.");
+            return result;
+        }
+        identities.insert(identity);
+    }
     for (const BackupEntry &entry : request.entries) {
+        if (!entry.archive.id.isEmpty()) {
+            if (completedArchives.contains(entry.archive.id)) continue;
+            QVector<BackupEntry> selected;
+            for (const auto &candidate : request.entries) {
+                if (candidate.archive.id != entry.archive.id) continue;
+                if (candidate.archive.remotePath != entry.archive.remotePath
+                    || candidate.remotePath != entry.archive.remotePath
+                    || candidate.archive.size != entry.archive.size || candidate.archive.checksum != entry.archive.checksum
+                    || candidate.archive.members != entry.archive.members || !BackupArchiveIO::safeMember(candidate.restorePath)
+                    || (!request.copyPath.isEmpty() && QFileInfo(candidate.remotePath).path() != QDir::cleanPath(request.copyPath))) {
+                    result.error = QStringLiteral("The restore selection contains ambiguous archive references.");
+                    return result;
+                }
+                selected.append(candidate);
+            }
+            QTemporaryDir workspace;
+            const QString downloaded = workspace.filePath("archive.tar.gz");
+            QVector<BackupEntry> payloads;
+            if (!workspace.isValid() || !provider.download(entry.archive.remotePath, downloaded, &result.error)) return result;
+            if (!BackupArchiveIO::verify(downloaded, entry.archive.size, entry.archive.checksum)) {
+                result.error = QStringLiteral("The downloaded archive failed size/SHA-256 verification.");
+                return result;
+            }
+            if (!BackupArchiveIO::extract(downloaded, selected, workspace.path(), &payloads, &result.error)) return result;
+            LocalProvider extracted(workspace.path());
+            for (BackupEntry payload : payloads) {
+                payload.remotePath = QFileInfo(payload.remotePath).fileName();
+                if (!restoreEntry(payload, request.destinationDirectory, extracted, &result.error)) return result;
+                ++result.restoredCount;
+                if (reportProgress) reportProgress(result.restoredCount);
+            }
+            completedArchives.insert(entry.archive.id);
+            continue;
+        }
         if (!restoreEntry(entry, request.destinationDirectory, provider, &result.error)) {
             if (result.error.isEmpty()) {
                 result.error = QStringLiteral("The selected restore file could not be restored.");
@@ -717,9 +770,7 @@ bool BackupEngine::restoreEntry(const BackupEntry &entry, const QString &destina
     if (error != nullptr) {
         error->clear();
     }
-    const QString relativePath = entry.restorePath.isEmpty()
-        ? (entry.sourcePath.startsWith('/') ? QFileInfo(entry.sourcePath).fileName() : entry.sourcePath)
-        : entry.restorePath;
+    const QString relativePath = effectiveRestorePath(entry);
     const QStringList relativeParts = relativePath.split('/', Qt::KeepEmptyParts);
     if (relativePath.isEmpty() || relativePath.startsWith('/')
         || std::any_of(relativeParts.cbegin(), relativeParts.cend(), [](const QString &part) {

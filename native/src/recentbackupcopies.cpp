@@ -34,7 +34,7 @@ RecentCopyTarget inspectCopy(BackupProvider &provider, const BackupSet &set, con
         target.error = error.isEmpty() ? QStringLiteral("Unable to identify the remote backup copy.") : error;
         return target;
     }
-    if (info.version != 2 || info.application != QStringLiteral("omacustos") || info.setId != set.id
+    if ((info.version != 2 && info.version != 3) || info.application != QStringLiteral("omacustos") || info.setId != set.id
         || info.computerName != computer || info.copyId != QFileInfo(path).fileName()
         || !info.createdAt.isValid()
         || (info.status != QStringLiteral("complete") && info.status != QStringLiteral("incomplete"))) {

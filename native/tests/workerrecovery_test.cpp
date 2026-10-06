@@ -8,10 +8,17 @@
 #include <QJsonObject>
 #include <QLockFile>
 #include <QStorageInfo>
+#include <QSignalSpy>
+#include <QScopeGuard>
+#include <QJsonArray>
+#include <QCryptographicHash>
 
 #include "../src/backupconfig.h"
 #include "../src/backuprunstore.h"
 #include "../src/backupmanifest.h"
+#include "../src/backuprestorecontroller.h"
+#include "../src/protonprovider.h"
+#include "../src/qprocessrunner.h"
 
 namespace {
 bool writeFile(const QString &path, const QByteArray &bytes)
@@ -106,8 +113,358 @@ private slots:
     void namespaceChangesRemainRestorable_data();
     void namespaceChangesRemainRestorable();
     void prerequisiteWaitingCanBeCancelledWithoutTouchingHistoricalCopies();
+    void sourceFailuresFinalizeIncompleteAndProtectSuccessfulCopies_data();
     void sourceFailuresFinalizeIncompleteAndProtectSuccessfulCopies();
+    void singleArchiveRoundTrip_data();
+    void singleArchiveRoundTrip();
+    void singleArchiveRejectsDamage_data();
+    void singleArchiveRejectsDamage();
+    void singleArchivePreparationRace_data();
+    void singleArchivePreparationRace();
+    void singleArchiveStorageFailure_data();
+    void singleArchiveStorageFailure();
+    void singleArchiveVerificationFailure_data();
+    void singleArchiveVerificationFailure();
 };
+
+void WorkerRecoveryTest::singleArchiveVerificationFailure_data()
+{
+    QTest::addColumn<QString>("failure");
+    QTest::newRow("archive content metadata required") << QString("storage-size");
+    QTest::newRow("archive checksum required") << QString("archive");
+    QTest::newRow("index checksum required") << QString("index");
+}
+
+void WorkerRecoveryTest::singleArchiveVerificationFailure()
+{
+    QFETCH(QString, failure);
+    WorkerFixture fixture;
+    QVERIFY(fixture.prepare(1024 * 1024));
+    fixture.environment.insert("OMACUSTOS_INTERNAL_SINGLE_ARCHIVE", "1");
+    if (failure == "storage-size") fixture.environment.insert("FIXTURE_ARCHIVE_STORAGE_SIZE_ONLY", "yes");
+    if (failure == "archive") fixture.environment.insert("FIXTURE_CORRUPT_ARCHIVE", "yes");
+    if (failure == "index") fixture.environment.insert("FIXTURE_CORRUPT_ITEM", "manifest.json");
+    QVERIFY(writeFile(fixture.directory.filePath("source/file"), "ordinary bytes"));
+    QVERIFY(fixture.run());
+    QCOMPARE(fixture.record().status, QString("retrying"));
+    QVERIFY(fixture.record().unfinished);
+    QVERIFY(!fixture.record().result.manifestVerified);
+    QVERIFY(!fixture.record().lastSuccess.isValid());
+    if (failure != "index") QCOMPARE(fixture.record().result.verifiedFiles, 0);
+    QVERIFY(fixture.emptyStaging());
+}
+
+void WorkerRecoveryTest::singleArchivePreparationRace_data()
+{
+    QTest::addColumn<bool>("replace");
+    QTest::newRow("contents change while descriptor is read") << false;
+    QTest::newRow("pathname replacement while descriptor is read") << true;
+}
+
+void WorkerRecoveryTest::singleArchivePreparationRace()
+{
+    QFETCH(bool, replace);
+    WorkerFixture fixture;
+    QVERIFY(fixture.prepare(10 * 1024 * 1024));
+    const QString source = fixture.directory.filePath("source/file");
+    QVERIFY(writeFile(source, QByteArray(3 * 1024 * 1024, 'a')));
+    fixture.environment.insert("OMACUSTOS_INTERNAL_SINGLE_ARCHIVE", "1");
+    fixture.environment.insert("LD_PRELOAD", QStringLiteral(OMACUSTOS_QUOTA_FIXTURE));
+    fixture.environment.insert("FIXTURE_MUTATE_DURING_STAGING", source);
+    if (replace) fixture.environment.insert("FIXTURE_REPLACE_DURING_STAGING", "yes");
+    QVERIFY2(fixture.run(), qPrintable(fixture.error));
+    QCOMPARE(fixture.record().status, QString("success"));
+    QVector<BackupEntry> entries;
+    QVERIFY(BackupManifest::load(QDir(fixture.remoteCopy()).filePath("manifest.json"), &entries));
+    QCOMPARE(entries.size(), 1);
+    const QByteArray expected = replace ? QByteArray(3 * 1024 * 1024, 'a')
+        : QByteArray(1024 * 1024, 'a') + QByteArray(2 * 1024 * 1024, 'b');
+    QCOMPARE(entries.first().size, qint64(expected.size()));
+    QCOMPARE(entries.first().checksum, QCryptographicHash::hash(expected, QCryptographicHash::Sha256));
+    const QByteArray old = qgetenv("FIXTURE_REMOTE");
+    qputenv("FIXTURE_REMOTE", fixture.directory.filePath("remote").toUtf8());
+    const auto reset = qScopeGuard([&] { qputenv("FIXTURE_REMOTE", old); });
+    QProcessRunner runner(fixture.config.protonBinary);
+    ProtonProvider provider(runner);
+    BackupEngine engine;
+    BackupRestoreController controller(engine, &provider);
+    QSignalSpy completed(&controller, &BackupRestoreController::restoreCompleted);
+    controller.loadManifest(QDir(fixture.remoteCopy()).filePath("manifest.json"));
+    controller.restoreSelected({0}, fixture.directory.filePath("restore"));
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.busy(), 10000);
+    QCOMPARE(completed.size(), 1);
+    QFile restored(fixture.directory.filePath("restore/file"));
+    QVERIFY(restored.open(QIODevice::ReadOnly));
+    QCOMPARE(restored.readAll(), expected);
+}
+
+void WorkerRecoveryTest::singleArchiveStorageFailure_data()
+{
+    QTest::addColumn<QString>("failure");
+    QTest::newRow("single archive allowance") << QString("budget");
+    QTest::newRow("snapshot quota") << QString("snapshot");
+    QTest::newRow("archive quota") << QString("archive");
+}
+
+void WorkerRecoveryTest::singleArchiveStorageFailure()
+{
+    QFETCH(QString, failure);
+    WorkerFixture fixture;
+    QVERIFY(fixture.prepare(failure == "budget" ? 8 : 1024 * 1024));
+    fixture.environment.insert("OMACUSTOS_INTERNAL_SINGLE_ARCHIVE", "1");
+    if (failure != "budget") {
+        fixture.environment.insert("LD_PRELOAD", QStringLiteral(OMACUSTOS_QUOTA_FIXTURE));
+        fixture.environment.insert(failure == "snapshot" ? "FIXTURE_STAGING_QUOTA" : "FIXTURE_ARCHIVE_QUOTA", "1");
+    }
+    QVERIFY(writeFile(fixture.directory.filePath("source/file"), "ordinary bytes"));
+    QVERIFY2(fixture.run(), qPrintable(fixture.error));
+    QCOMPARE(fixture.record().status, QString("waiting"));
+    QVERIFY(fixture.record().unfinished);
+    QVERIFY(!fixture.record().result.manifestVerified);
+    QCOMPARE(fixture.record().result.verifiedFiles, 0);
+    QVERIFY(!QFileInfo::exists(QDir(fixture.remoteCopy()).filePath("manifest.json")));
+    QVERIFY(fixture.emptyStaging());
+}
+
+void WorkerRecoveryTest::singleArchiveRoundTrip_data()
+{
+    QTest::addColumn<bool>("sizeOnly");
+    QTest::newRow("sha256 metadata") << false;
+    QTest::newRow("content-size metadata") << true;
+}
+
+void WorkerRecoveryTest::singleArchiveRoundTrip()
+{
+    QFETCH(bool, sizeOnly);
+    WorkerFixture fixture;
+    QVERIFY(fixture.prepare(4 * 1024 * 1024));
+    fixture.environment.insert("OMACUSTOS_INTERNAL_SINGLE_ARCHIVE", "1");
+    fixture.environment.insert("FIXTURE_COMMAND_LOG", fixture.directory.filePath("commands.jsonl"));
+    if (sizeOnly) fixture.environment.insert("FIXTURE_SIZE_ONLY", "yes");
+    fixture.config.sets[0].exclusions = {"ignored", "link"};
+    QVERIFY(fixture.save());
+    const QByteArray original("original archived bytes");
+    const QString changed = fixture.directory.filePath("source/changing");
+    fixture.environment.insert("FIXTURE_REPLACE_SOURCE", changed);
+    QVERIFY(writeFile(changed, original));
+    QVERIFY(writeFile(fixture.directory.filePath("source/.hidden"), "hidden"));
+    QVERIFY(writeFile(fixture.directory.filePath("source/empty"), {}));
+    QVERIFY(writeFile(fixture.directory.filePath("source/manifest.json"), "a source named like the index"));
+    QVERIFY(writeFile(fixture.directory.filePath("source/ignored/no"), "excluded"));
+    QVERIFY(QFile::link(changed, fixture.directory.filePath("source/link")));
+    for (int i = 0; i < 80; ++i)
+        QVERIFY(writeFile(fixture.directory.filePath(QString("source/nested/%1/file").arg(i)), QByteArray(100, char(i))));
+    QVERIFY2(fixture.run(), qPrintable(fixture.error));
+    QCOMPARE(fixture.record().status, QString("success"));
+    QCOMPARE(fixture.record().result.verifiedFiles, 84);
+    QCOMPARE(fixture.record().result.verifiedBytes,
+        qint64(original.size() + 6 + QByteArray("a source named like the index").size() + 80 * 100));
+    QVERIFY(fixture.record().result.manifestVerified);
+    QVERIFY(fixture.emptyStaging());
+    QVector<BackupEntry> entries;
+    BackupManifestInfo info;
+    QVERIFY2(BackupManifest::load(QDir(fixture.remoteCopy()).filePath("manifest.json"), &entries, &info, &fixture.error), qPrintable(fixture.error));
+    QCOMPARE(info.version, 3);
+    QCOMPARE(info.status, QString("complete"));
+    QCOMPARE(entries.size(), 84);
+    const BackupArchive archive = entries.first().archive;
+    QVERIFY(archive.size > 0);
+    QCOMPARE(fixture.transfers(QFileInfo(archive.remotePath).fileName()), 1);
+    QCOMPARE(logEntries(fixture.directory.filePath("transfers.jsonl")).size(), 2); // archive + index
+    // Independently parse the actual remote tar.gz; test gzip/tar interoperability.
+    QProcess python;
+    python.start("python3", {"-c", "import sys,tarfile,gzip; p=sys.argv[1]; t=tarfile.open(p); assert len(t.getmembers())==84; assert all(m.isfile() for m in t.getmembers()); b=open(p,'rb').read(); assert b[10:-8]==gzip.compress(gzip.decompress(b),compresslevel=3,mtime=0)[10:-8]", fixture.directory.filePath("remote") + archive.remotePath});
+    QVERIFY(python.waitForFinished());
+    QCOMPARE(python.exitCode(), 0);
+    for (const auto &command : logEntries(fixture.directory.filePath("commands.jsonl"))) {
+        if (command.value("command") == "download") {
+            const auto args = command.value("args").toArray();
+            QCOMPARE(QFileInfo(args.at(args.size() - 2).toString()).fileName(), QString("manifest.json"));
+        }
+    } // retention discovery may read the index, never the fresh archive body
+
+    // The controller uses the real subprocess provider against the worker's remote bytes.
+    const QByteArray oldRemote = qgetenv("FIXTURE_REMOTE");
+    const QByteArray oldLog = qgetenv("FIXTURE_COMMAND_LOG");
+    const QByteArray oldSize = qgetenv("FIXTURE_SIZE_ONLY");
+    qputenv("FIXTURE_REMOTE", fixture.directory.filePath("remote").toUtf8());
+    qputenv("FIXTURE_COMMAND_LOG", fixture.directory.filePath("restore-commands.jsonl").toUtf8());
+    qputenv("FIXTURE_SIZE_ONLY", sizeOnly ? "yes" : "no");
+    const auto resetEnvironment = qScopeGuard([&] {
+        qputenv("FIXTURE_REMOTE", oldRemote); qputenv("FIXTURE_COMMAND_LOG", oldLog); qputenv("FIXTURE_SIZE_ONLY", oldSize);
+    });
+    QProcessRunner runner(fixture.config.protonBinary);
+    ProtonProvider provider(runner);
+    BackupEngine engine;
+    BackupRestoreController controller(engine, &provider);
+    QSignalSpy completed(&controller, &BackupRestoreController::restoreCompleted);
+    QSignalSpy failed(&controller, &BackupRestoreController::failed);
+    controller.discover(QFileInfo(fixture.record().remoteCopyPath).path(), "documents");
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.busy(), 10000);
+    QCOMPARE(controller.copies().size(), 1);
+    controller.selectCopy(0);
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.busy(), 10000);
+    QCOMPARE(controller.entries().size(), 84);
+    QVERIFY(controller.restoreEligible());
+    int downloads = 0, metadata = 0;
+    for (const auto &command : logEntries(fixture.directory.filePath("restore-commands.jsonl"))) {
+        if (command.value("command") == "download") ++downloads;
+        if (command.value("command") == "info" || command.value("command") == "list") ++metadata;
+    }
+    QCOMPARE(downloads, 1); // only the manifest to display the picker
+    QVERIFY(metadata <= 3); // archive count, not 84 logical files
+    const QStringList paths = controller.entries();
+    QVariantList selection {paths.indexOf(changed), paths.indexOf(fixture.directory.filePath("source/.hidden")),
+        paths.indexOf(fixture.directory.filePath("source/empty"))};
+    for (const auto &index : selection) QVERIFY(index.toInt() >= 0);
+    const QString destination = fixture.directory.filePath("restored");
+    controller.restoreSelected(selection, destination);
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.busy(), 10000);
+    QCOMPARE(failed.size(), 0);
+    QCOMPARE(completed.size(), 1);
+    QFile restored(QDir(destination).filePath("changing"));
+    QVERIFY(restored.open(QIODevice::ReadOnly));
+    QCOMPARE(restored.readAll(), original); // pathname was replaced at upload
+    QVERIFY(QFileInfo::exists(QDir(destination).filePath(".hidden")));
+    QCOMPARE(QFileInfo(QDir(destination).filePath("empty")).size(), qint64(0));
+    QVERIFY(!QFileInfo::exists(QDir(destination).filePath("nested")));
+    QVERIFY(!QFileInfo::exists(QDir(destination).filePath("manifest.json")));
+    downloads = 0;
+    for (const auto &command : logEntries(fixture.directory.filePath("restore-commands.jsonl")))
+        if (command.value("command") == "download") ++downloads;
+    QCOMPARE(downloads, 2); // one archive for three selected members
+    if (!sizeOnly) {
+        const QString archivedCopy = fixture.record().remoteCopyPath;
+        fixture.environment.remove("OMACUSTOS_INTERNAL_SINGLE_ARCHIVE");
+        fixture.environment.remove("FIXTURE_REPLACE_SOURCE");
+        QVERIFY(fixture.runs.queueManual({"documents"}, true, &fixture.error));
+        QVERIFY(fixture.run());
+        QVERIFY2(fixture.record().status == "success", qPrintable(fixture.record().lastError));
+        QVERIFY(fixture.record().remoteCopyPath != archivedCopy);
+        QVector<BackupEntry> legacy;
+        QVERIFY(BackupManifest::load(QDir(fixture.remoteCopy()).filePath("manifest.json"), &legacy, &info));
+        QCOMPARE(info.version, 2);
+        controller.discover(QFileInfo(fixture.record().remoteCopyPath).path(), "documents");
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.busy(), 10000);
+        QCOMPARE(controller.copies().size(), 2);
+        controller.selectCopy(0);
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.busy(), 10000);
+        QCOMPARE(controller.currentCopyPath(), fixture.record().remoteCopyPath);
+        const QString legacyDestination = fixture.directory.filePath("legacy-restored");
+        controller.restoreSelected({controller.entries().indexOf(changed)}, legacyDestination);
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.busy(), 10000);
+        QCOMPARE(completed.size(), 2);
+        QFile legacyFile(QDir(legacyDestination).filePath("changing"));
+        QVERIFY(legacyFile.open(QIODevice::ReadOnly));
+        QCOMPARE(legacyFile.readAll(), QByteArray("changed pathname after preparation"));
+        controller.selectCopy(1);
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.busy(), 10000);
+        QCOMPARE(controller.currentCopyPath(), archivedCopy);
+        QCOMPARE(controller.entries().size(), 84);
+        QVERIFY(controller.restoreEligible());
+    }
+}
+
+void WorkerRecoveryTest::singleArchiveRejectsDamage_data()
+{
+    QTest::addColumn<QString>("damage");
+    for (const QString &value : {"checksum", "archive-size", "member-checksum", "member-size", "truncated", "traversal", "absolute", "symlink", "hardlink", "duplicate", "missing-member", "bad-gzip", "bad-tar", "gzip-crc", "tar-end", "trailing-tar", "unindexed"})
+        QTest::newRow(qPrintable(value)) << value;
+}
+
+void WorkerRecoveryTest::singleArchiveRejectsDamage()
+{
+    QFETCH(QString, damage);
+    WorkerFixture fixture;
+    QVERIFY(fixture.prepare(1024 * 1024));
+    fixture.environment.insert("OMACUSTOS_INTERNAL_SINGLE_ARCHIVE", "1");
+    QVERIFY(writeFile(fixture.directory.filePath("source/file"), "verified"));
+    QVERIFY(fixture.run());
+    QCOMPARE(fixture.record().status, QString("success"));
+    const QString manifestPath = QDir(fixture.remoteCopy()).filePath("manifest.json");
+    QFile manifest(manifestPath);
+    QVERIFY(manifest.open(QIODevice::ReadOnly));
+    QJsonObject index = QJsonDocument::fromJson(manifest.readAll()).object();
+    manifest.close();
+    QJsonArray archives = index.value("archives").toArray();
+    QJsonObject archive = archives.first().toObject();
+    const QString archivePath = fixture.directory.filePath("remote") + archive.value("remote").toString();
+    QJsonArray entries = index.value("entries").toArray();
+    QJsonObject entry = entries.first().toObject();
+    if (damage == "member-checksum" || damage == "member-size") {
+        if (damage == "member-checksum") entry.insert("sha256", QString(64, '0'));
+        else entry.insert("size", entry.value("size").toInteger() + 1);
+        entries[0] = entry;
+        index.insert("entries", entries);
+    } else if (damage == "archive-size") {
+        archive.insert("size", archive.value("size").toInteger() + 1);
+        archives[0] = archive;
+        index.insert("archives", archives);
+    } else {
+        QProcess python;
+        const QString script =
+            "import sys,tarfile,io,gzip\n"
+            "p,k,m=sys.argv[1:]\n"
+            "if k=='checksum':\n b=bytearray(open(p,'rb').read()); b[15]^=1; open(p,'wb').write(b)\n"
+            "elif k=='truncated':\n b=open(p,'rb').read(); open(p,'wb').write(b[:len(b)//2])\n"
+            "elif k=='bad-gzip':\n open(p,'wb').write(b'not a gzip stream')\n"
+            "elif k=='bad-tar':\n open(p,'wb').write(gzip.compress(b'x'*512+b'\\0'*1024,compresslevel=3))\n"
+            "elif k=='gzip-crc':\n b=bytearray(open(p,'rb').read()); b[-8]^=1; open(p,'wb').write(b)\n"
+            "elif k=='tar-end':\n b=gzip.decompress(open(p,'rb').read()); open(p,'wb').write(gzip.compress(b[:1024],compresslevel=3))\n"
+            "elif k=='trailing-tar':\n"
+            " b=gzip.decompress(open(p,'rb').read()); extra=io.BytesIO()\n"
+            " with tarfile.open(fileobj=extra,mode='w') as t:\n  h=tarfile.TarInfo('../escaped'); h.size=4; t.addfile(h,io.BytesIO(b'evil'))\n"
+            " open(p,'wb').write(gzip.compress(b+extra.getvalue(),compresslevel=3))\n"
+            "else:\n"
+            " with tarfile.open(p,'w:gz',compresslevel=3) as t:\n"
+            "  h=tarfile.TarInfo(m)\n"
+            "  if k in ('symlink','hardlink'): h.type=tarfile.SYMTYPE if k=='symlink' else tarfile.LNKTYPE; h.linkname='../escaped'; t.addfile(h)\n"
+            "  else: h.size=8; t.addfile(h,io.BytesIO(b'verified'))\n"
+            "  if k not in ('missing-member','symlink','hardlink'):\n"
+            "   n={'traversal':'../escaped','absolute':'/escaped','duplicate':m}.get(k,'link'); h=tarfile.TarInfo(n)\n"
+            "   if k=='symlink': h.type=tarfile.SYMTYPE; h.linkname='../escaped'; t.addfile(h)\n"
+            "   else: h.size=4; t.addfile(h,io.BytesIO(b'evil'))\n";
+        const QString member = damage == "missing-member" ? "other" : entry.value("member").toString();
+        python.start("python3", {"-c", script, archivePath, damage, member});
+        QVERIFY(python.waitForFinished());
+        QCOMPARE(python.exitCode(), 0);
+        // Except checksum mismatch, certify compressed bytes to exercise the
+        // parser rather than failing only the outer checksum gate.
+        if (damage != "checksum") {
+            QFile packed(archivePath);
+            QVERIFY(packed.open(QIODevice::ReadOnly));
+            const QByteArray bytes = packed.readAll();
+            archive.insert("size", bytes.size());
+            archive.insert("sha256", QString::fromLatin1(QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex()));
+            archives[0] = archive;
+            index.insert("archives", archives);
+        }
+    }
+    QVERIFY(writeFile(manifestPath, QJsonDocument(index).toJson()));
+    const QByteArray old = qgetenv("FIXTURE_REMOTE");
+    qputenv("FIXTURE_REMOTE", fixture.directory.filePath("remote").toUtf8());
+    const auto reset = qScopeGuard([&] { qputenv("FIXTURE_REMOTE", old); });
+    QProcessRunner runner(fixture.config.protonBinary);
+    ProtonProvider provider(runner);
+    BackupEngine engine;
+    BackupRestoreController controller(engine, &provider);
+    QSignalSpy completed(&controller, &BackupRestoreController::restoreCompleted);
+    QSignalSpy failed(&controller, &BackupRestoreController::failed);
+    // Local index loading is a public controller seam and allows outer-checksum
+    // corruption to reach restore even when catalog metadata would reject it.
+    controller.loadManifest(manifestPath);
+    QCOMPARE(controller.entries().size(), 1);
+    const QString destination = fixture.directory.filePath("restored");
+    QVERIFY(writeFile(QDir(destination).filePath("file"), "existing destination"));
+    controller.restoreSelected({0}, destination);
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.busy(), 10000);
+    QCOMPARE(completed.size(), 0);
+    QCOMPARE(failed.size(), 1);
+    QFile existing(QDir(destination).filePath("file"));
+    QVERIFY(existing.open(QIODevice::ReadOnly));
+    QCOMPARE(existing.readAll(), QByteArray("existing destination"));
+    QVERIFY(!QFileInfo::exists(fixture.directory.filePath("escaped")));
+}
 
 void WorkerRecoveryTest::recoveryPreservesTheLogicalRun()
 {
@@ -526,10 +883,19 @@ void WorkerRecoveryTest::prerequisiteWaitingCanBeCancelledWithoutTouchingHistori
     QVERIFY(fixture.runs.readyIndexes(QDateTime::currentDateTime().addSecs(120)).isEmpty());
 }
 
+void WorkerRecoveryTest::sourceFailuresFinalizeIncompleteAndProtectSuccessfulCopies_data()
+{
+    QTest::addColumn<bool>("archiveCopy");
+    QTest::newRow("individual payloads") << false;
+    QTest::newRow("single archive") << true;
+}
+
 void WorkerRecoveryTest::sourceFailuresFinalizeIncompleteAndProtectSuccessfulCopies()
 {
+    QFETCH(bool, archiveCopy);
     WorkerFixture fixture;
-    QVERIFY(fixture.prepare(4));
+    QVERIFY(fixture.prepare(archiveCopy ? 1024 * 1024 : 4));
+    if (archiveCopy) fixture.environment.insert("OMACUSTOS_INTERNAL_SINGLE_ARCHIVE", "1");
     const QString missing = fixture.directory.filePath("source/a.txt");
     QVERIFY(writeFile(missing, "good"));
     QVERIFY(writeFile(fixture.directory.filePath("source/b.txt"), "more"));
@@ -548,13 +914,32 @@ void WorkerRecoveryTest::sourceFailuresFinalizeIncompleteAndProtectSuccessfulCop
     QCOMPARE(fixture.record().result.issues.first().path, missing);
     QCOMPARE(fixture.record().result.issues.first().phase, QString("reading"));
     QVERIFY(QFileInfo::exists(QDir(successfulCopy).filePath("manifest.json")));
-    QVERIFY(QFileInfo::exists(QDir(successfulCopy).filePath("a.txt")));
+    if (!archiveCopy) QVERIFY(QFileInfo::exists(QDir(successfulCopy).filePath("a.txt")));
     QVector<BackupEntry> entries;
     BackupManifestInfo info;
     QVERIFY(BackupManifest::load(QDir(fixture.remoteCopy()).filePath("manifest.json"), &entries, &info));
     QCOMPARE(info.status, QString("incomplete"));
     QCOMPARE(entries.size(), 1);
     QCOMPARE(entries.first().restorePath, QString("b.txt"));
+    if (archiveCopy) {
+        QCOMPARE(info.version, 3);
+        const QByteArray old = qgetenv("FIXTURE_REMOTE");
+        qputenv("FIXTURE_REMOTE", fixture.directory.filePath("remote").toUtf8());
+        const auto reset = qScopeGuard([&] { qputenv("FIXTURE_REMOTE", old); });
+        QProcessRunner runner(fixture.config.protonBinary);
+        ProtonProvider provider(runner);
+        BackupEngine engine;
+        BackupRestoreController controller(engine, &provider);
+        QSignalSpy completed(&controller, &BackupRestoreController::restoreCompleted);
+        controller.loadManifest(QDir(fixture.remoteCopy()).filePath("manifest.json"));
+        controller.restoreSelected({0}, fixture.directory.filePath("recovered-incomplete"));
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.busy(), 10000);
+        QCOMPARE(completed.size(), 1);
+        QFile recovered(fixture.directory.filePath("recovered-incomplete/b.txt"));
+        QVERIFY(recovered.open(QIODevice::ReadOnly));
+        QCOMPARE(recovered.readAll(), QByteArray("more"));
+        QVERIFY(!QFileInfo::exists(fixture.directory.filePath("recovered-incomplete/a.txt")));
+    }
 }
 
 void WorkerRecoveryTest::terminatedWorkerRecovers_data()

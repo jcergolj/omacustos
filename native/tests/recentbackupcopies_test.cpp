@@ -81,7 +81,40 @@ private slots:
     void remoteManagementPreservesConcurrentEnqueue();
     void browsingRecordedCopyNeedsNoManifestOrWorkerLock();
     void browsingRejectsUnsafeRecordedPath();
+    void archiveCopyDeletionRetainsWholeCopyScope();
 };
+
+void RecentBackupCopiesTest::archiveCopyDeletionRetainsWholeCopyScope()
+{
+    CopyFixture fixture;
+    QVERIFY(fixture.prepare());
+    QVERIFY(fixture.copy("legacy", -1));
+    QTemporaryDir staging(QDir::current().filePath("archive-management-XXXXXX"));
+    QVERIFY(staging.isValid());
+    BackupOptions options;
+    options.freshCopy = options.singleArchive = true;
+    options.stagingDirectory = staging.filePath("staging");
+    options.retainLocalManifest = false;
+    QString error;
+    const BackupCopyMetadata metadata {"computer", fixture.set.id, fixture.set.name, "archive", fixture.date};
+    QVERIFY2(fixture.engine.backup(fixture.set.sourceDirectories, fixture.path("archive"), {}, metadata,
+        fixture.provider, nullptr, &error, {}, nullptr, options), qPrintable(error));
+    BackupRunStore runs(fixture.runPath);
+    QVERIFY(runs.load());
+    runs.find(fixture.set.id)->remoteCopyPath = fixture.path("archive");
+    QVERIFY(runs.save());
+    RecentBackupCopies copies(fixture.provider, fixture.configPath, "computer");
+    QSignalSpy confirmation(&copies, &RecentBackupCopies::deleteConfirmationReady);
+    QSignalSpy deleted(&copies, &RecentBackupCopies::copyDeleted);
+    copies.requestDelete(fixture.set.id);
+    QTRY_COMPARE(confirmation.size(), 1);
+    QCOMPARE(confirmation.first().at(1).toString(), fixture.path("archive"));
+    copies.confirmDelete();
+    QTRY_COMPARE(deleted.size(), 1);
+    QCOMPARE(fixture.provider.trashed, QStringList {fixture.path("archive")});
+    QVERIFY(QFileInfo::exists(fixture.remote.filePath(fixture.path("legacy") + "/manifest.json")));
+    QVERIFY(!QFileInfo::exists(fixture.remote.filePath(fixture.path("archive"))));
+}
 
 void RecentBackupCopiesTest::confirmationDeletesOnlyItsExactCopyAndKeepsTheSet()
 {

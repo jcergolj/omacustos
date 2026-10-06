@@ -9,11 +9,14 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Quick QuickControls2 QuickDialogs2 Test Concurrent QuickTest)
+find_package(LibArchive REQUIRED)
+find_package(ZLIB REQUIRED)
 
 # Storage, execution, and configuration are usable without a GUI or QML engine.
 add_library(omacustos-core STATIC
     src/backupengine.cpp
     src/batchedbackup.cpp
+    src/backuparchive.cpp
     src/backupcontinuation.cpp
     src/backupstaging.cpp
     src/backupmanifest.cpp
@@ -35,7 +38,7 @@ add_library(omacustos-core STATIC
     src/systemdlauncher.cpp
     src/serviceinstaller.cpp
 )
-target_link_libraries(omacustos-core PUBLIC Qt6::Core)
+target_link_libraries(omacustos-core PUBLIC Qt6::Core LibArchive::LibArchive ZLIB::ZLIB)
 target_include_directories(omacustos-core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
 # UI-facing controllers add asynchronous work, but no GUI-only dependencies.
@@ -149,7 +152,7 @@ omacustos_add_test(localstate-store-test tests/localstate_store_test.cpp omacust
 target_compile_definitions(reliability-test PRIVATE OMACUSTOS_WORKER_BINARY="$<TARGET_FILE:omacustos-worker>")
 add_dependencies(reliability-test omacustos-worker)
 
-omacustos_add_test(workerrecovery-test tests/workerrecovery_test.cpp omacustos-core)
+omacustos_add_test(workerrecovery-test tests/workerrecovery_test.cpp omacustos-controllers)
 add_library(staging-quota-fixture SHARED tests/staging_quota_fixture.cpp)
 target_link_libraries(staging-quota-fixture PRIVATE dl)
 target_compile_definitions(workerrecovery-test PRIVATE

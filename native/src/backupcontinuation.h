@@ -11,7 +11,7 @@ class BackupContinuation final
 {
 public:
     explicit BackupContinuation(QString directory);
-    bool open(const QString &remoteRoot, const BackupCopyMetadata &metadata, QString *error);
+    bool open(const QString &remoteRoot, const BackupCopyMetadata &metadata, QString *error, int payloadFormat = 2);
     bool saveRoots(QString *error);
     bool checkpoint(const QVector<BackupEntry> &entries, QString *error, bool verifiedPayloads = true);
     QHash<QString, BackupEntry> verified;
@@ -23,4 +23,5 @@ private:
     QString directory;
     QString remoteRoot;
     int nextBatch = 0;
+    int payloadFormat = 2;
 };

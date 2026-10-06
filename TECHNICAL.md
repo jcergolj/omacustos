@@ -175,6 +175,60 @@ manifest directly, so hidden payloads do not depend on provider directory listin
 
 ## Provider Behavior
 
+### Internal Single-Archive Slice (#46)
+
+`BackupOptions::singleArchive` enables the small-copy archive execution seam.
+The worker exposes it through `OMACUSTOS_INTERNAL_SINGLE_ARCHIVE=1` for integration
+fixtures and development. Default rollout is reserved for #52; it is not a saved
+storage-mode preference. The slice prepares one archive for a small selection,
+using the existing source scan, collision mappings, exclusions, private disk
+staging, progress publication, provider operations, and final-index verification.
+Selections beyond the conservative single-archive working allowance enter Waiting;
+bounded multi-archive grouping and oversized-file handling follow in dependent work.
+
+The working allowance includes immutable source snapshots, compressed output,
+tar/gzip overhead, and the existing filesystem metadata reserve. Snapshot hashes
+are checked again while packing, so logical sizes and SHA-256 values describe the
+archived bytes even when source contents or pathnames change during preparation.
+Packing uses linked **libarchive** and **zlib**, with gzip level **3**. Both are
+explicit CMake and Arch package dependencies; scheduled execution requires no
+external tar/gzip installation.
+
+Version-3 manifests retain version-2 provenance and completion rules, add an
+`archives` table (`id`, `remote`, compressed `size`, `sha256`), and map each logical
+entry to an `archive` and relative `member`, alongside its source, restore path,
+logical size, and SHA-256. The table is authoritative; full member sets are derived
+from the validated entries rather than persisted as a competing index. Validation
+rejects missing/unused/ambiguous references, duplicate source/member/destination
+identities, file/directory conflicts, unsafe mappings, and payload/index name
+collisions before publishing any entries or provenance. Loads remain transactional.
+Version-1 and version-2 manifests retain their existing loading and restore paths.
+
+Catalog verification dispatches from the loaded entry format and verifies each
+archive's content metadata once. It downloads only the index for browsing, never
+the archive body. Fresh archive uploads retain the existing content-size/checksum
+policy; encrypted storage size is not evidence, and a body download is not a new
+unconditional requirement. Both the archive and final index must pass verification
+before success. Source failures can produce a verified, restorable Incomplete copy.
+
+Restore groups the captured selection by archive identity, downloads each required
+archive once, checks its compressed size/SHA-256, validates the complete gzip stream
+(including CRC and trailer) and tar end blocks, and streams selected regular members
+into private staging. Unselected members are read for structural validation, never
+extracted. Unsafe, duplicate, linked, unindexed, or missing members fail before
+destination placement. Selected sizes/hashes must pass before the existing
+symlink-checked `QSaveFile` atomic replacement path commits bytes. Downloading one
+small file can therefore require the **whole compressed archive**; no permanent
+archive cache or incremental daily-copy behavior is implied. Fresh runs remain full
+copies. Completed earlier files retain the existing partial-restore semantics.
+
+The continuation identity records `payload_format`, defaulting to 2 for older
+journals, so changing the internal seam cannot mix payload formats in an unfinished
+namespace. Archive checkpoint reuse and full interrupted-copy recovery are deferred:
+this internal slice explicitly refuses existing continuation identities rather than
+claiming recoverability it has not implemented. See
+[single-archive acceptance coverage](native/tests/singlearchive.md).
+
 The UI checks the CLI connection asynchronously with
 `filesystem info /my-files --json` at startup, when the window becomes active,
 and every 30 seconds.

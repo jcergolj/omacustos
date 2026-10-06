@@ -135,7 +135,7 @@ bool BackupCatalog::verifyCopy(BackupProvider &provider, const QString &copyFold
         warning(error, QStringLiteral("The remote manifest %1 is unavailable.").arg(remoteManifest));
         return false;
     }
-    if (info.version != 2 || info.application != QStringLiteral("omacustos")
+    if ((info.version != 2 && info.version != 3) || info.application != QStringLiteral("omacustos")
         || (!expectedSetId.isEmpty() && (info.setId != expectedSetId || info.copyId != QFileInfo(root).fileName()))) {
         warning(error, QStringLiteral("The remote manifest %1 is not the expected OmaCustos backup copy.").arg(remoteManifest));
         return false;
@@ -143,6 +143,7 @@ bool BackupCatalog::verifyCopy(BackupProvider &provider, const QString &copyFold
     *copy = {root, remoteManifest, info.computerName, info.setId, info.setName, info.copyId,
         info.status, info.createdAt, {}, {}, info.failedItems};
     RemoteMetadataCache directoryMetadata(provider);
+    QHash<QString, bool> verifiedArchives;
     for (const BackupEntry &entry : entries) {
         // Provider calls remain serial; superseded browsing stops between calls.
         if (cancelled && cancelled()) return false;
@@ -153,11 +154,20 @@ bool BackupCatalog::verifyCopy(BackupProvider &provider, const QString &copyFold
         }
         RemoteFile remoteFile;
         QString providerError;
+        if (!entry.archive.id.isEmpty() && verifiedArchives.contains(entry.archive.id)) {
+            if (verifiedArchives.value(entry.archive.id)) copy->entries.append(entry);
+            else copy->unavailableItems.append(entry.restorePath);
+            continue;
+        }
         const QString parent = QFileInfo(entry.remotePath).path();
         if (directoryMetadata.loadDirectory(parent, &providerError) && cancelled && cancelled()) return false;
         const bool listed = directoryMetadata.lookup(entry.remotePath, &remoteFile);
-        if ((!listed && !provider.inspect(entry.remotePath, &remoteFile, &providerError))
-            || !PayloadMetadataPolicy::matchesAfterTransfer(remoteFile, entry.size, entry.checksum)) {
+        const bool valid = (listed || provider.inspect(entry.remotePath, &remoteFile, &providerError))
+            && PayloadMetadataPolicy::matchesAfterTransfer(remoteFile,
+                entry.archive.id.isEmpty() ? entry.size : entry.archive.size,
+                entry.archive.id.isEmpty() ? entry.checksum : entry.archive.checksum);
+        if (!entry.archive.id.isEmpty()) verifiedArchives.insert(entry.archive.id, valid);
+        if (!valid) {
             copy->unavailableItems.append(entry.restorePath);
             continue;
         }

@@ -60,10 +60,11 @@ bool readObject(const QString &path, QJsonObject *object, QString *error)
 
 BackupContinuation::BackupContinuation(QString directory) : directory(std::move(directory)) {}
 
-bool BackupContinuation::open(const QString &root, const BackupCopyMetadata &identity, QString *error)
+bool BackupContinuation::open(const QString &root, const BackupCopyMetadata &identity, QString *error, int format)
 {
     remoteRoot = root;
     metadata = identity;
+    payloadFormat = format;
     if (directory.isEmpty()) return true;
     QString existingAncestor = QFileInfo(directory).absoluteFilePath();
     while (!QFileInfo::exists(existingAncestor) && existingAncestor != "/")
@@ -87,7 +88,8 @@ bool BackupContinuation::open(const QString &root, const BackupCopyMetadata &ide
     if (!QFileInfo::exists(headerPath)) return saveRoots(error);
     QJsonObject header;
     if (!readObject(headerPath, &header, error)) return false;
-    if (header.value("version").toInt() != 1 || header.value("remote_root").toString() != root
+    if (header.value("version").toInt() != 1 || header.value("payload_format").toInt(2) != payloadFormat
+        || header.value("remote_root").toString() != root
         || header.value("set_id").toString() != identity.setId || header.value("copy_id").toString() != identity.copyId) {
         if (error) *error = QStringLiteral("The backup checkpoint belongs to another copy or has an unsupported version.");
         return false;
@@ -148,7 +150,7 @@ bool BackupContinuation::saveRoots(QString *error)
     QJsonObject mappings;
     for (auto it = roots.cbegin(); it != roots.cend(); ++it) mappings.insert(it.key(), it.value());
     return publish(QDir(directory).filePath("identity.json"), {
-        {"version", 1}, {"remote_root", remoteRoot}, {"set_id", metadata.setId}, {"copy_id", metadata.copyId},
+        {"version", 1}, {"payload_format", payloadFormat}, {"remote_root", remoteRoot}, {"set_id", metadata.setId}, {"copy_id", metadata.copyId},
         {"computer", metadata.computerName}, {"set_name", metadata.setName},
         {"created_at", metadata.createdAt.toString(Qt::ISODateWithMs)}, {"roots", mappings}}, error);
 }

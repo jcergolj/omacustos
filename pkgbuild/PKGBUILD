@@ -7,7 +7,7 @@ pkgdesc='OmaCustos: an Omarchy backup client for Proton Drive'
 arch=('x86_64')
 url='https://github.com/jcergolj/omacustos'
 license=('MIT')
-depends=('qt6-base' 'qt6-declarative')
+depends=('qt6-base' 'qt6-declarative' 'libarchive' 'zlib')
 makedepends=('cmake' 'gcc')
 optdepends=('proton-drive: Proton Drive CLI used for backup storage'
             'xdg-terminal-exec: Open the Proton CLI sign-in in your preferred terminal')

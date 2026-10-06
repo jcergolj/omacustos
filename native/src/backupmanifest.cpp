@@ -1,4 +1,5 @@
 #include "backupmanifest.h"
+#include "backuparchive.h"
 
 #include <QCryptographicHash>
 #include <QFile>
@@ -11,6 +12,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSet>
+#include <QHash>
 
 #include <algorithm>
 #include <cmath>
@@ -53,7 +55,7 @@ bool decode(const QJsonDocument &document, QVector<BackupEntry> *entries, Backup
 {
     const QJsonObject root = document.object();
     const int version = root.value(QStringLiteral("version")).toInt();
-    if (!document.isObject() || (version != 1 && version != 2)) {
+    if (!document.isObject() || (version != 1 && version != 2 && version != 3)) {
         if (error != nullptr) {
             *error = QStringLiteral("The backup manifest is malformed or unsupported.");
         }
@@ -80,7 +82,7 @@ bool decode(const QJsonDocument &document, QVector<BackupEntry> *entries, Backup
         }
     }
 
-    if (version == 2 && (root.value(QStringLiteral("application")).toString() != QStringLiteral("omacustos")
+    if (version >= 2 && (root.value(QStringLiteral("application")).toString() != QStringLiteral("omacustos")
             || root.value(QStringLiteral("computer")).toString().isEmpty()
             || root.value(QStringLiteral("set_id")).toString().isEmpty()
             || root.value(QStringLiteral("copy_id")).toString().isEmpty()
@@ -108,7 +110,7 @@ bool decode(const QJsonDocument &document, QVector<BackupEntry> *entries, Backup
     QStringList failedItems;
     QSet<QString> expectedSet;
     QSet<QString> failedSet;
-    if (version == 2) {
+    if (version >= 2) {
         for (const QJsonValue &item : root.value(QStringLiteral("expected")).toArray()) {
             expectedItems.append(item.toString());
         }
@@ -137,6 +139,33 @@ bool decode(const QJsonDocument &document, QVector<BackupEntry> *entries, Backup
         info->failedItems = failedItems;
         info->issues = issues;
     }
+    QHash<QString, BackupArchive> archives;
+    QSet<QString> archivePaths;
+    const auto invalidArchive = [&] {
+        if (error) *error = QStringLiteral("The archive index contains missing, ambiguous, or unsafe mappings.");
+        return false;
+    };
+    if (version == 3) {
+        if (!root.value("archives").isArray() || root.value("archives").toArray().isEmpty()) return invalidArchive();
+        for (const auto &value : root.value("archives").toArray()) {
+            const QJsonObject object = value.toObject();
+            BackupArchive archive {object.value("id").toString(), object.value("remote").toString(),
+                object.value("size").toInteger(-1), QByteArray::fromHex(object.value("sha256").toString().toLatin1())};
+            const QString name = QFileInfo(archive.remotePath).fileName();
+            if (!value.isObject() || !BackupArchiveIO::safeMember(archive.id)
+                || archive.id.contains('/') || archive.remotePath.isEmpty()
+                || QDir::cleanPath(archive.remotePath) != archive.remotePath
+                || archive.remotePath.split('/').contains("..") || archive.remotePath.contains(QChar::Null)
+                || !object.value("size").isDouble() || archive.size <= 0
+                || object.value("size").toDouble() != double(archive.size)
+                || !validChecksum(object.value("sha256").toString())
+                || name == "manifest.json" || archives.contains(archive.id) || archivePaths.contains(archive.remotePath)) return invalidArchive();
+            archives.insert(archive.id, archive);
+            archivePaths.insert(archive.remotePath);
+        }
+    }
+    QSet<QString> usedArchives, members, sources;
+    QHash<QString, QStringList> archiveMembers;
     QSet<QString> entryPaths;
     QSet<QString> remotePaths;
     for (const QJsonValue &value : manifestEntries) {
@@ -174,7 +203,7 @@ bool decode(const QJsonDocument &document, QVector<BackupEntry> *entries, Backup
             || sizeValue.toDouble() >= 9223372036854775808.0
             || sizeValue.toDouble() != std::floor(sizeValue.toDouble())
             || !validChecksum(checksumText)
-            || (version == 2 && (!expectedSet.contains(restorePath) || failedSet.contains(restorePath)))) {
+            || (version >= 2 && (!expectedSet.contains(restorePath) || failedSet.contains(restorePath)))) {
             if (error != nullptr) {
                 *error = QStringLiteral("The backup manifest contains an unsafe path.");
             }
@@ -182,16 +211,54 @@ bool decode(const QJsonDocument &document, QVector<BackupEntry> *entries, Backup
             return false;
         }
 
-        if (entryPaths.contains(restorePath) || remotePaths.contains(QDir::cleanPath(remote))) {
+        if (entryPaths.contains(restorePath) || (version != 3 && remotePaths.contains(QDir::cleanPath(remote)))) {
             if (error != nullptr) *error = QStringLiteral("The backup manifest is malformed or unsupported.");
             return false;
         }
         entryPaths.insert(restorePath);
         remotePaths.insert(QDir::cleanPath(remote));
-        entries->append({source, remote, static_cast<qint64>(sizeValue.toDouble()), checksum, restorePath});
+        BackupEntry entry {source, remote, static_cast<qint64>(sizeValue.toDouble()), checksum, restorePath};
+        if (version == 3) {
+            const QString id = object.value("archive").toString();
+            const QString member = object.value("member").toString();
+            const QString identity = id + '/' + member;
+            if (!archives.contains(id) || remote != archives.value(id).remotePath
+                || !source.startsWith('/') || source.contains(QChar::Null)
+                || !BackupArchiveIO::safeMember(restorePath)
+                || !BackupArchiveIO::safeMember(member) || members.contains(identity) || sources.contains(source)
+                || archivePaths.contains(QDir(QFileInfo(remote).path()).filePath(member))
+                || archivePaths.contains(QDir(QFileInfo(remote).path()).filePath(restorePath))
+                || QFileInfo(source).fileName() == QFileInfo(remote).fileName()) return invalidArchive();
+            entry.archive = archives.value(id);
+            entry.memberPath = member;
+            usedArchives.insert(id);
+            members.insert(identity);
+            sources.insert(source);
+            archiveMembers[id].append(member);
+        }
+        entries->append(entry);
     }
 
-    if (version == 2) {
+    if (version == 3) {
+        if (usedArchives.size() != archives.size()) return invalidArchive();
+        for (BackupEntry &entry : *entries) entry.archive.members = archiveMembers.value(entry.archive.id);
+        for (const QString &identity : members) {
+            QString parent = QFileInfo(identity).path();
+            while (parent.contains('/')) {
+                if (members.contains(parent)) return invalidArchive();
+                parent = QFileInfo(parent).path();
+            }
+        }
+        // A logical file cannot also be another logical file's directory.
+        for (const QString &path : entryPaths) {
+            QString parent = QFileInfo(path).path();
+            while (parent != "." && !parent.isEmpty()) {
+                if (entryPaths.contains(parent)) return invalidArchive();
+                parent = QFileInfo(parent).path();
+            }
+        }
+    }
+    if (version >= 2) {
         if (root.value(QStringLiteral("status")).toString() == QStringLiteral("complete")
             && !completeState(entryPaths, expectedSet, failedItems, issues)) {
             if (error != nullptr) {
@@ -209,16 +276,25 @@ bool decode(const QJsonDocument &document, QVector<BackupEntry> *entries, Backup
 bool BackupManifest::write(const QString &path, const BackupManifestDraft &draft, QString *error)
 {
     if (error != nullptr) error->clear();
+    const bool archiveFormat = !draft.archives.isEmpty()
+        || std::any_of(draft.verifiedEntries.cbegin(), draft.verifiedEntries.cend(), [](const BackupEntry &entry) {
+            return !entry.archive.id.isEmpty() || !entry.memberPath.isEmpty();
+        });
     QJsonArray entries;
     QSet<QString> entryPaths;
     for (const BackupEntry &entry : draft.verifiedEntries) {
         const QString restorePath = entry.restorePath.isEmpty() ? QFileInfo(entry.sourcePath).fileName() : entry.restorePath;
         entryPaths.insert(restorePath);
-        entries.append(QJsonObject {
+        QJsonObject object {
             {QStringLiteral("source"), entry.sourcePath}, {QStringLiteral("remote"), entry.remotePath},
             {QStringLiteral("restore"), restorePath}, {QStringLiteral("size"), entry.size},
             {QStringLiteral("sha256"), QString::fromLatin1(entry.checksum.toHex())},
-        });
+        };
+        if (archiveFormat) {
+            object.insert("archive", entry.archive.id);
+            object.insert("member", entry.memberPath);
+        }
+        entries.append(object);
     }
     QJsonArray issues;
     for (const BackupIssue &issue : draft.issues) {
@@ -227,9 +303,16 @@ bool BackupManifest::write(const QString &path, const BackupManifestDraft &draft
     }
     const BackupCopyMetadata &metadata = draft.metadata;
     QJsonObject root {
-        {QStringLiteral("version"), metadata.copyId.isEmpty() ? 1 : 2},
+        {QStringLiteral("version"), archiveFormat ? 3 : metadata.copyId.isEmpty() ? 1 : 2},
         {QStringLiteral("entries"), entries}, {QStringLiteral("issues"), issues},
     };
+    if (archiveFormat) {
+        QJsonArray archives;
+        for (const auto &archive : draft.archives) archives.append(QJsonObject {
+            {"id", archive.id}, {"remote", archive.remotePath}, {"size", archive.size},
+            {"sha256", QString::fromLatin1(archive.checksum.toHex())}});
+        root.insert("archives", archives);
+    }
     if (!metadata.copyId.isEmpty()) {
         const QSet<QString> expected(draft.expectedItems.cbegin(), draft.expectedItems.cend());
         root.insert(QStringLiteral("application"), QStringLiteral("omacustos"));

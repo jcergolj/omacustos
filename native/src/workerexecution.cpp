@@ -228,6 +228,7 @@ int runBackupWorker(const QString &configuredPath, BackupPrerequisiteProbe &prer
         runner.setStopRequested(stopped);
         BackupOptions options;
         options.freshCopy = true;
+        options.singleArchive = qEnvironmentVariable("OMACUSTOS_INTERNAL_SINGLE_ARCHIVE") == "1";
         options.stagingDirectory = setIterator->stagingDirectory;
         options.stagingBudget = setIterator->stagingBudget;
         options.continuationDirectory = QDir(stateDirectory).filePath(QStringLiteral("continuations/")

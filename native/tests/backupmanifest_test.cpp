@@ -33,6 +33,8 @@ private slots:
     void rejectsTamperedRestore();
     void preservesExistingDestinationWhenRestoreFails();
     void rejectsRestoreThroughDestinationSymlink();
+    void validatesArchiveIndexTransactionally_data();
+    void validatesArchiveIndexTransactionally();
 };
 
 namespace {
@@ -48,6 +50,90 @@ BackupManifestDraft completeDraft()
     return draft;
 }
 
+}
+
+void BackupManifestTest::validatesArchiveIndexTransactionally_data()
+{
+    QTest::addColumn<QString>("fault");
+    for (const QString &fault : {"missing archive", "unknown reference", "duplicate archive", "duplicate location",
+             "duplicate restore", "duplicate source", "duplicate member", "unsafe member", "absolute member",
+             "empty member", "manifest collision", "source collision", "member collision", "restore collision",
+             "missing provenance", "bad archive size", "bad archive hash", "wrong remote", "unused archive", "restore parent collision"})
+        QTest::newRow(qPrintable(fault)) << fault;
+}
+
+void BackupManifestTest::validatesArchiveIndexTransactionally()
+{
+    QFETCH(QString, fault);
+    BackupManifestDraft draft = completeDraft();
+    draft.archives = {{"payload", "copy/payload.tar.gz", 123, QCryptographicHash::hash("archive", QCryptographicHash::Sha256)}};
+    auto &entry = draft.verifiedEntries.first();
+    entry.archive = draft.archives.first();
+    entry.remotePath = entry.archive.remotePath;
+    entry.memberPath = "notes.txt";
+    QTemporaryDir directory;
+    const QString path = directory.filePath("manifest.json");
+    QString error;
+    QVERIFY2(BackupManifest::write(path, draft, &error), qPrintable(error));
+    BackupManifestDraft missingTable = draft;
+    missingTable.archives.clear();
+    QVERIFY(!BackupManifest::write(path, missingTable, &error)); // must not silently downgrade to v2
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    QJsonObject root = QJsonDocument::fromJson(file.readAll()).object();
+    file.close();
+    QJsonArray archives = root.value("archives").toArray();
+    QJsonArray entries = root.value("entries").toArray();
+    QJsonObject archive = archives.first().toObject();
+    QJsonObject item = entries.first().toObject();
+    if (fault == "missing archive") archives = {};
+    if (fault == "unknown reference") item.insert("archive", "missing");
+    if (fault == "duplicate archive") archives.append(archive);
+    if (fault == "duplicate location" || fault == "unused archive") {
+        QJsonObject extra = archive;
+        extra.insert("id", "other");
+        if (fault == "unused archive") extra.insert("remote", "copy/other.tar.gz");
+        archives.append(extra);
+    }
+    if (fault == "unsafe member") item.insert("member", "../outside");
+    if (fault == "absolute member") item.insert("member", "/outside");
+    if (fault == "empty member") item.insert("member", "");
+    if (fault == "manifest collision") { archive.insert("remote", "copy/manifest.json"); item.insert("remote", "copy/manifest.json"); }
+    if (fault == "source collision") item.insert("source", "/source/payload.tar.gz");
+    if (fault == "member collision") item.insert("member", "payload.tar.gz");
+    if (fault == "restore collision") { item.insert("restore", "payload.tar.gz"); root.insert("expected", QJsonArray {"payload.tar.gz"}); }
+    if (fault == "missing provenance") root.remove("copy_id");
+    if (fault == "bad archive size") archive.insert("size", 1.5);
+    if (fault == "bad archive hash") archive.insert("sha256", "invalid");
+    if (fault == "wrong remote") item.insert("remote", "copy/different.tar.gz");
+    if (fault.startsWith("duplicate ") && fault != "duplicate archive" && fault != "duplicate location") {
+        QJsonObject extra = item;
+        if (fault != "duplicate restore") extra.insert("restore", "other.txt");
+        if (fault != "duplicate source") extra.insert("source", "/source/other.txt");
+        if (fault != "duplicate member") extra.insert("member", "other.txt");
+        entries.append(extra);
+        if (fault != "duplicate restore") root.insert("expected", QJsonArray {"notes.txt", "other.txt"});
+    }
+    if (fault == "restore parent collision") {
+        QJsonObject extra = item;
+        extra.insert("source", "/source/other.txt"); extra.insert("member", "other.txt"); extra.insert("restore", "notes.txt/child");
+        entries.append(extra);
+        root.insert("expected", QJsonArray {"notes.txt", "notes.txt/child"});
+    }
+    entries[0] = item;
+    if (!archives.isEmpty()) archives[0] = archive;
+    root.insert("archives", archives);
+    root.insert("entries", entries);
+    QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    file.write(QJsonDocument(root).toJson());
+    file.close();
+    QVector<BackupEntry> loaded = draft.verifiedEntries;
+    BackupManifestInfo info;
+    info.copyId = "stale";
+    QVERIFY(!BackupManifest::load(path, &loaded, &info, &error));
+    QVERIFY(!error.isEmpty());
+    QVERIFY(loaded.isEmpty());
+    QVERIFY(info.copyId.isEmpty());
 }
 
 void BackupManifestTest::constructsReadableCopyState_data()

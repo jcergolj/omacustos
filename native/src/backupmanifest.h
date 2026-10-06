@@ -8,12 +8,22 @@
 #include <QStringList>
 #include <QVector>
 
+struct BackupArchive {
+    QString id;
+    QString remotePath;
+    qint64 size = 0;
+    QByteArray checksum;
+    QStringList members; // Derived from the validated index, never independently persisted.
+};
+
 struct BackupEntry {
     QString sourcePath;
     QString remotePath;
     qint64 size = 0;
     QByteArray checksum;
     QString restorePath;
+    BackupArchive archive;
+    QString memberPath;
 };
 
 struct BackupCopyMetadata {
@@ -32,6 +42,7 @@ struct BackupManifestDraft {
     QStringList expectedItems;
     QStringList failedItems;
     QVector<BackupIssue> issues;
+    QVector<BackupArchive> archives;
 };
 
 struct BackupManifestInfo {

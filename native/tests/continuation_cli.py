@@ -11,6 +11,9 @@ import time
 root = Path(os.environ["FIXTURE_REMOTE"])
 args = sys.argv[1:]
 command = args[1]
+if os.environ.get("FIXTURE_COMMAND_LOG"):
+    with open(os.environ["FIXTURE_COMMAND_LOG"], "a") as log:
+        log.write(json.dumps({"command": command, "args": args}) + "\n")
 
 
 def remote(path):
@@ -18,6 +21,8 @@ def remote(path):
 
 
 def metadata(path):
+    if path.name.endswith(".tar.gz") and os.environ.get("FIXTURE_ARCHIVE_STORAGE_SIZE_ONLY"):
+        return {"type": "file", "totalStorageSize": path.stat().st_size}
     result = {"type": "file", "size": path.stat().st_size}
     if os.environ.get("FIXTURE_SIZE_ONLY") != "yes":
         with path.open("rb") as contents:
@@ -34,9 +39,15 @@ def transfer(source, destination):
     if source.name == os.environ.get("FIXTURE_FAIL_ITEM"):
         raise RuntimeError("Connection interrupted")
     shutil.copyfile(source, destination)
+    if source.name.endswith(".tar.gz") and os.environ.get("FIXTURE_REPLACE_SOURCE"):
+        changed = Path(os.environ["FIXTURE_REPLACE_SOURCE"])
+        changed.unlink()
+        changed.write_bytes(b"changed pathname after preparation")
     with open(os.environ["FIXTURE_LOG"], "a") as log:
         log.write(json.dumps({"source": str(source), "remote": str(destination), "size": source.stat().st_size}) + "\n")
     if source.name == os.environ.get("FIXTURE_CORRUPT_ITEM"):
+        destination.write_bytes(b"!" * source.stat().st_size)
+    if source.name.endswith(".tar.gz") and os.environ.get("FIXTURE_CORRUPT_ARCHIVE"):
         destination.write_bytes(b"!" * source.stat().st_size)
     if source.name == os.environ.get("FIXTURE_BLOCK_ITEM"):
         Path(os.environ["FIXTURE_MARKER"]).write_text(str(destination))
