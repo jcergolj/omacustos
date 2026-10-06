@@ -105,13 +105,8 @@ private:
         int selectedIndex = -1;
         QString search;
     };
-    struct RestoreResult {
-        int restoredCount = 0;
-        QString error;
-        bool success = false;
-    };
     QFutureWatcher<BrowseResult> watcher;
-    QFutureWatcher<RestoreResult> restoreWatcher;
+    QFutureWatcher<BackupRestoreResult> restoreWatcher;
     // Provider/runner instances are not assumed to support simultaneous calls.
     // Navigation is immediate; metadata requests queue behind an active transfer.
     QThreadPool operations;

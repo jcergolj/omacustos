@@ -82,8 +82,8 @@ BackupRestoreController::BackupRestoreController(BackupEngine &engine, BackupPro
             emit statusChanged(result.error.isEmpty() ? status : status + QStringLiteral(" ") + result.error);
         }
     });
-    connect(&restoreWatcher, &QFutureWatcher<RestoreResult>::finished, this, [this] {
-        const RestoreResult result = restoreWatcher.result();
+    connect(&restoreWatcher, &QFutureWatcher<BackupRestoreResult>::finished, this, [this] {
+        const BackupRestoreResult result = restoreWatcher.result();
         const QString completedFolder = transferBackupFolder;
         const QString completedSet = transferBackupId;
         const QString completedCopy = transferCopyPath;
@@ -457,34 +457,23 @@ void BackupRestoreController::startRestore(const QVector<BackupEntry> &entries, 
     transferCopyPath = currentCopyPath();
     transferTotal = entries.size();
     transferred = 0;
+    const BackupRestoreRequest request {entries, destination, transferCopyPath};
     emit restoreProgressChanged();
     emit busyChanged();
-    restoreWatcher.setFuture(QtConcurrent::run(&operations, [this, enginePointer, providerPointer, entries, destination] {
-        RestoreResult result;
-        result.success = true;
+    restoreWatcher.setFuture(QtConcurrent::run(&operations, [this, enginePointer, providerPointer, request] {
         QElapsedTimer progressTimer;
         progressTimer.start();
-        for (const BackupEntry &entry : entries) {
-            if (!enginePointer->restoreFile(entry, destination, *providerPointer, &result.error)) {
-                result.success = false;
-                if (result.error.isEmpty()) {
-                    result.error = QStringLiteral("The selected restore file could not be restored.");
-                }
-                return result;
-            }
-            ++result.restoredCount;
-            const int count = result.restoredCount;
+        return enginePointer->restoreFiles(request, *providerPointer, [&](int count) {
             // Bound GUI notification traffic while still reporting each slow
             // file's completion, and always publish the first and last file.
-            if (count == 1 || progressTimer.elapsed() >= 100 || count == entries.size()) {
+            if (count == 1 || progressTimer.elapsed() >= 100 || count == request.entries.size()) {
                 progressTimer.restart();
                 QMetaObject::invokeMethod(this, [this, count] {
                     transferred = count;
                     emit restoreProgressChanged();
                 }, Qt::QueuedConnection);
             }
-        }
-        return result;
+        });
     }));
 }
 

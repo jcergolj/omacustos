@@ -444,6 +444,11 @@ copy discovery/verification can wait behind an active transfer. Superseded brows
 results, including errors, cannot publish into the current context. Successful
 completion only closes the displayed panel if its backup and copy still match.
 File-count progress remains available above both the dashboard and editor.
+The controller submits the complete captured selection, destination, and copy path
+to `BackupEngine::restoreFiles` once per operation. The engine owns execution and
+reports successfully placed files and the final partial/success outcome; the
+controller bounds GUI progress notifications. Single-file engine callers delegate
+to this same operation, sharing staging, verification, and atomic placement.
 Superseded verification is cancelled between provider calls, including before a
 queued task starts and after manifest download. An already-running provider call
 finishes under its normal timeout before the latest browse request proceeds.

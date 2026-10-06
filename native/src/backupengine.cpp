@@ -685,6 +685,35 @@ bool BackupEngine::backup(const QStringList &sourceDirectories, const QString &r
 
 bool BackupEngine::restoreFile(const BackupEntry &entry, const QString &destinationDirectory, BackupProvider &provider, QString *error) const
 {
+    const BackupRestoreResult result = restoreFiles({{entry}, destinationDirectory, {}}, provider);
+    if (error != nullptr) *error = result.error;
+    return result.success;
+}
+
+BackupRestoreResult BackupEngine::restoreFiles(const BackupRestoreRequest &request, BackupProvider &provider,
+    const std::function<void(int)> &reportProgress) const
+{
+    BackupRestoreResult result;
+    if (request.entries.isEmpty()) {
+        result.error = QStringLiteral("At least one restore file must be selected.");
+        return result;
+    }
+    for (const BackupEntry &entry : request.entries) {
+        if (!restoreEntry(entry, request.destinationDirectory, provider, &result.error)) {
+            if (result.error.isEmpty()) {
+                result.error = QStringLiteral("The selected restore file could not be restored.");
+            }
+            return result;
+        }
+        ++result.restoredCount;
+        if (reportProgress) reportProgress(result.restoredCount);
+    }
+    result.success = true;
+    return result;
+}
+
+bool BackupEngine::restoreEntry(const BackupEntry &entry, const QString &destinationDirectory, BackupProvider &provider, QString *error) const
+{
     if (error != nullptr) {
         error->clear();
     }
