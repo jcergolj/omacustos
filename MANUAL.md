@@ -81,8 +81,8 @@ skipped, and missing paths before running.
 Preview shows separate **Included**, **Excluded**, **Skipped**, and **Missing**
 sections with counts and an explanation when a section is empty. Scroll each
 nonempty list to inspect its full paths; paths wrap and can be selected and copied.
-Preview also shows the total size of included files across the selected files and
-folders. Overlapping sources count each file once; excluded, skipped, and missing
+The **Included** heading also shows the total size of files to back up across the
+selected files and folders. Overlapping sources count each file once; excluded, skipped, and missing
 paths do not contribute to the total. This is the source data size at preview time.
 Only included files will be attempted. Preview does not save settings, start a
 backup, or enable scheduling; press **Preview** again after editing the selection.

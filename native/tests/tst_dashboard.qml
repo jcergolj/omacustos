@@ -1378,13 +1378,12 @@ TestCase {
         mouseClick(previewButton)
         compare(backupSetController.previewCount, 1)
         tryCompare(control("backupPreview"), "visible", true)
-        compare(control("previewTotalSize").visible, true)
-        compare(control("previewTotalSize").text, "Total size to back up: " + data.size)
         for (const key of ["included", "excluded", "skipped", "missing"]) {
             const paths = data[key]
             const group = control("previewGroup-" + key)
             compare(group.visible, true)
-            compare(group.title, key[0].toUpperCase() + key.slice(1) + " (" + paths.length + ")")
+            const heading = key[0].toUpperCase() + key.slice(1) + " (" + paths.length + ")"
+            compare(group.title, key === "included" ? heading + " — " + data.size : heading)
             const list = control("previewPaths-" + key)
             compare(list.count, paths.length)
             compare(list.visible, paths.length > 0)

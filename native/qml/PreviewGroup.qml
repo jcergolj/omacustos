@@ -9,8 +9,11 @@ GroupBox {
     required property string heading
     required property string emptyText
     required property var paths
+    property string summary: ""
     objectName: "previewGroup-" + key
-    title: qsTr("%1 (%2)").arg(heading).arg(paths.length)
+    title: summary.length > 0
+        ? qsTr("%1 (%2) — %3").arg(heading).arg(paths.length).arg(summary)
+        : qsTr("%1 (%2)").arg(heading).arg(paths.length)
     Layout.fillWidth: true
 
     ColumnLayout {
