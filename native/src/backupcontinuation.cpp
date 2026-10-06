@@ -1,4 +1,5 @@
 #include "backupcontinuation.h"
+#include "backuparchive.h"
 
 #include <QDir>
 #include <QFile>
@@ -61,6 +62,20 @@ bool readObject(const QString &path, QJsonObject *object, QString *error)
 
 BackupContinuation::BackupContinuation(QString directory) : directory(std::move(directory)) {}
 
+int BackupContinuation::recordedFormat(const QString &directory, QString *error)
+{
+    const QString path = QDir(directory).filePath("identity.json");
+    if (!QFileInfo::exists(path)) return 0;
+    QJsonObject header;
+    if (!readObject(path, &header, error)) return -1;
+    const int format = header.value("payload_format").toInt(2);
+    if (header.value("version").toInt() != 1 || (format != 2 && format != 3)) {
+        if (error) *error = QStringLiteral("The backup checkpoint has an unsupported format.");
+        return -1;
+    }
+    return format;
+}
+
 bool BackupContinuation::open(const QString &root, const BackupCopyMetadata &identity, QString *error, int format)
 {
     remoteRoot = root;
@@ -118,6 +133,30 @@ bool BackupContinuation::open(const QString &root, const BackupCopyMetadata &ide
             if (error) *error = QStringLiteral("The backup checkpoint contains an invalid batch.");
             return false;
         }
+        QHash<QString, BackupArchive> archives;
+        for (const auto &value : object.value("archives").toArray()) {
+            const auto item = value.toObject();
+            BackupArchive archive {item.value("id").toString(), item.value("remote").toString(),
+                item.value("size").toInteger(-1), QByteArray::fromHex(item.value("sha256").toString().toLatin1())};
+            QSet<QString> members;
+            for (const auto &member : item.value("members").toArray()) {
+                const QString path = member.toString();
+                if (!BackupArchiveIO::safeMember(path) || members.contains(path)) {
+                    if (error) *error = QStringLiteral("The backup checkpoint contains invalid archive members.");
+                    return false;
+                }
+                members.insert(path);
+                archive.members.append(path);
+            }
+            if (payloadFormat != 3 || !BackupArchiveIO::safeMember(archive.id) || archive.id.contains('/')
+                || archive.remotePath != QDir(root).filePath(".omacustos-archives/" + archive.id)
+                || archive.size < 0 || archive.checksum.size() != 32 || members.isEmpty() || archives.contains(archive.id)) {
+                if (error) *error = QStringLiteral("The backup checkpoint contains an invalid archive identity.");
+                return false;
+            }
+            archives.insert(archive.id, archive);
+        }
+        QHash<QString, QSet<QString>> recordedMembers;
         for (const auto &value : object.value("entries").toArray()) {
             const auto item = value.toObject();
             BackupEntry entry {item.value("source").toString(), item.value("remote").toString(),
@@ -132,8 +171,25 @@ bool BackupContinuation::open(const QString &root, const BackupCopyMetadata &ide
                 if (error) *error = QStringLiteral("The backup checkpoint contains an invalid payload identity.");
                 return false;
             }
+            if (payloadFormat == 3) {
+                entry.archive = archives.value(item.value("archive_id").toString());
+                entry.memberPath = item.value("member").toString();
+                if (entry.archive.id.isEmpty() || entry.remotePath != entry.archive.remotePath
+                    || !entry.archive.members.contains(entry.memberPath)
+                    || recordedMembers[entry.archive.id].contains(entry.memberPath)) {
+                    if (error) *error = QStringLiteral("The backup checkpoint contains an invalid archive member identity.");
+                    return false;
+                }
+                recordedMembers[entry.archive.id].insert(entry.memberPath);
+            }
             mappings.insert(entry.sourcePath, entry);
             if (object.value("verified").toBool(true)) verified.insert(entry.sourcePath, entry);
+        }
+        for (const auto &archive : archives) {
+            if (recordedMembers.value(archive.id).size() != archive.members.size()) {
+                if (error) *error = QStringLiteral("The backup checkpoint contains an incomplete archive group.");
+                return false;
+            }
         }
         bool valid = false;
         const int index = batch.mid(6, batch.size() - 11).toInt(&valid);

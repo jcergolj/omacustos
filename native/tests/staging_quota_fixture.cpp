@@ -26,12 +26,35 @@ extern "C" ssize_t write(int fd, const void *buffer, size_t count)
     const char *totalCapacity = std::getenv("FIXTURE_TOTAL_STAGING_CAPACITY");
     const char *peakLog = std::getenv("FIXTURE_STAGING_PEAK_LOG");
     const char *archiveIO = std::getenv("FIXTURE_ARCHIVE_WRITE_EIO_AFTER");
-    if (quota || checkpoint || capacity || archiveQuota || mutate || totalCapacity || peakLog || archiveIO) {
+    const char *block = std::getenv("FIXTURE_BLOCK_WORKER_PHASE");
+    const char *reuseQuota = std::getenv("FIXTURE_REUSE_DOWNLOAD_QUOTA");
+    if (quota || checkpoint || capacity || archiveQuota || mutate || totalCapacity || peakLog || archiveIO || block || reuseQuota) {
         char link[64], path[4096];
         std::snprintf(link, sizeof(link), "/proc/self/fd/%d", fd);
         const ssize_t length = ::readlink(link, path, sizeof(path) - 1);
         if (length >= 0) {
             path[length] = 0;
+            if (reuseQuota && std::strstr(path, "/attempt-") && std::strstr(path, "/.omacustos-download-")
+                && std::strstr(path, ".tar.gz")) {
+                errno = EDQUOT;
+                return -1;
+            }
+            if (block) {
+                const std::string_view bytes(static_cast<const char *>(buffer), count);
+                const bool preparation = std::strcmp(block, "preparation") == 0
+                    && std::strstr(path, "/attempt-") && std::strstr(path, "/payloads/");
+                const bool compression = std::strcmp(block, "compression") == 0
+                    && std::strstr(path, "/attempt-") && std::strstr(path, ".tar.gz");
+                const bool checkpointing = std::strcmp(block, "checkpoint") == 0
+                    && std::strstr(path, "/continuations/") && bytes.find("\"verified\":true") != std::string_view::npos;
+                static int boundaries = 0;
+                if ((preparation || compression || checkpointing) && ++boundaries == 2) {
+                    const char *marker = std::getenv("FIXTURE_MARKER");
+                    const int file = ::open(marker, O_WRONLY | O_CREAT, 0600);
+                    if (file >= 0) { realWrite(file, path, length); ::close(file); }
+                    while (true) ::usleep(50000);
+                }
+            }
             if (archiveIO && std::strstr(path, "/attempt-") && std::strstr(path, ".tar.gz")) {
                 static std::string previousArchive;
                 static int archives = 0;

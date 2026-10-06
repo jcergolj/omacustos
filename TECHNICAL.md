@@ -224,10 +224,27 @@ copies. Completed earlier files retain the existing partial-restore semantics.
 
 The continuation identity records `payload_format`, defaulting to 2 for older
 journals, so changing the internal seam cannot mix payload formats in an unfinished
-namespace. Archive checkpoint reuse and full interrupted-copy recovery are deferred:
-this internal slice explicitly refuses existing continuation identities rather than
-claiming recoverability it has not implemented. See
-[single-archive acceptance coverage](native/tests/singlearchive.md).
+namespace. A replacement worker follows the recorded format even when its internal
+archive flags differ. Archive journals preserve whole archive identities, compressed
+size/SHA-256, source/member mappings, and prepared versus verified state. Each atomic
+batch record contains only the current group, never a rewritten checkpoint history.
+Verified checkpoints are committed before releasing snapshots and compressed bytes.
+
+Pause, worker death, transfer/authentication failures, and staging Waiting preserve
+the exact unfinished copy namespace. Resume re-hashes every selected source in a
+verified group and validates the whole remote archive before reusing it. Size-only
+providers require a download and SHA-256 check on the selected staging disk; this
+download respects the staging budget, with the established whole oversized-file
+exception. Actual download quota failures enter actionable Waiting as well. Prepared
+records survive upload-before-checkpoint crashes but do not count as verified work
+or authorize reuse; this slice retries their unfinished content from source snapshots.
+Prepared-upload reconciliation and source/remote-change reconciliation follow in #51.
+
+Controls are checked during snapshots, compression callbacks, verification,
+checkpoint publication, finalization, and owned CLI execution. Paused work is not
+scheduler-ready; Cancel is terminal and a subsequent request gets a new namespace.
+Interrupted attempts never authorize retention. See
+[archive recovery acceptance coverage](native/tests/archiverecovery.md).
 
 The UI checks the CLI connection asynchronously with
 `filesystem info /my-files --json` at startup, when the window becomes active,

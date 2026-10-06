@@ -68,7 +68,7 @@ bool pack(const QString &tree, const QString &remoteRoot, const QString &output,
     QVector<BackupEntry> *entries, QString *error, const std::function<bool()> &stopped)
 {
     struct archive *writer = archive_write_new();
-    struct Output { QFile file; qint64 limit; } sink {QFile(output), maxBytes};
+    struct Output { QFile file; qint64 limit; std::function<bool()> stopped; } sink {QFile(output), maxBytes, stopped};
     const auto release = qScopeGuard([&] { archive_write_free(writer); });
     const auto fail = [&] {
         const int code = archive_errno(writer) ? archive_errno(writer) : errno;
@@ -83,6 +83,10 @@ bool pack(const QString &tree, const QString &remoteRoot, const QString &output,
     }
     const auto write = [](struct archive *archive, void *context, const void *buffer, size_t count) -> la_ssize_t {
         auto &output = *static_cast<Output *>(context);
+        if (output.stopped && output.stopped()) {
+            archive_set_error(archive, ECANCELED, "Archive preparation was stopped");
+            return -1;
+        }
         if (qint64(count) > output.limit - output.file.pos()) {
             archive_set_error(archive, ENOSPC, "Archive exceeded its staging allowance");
             return -1;
@@ -96,6 +100,10 @@ bool pack(const QString &tree, const QString &remoteRoot, const QString &output,
     };
     const auto close = [](struct archive *archive, void *context) -> int {
         auto &output = *static_cast<Output *>(context);
+        if (output.stopped && output.stopped()) {
+            archive_set_error(archive, ECANCELED, "Archive preparation was stopped");
+            return ARCHIVE_FATAL;
+        }
         if (!output.file.flush()) {
             archive_set_error(archive, errno ? errno : EIO, "Archive staging flush failed: %s", output.file.errorString().toUtf8().constData());
             return ARCHIVE_FATAL;

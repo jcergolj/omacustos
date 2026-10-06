@@ -120,10 +120,6 @@ bool BackupEngine::backupBatches(const QStringList &sources, const QString &remo
     if (options.stagingReady && !options.stagingReady(staging.root(), error)) { outcome.interrupted = true; return false; }
     const bool recovering = !options.continuationDirectory.isEmpty()
         && QFileInfo::exists(QDir(options.continuationDirectory).filePath("identity.json"));
-    // Archive recovery is the dependent #50 slice. Never reinterpret
-    // an existing individual-file attempt as an archive copy.
-    if (archiveMode && recovering)
-        return fail(QStringLiteral("The internal archive path requires a fresh attempt; archive recovery follows in #50."));
     BackupContinuation continuation(options.continuationDirectory);
     if (!continuation.open(root, metadata, error, archiveMode ? 3 : 2)) {
         return checkpointFailed();
@@ -212,7 +208,7 @@ bool BackupEngine::backupBatches(const QStringList &sources, const QString &remo
     // Keep historical mappings reserved, including deleted sources. New paths
     // must not overwrite another source's previous identity during reconciliation.
     for (const BackupEntry &entry : continuation.mappings) {
-        reserveFile(entry.remotePath.mid(root.size() + 1), assigned, remoteDirectories);
+        reserveFile(archiveMode ? entry.memberPath : entry.remotePath.mid(root.size() + 1), assigned, remoteDirectories);
         reserveFile(entry.restorePath, restoreFiles, restoreDirectories);
     }
     provider.beginBackupOperation();
@@ -241,7 +237,9 @@ bool BackupEngine::backupBatches(const QStringList &sources, const QString &remo
         progress.verifiedFiles = outcome.verifiedFiles;
         progress.verifiedBytes = outcome.verifiedBytes;
     };
-    const auto matchesRemote = [&](const BackupEntry &entry, QString *reason) {
+    bool reuseStorageFailure = false;
+    const auto matchesRemote = [&](const BackupEntry &entry, QString *reason, bool oversizedArchive = false) {
+        reuseStorageFailure = false;
         RemoteFile remote;
         if (!provider.inspect(entry.remotePath, &remote, reason) || remote.size != entry.size) return false;
         if (!remote.checksum.isEmpty()) return PayloadMetadataPolicy::matchesForReuse(remote, entry.size, entry.checksum);
@@ -249,7 +247,19 @@ bool BackupEngine::backupBatches(const QStringList &sources, const QString &remo
         // CLI exposes no checksum; never mistake same-size content for identity.
         const QString check = QDir(staging.path()).filePath("reuse-check");
         const auto remove = qScopeGuard([&] { QFile::remove(check); });
-        if (!staging.hasSpace(entry.size, reason) || !provider.download(entry.remotePath, check, reason)) return false;
+        if (archiveMode && entry.size > options.stagingBudget && !oversizedArchive) {
+            reuseStorageFailure = true;
+            if (reason) *reason = QStringLiteral("Waiting: archive verification exceeds the staging budget. Increase the allowance before Resume.");
+            return false;
+        }
+        if (!staging.hasSpace(entry.size, reason)) { reuseStorageFailure = true; return false; }
+        if (stopped()) return false;
+        if (!provider.download(entry.remotePath, check, reason)) {
+            const QString message = reason ? reason->toLower() : QString();
+            reuseStorageFailure = message.contains("quota") || message.contains("no space left") || message.contains("read-only file system");
+            if (reuseStorageFailure && reason) *reason += QStringLiteral(" Free space/quota or choose another staging disk before Resume.");
+            return false;
+        }
         QByteArray checksum;
         qint64 size;
         return hashFile(check, &checksum, &size, options.stopped) && size == entry.size && checksum == entry.checksum;
@@ -285,17 +295,21 @@ bool BackupEngine::backupBatches(const QStringList &sources, const QString &remo
                 entry.remotePath = archive.remotePath;
             }
             report("checkpointing");
+            if (stopped()) return fail(QStringLiteral("The backup was stopped; its checkpoint is preserved."));
             if (!continuation.checkpoint(batch, error, false)) return checkpointFailed();
             report("uploading", sources.first(), archive.size);
+            if (stopped()) return fail(QStringLiteral("The backup was stopped; its checkpoint is preserved."));
             if (!provider.ensureDirectory(QFileInfo(archive.remotePath).path(), error)
                 || !provider.upload(packed, archive.remotePath, error)) return fail(error ? *error : QStringLiteral("Archive upload failed."));
             if (stopped()) return fail(QStringLiteral("The backup was stopped."));
             report("verifying", sources.first(), archive.size);
+            if (stopped()) return fail(QStringLiteral("The backup was stopped; its checkpoint is preserved."));
             RemoteFile remote;
             if (!provider.inspect(archive.remotePath, &remote, error)
                 || !PayloadMetadataPolicy::matchesAfterTransfer(remote, archive.size, archive.checksum))
                 return fail(QStringLiteral("Remote archive verification failed."));
             report("checkpointing");
+            if (stopped()) return fail(QStringLiteral("The backup was stopped; its checkpoint is preserved."));
             if (!continuation.checkpoint(batch, error)) return checkpointFailed();
             draft.archives.append(archive);
             for (BackupEntry &entry : batch) {
@@ -396,6 +410,48 @@ bool BackupEngine::backupBatches(const QStringList &sources, const QString &remo
         return true;
     };
 
+    // Reuse only whole, durably verified groups. Prepared groups preserve
+    // identities but cannot authorize reuse, even if an upload reached remote.
+    QSet<QString> reusableSources;
+    if (archiveMode && recovering) {
+        const QSet<QString> selected(orderedFiles.cbegin(), orderedFiles.cend());
+        QMap<QString, QVector<BackupEntry>> groups;
+        for (const auto &entry : continuation.verified) groups[entry.archive.id].append(entry);
+        for (const auto &group : groups) {
+            const BackupArchive archive = group.first().archive;
+            bool valid = group.size() == archive.members.size();
+            for (const auto &entry : group) {
+                report("checking", entry.sourcePath, entry.size);
+                QByteArray checksum;
+                qint64 size;
+                if (!selected.contains(entry.sourcePath)
+                    || !hashFile(entry.sourcePath, &checksum, &size, options.stopped)
+                    || size != entry.size || checksum != entry.checksum) valid = false;
+                if (stopped()) return fail(QStringLiteral("The backup was stopped; its checkpoint is preserved."));
+            }
+            if (!valid) continue;
+            const BackupEntry object {QString(), archive.remotePath, archive.size, archive.checksum};
+            report("verifying", archive.remotePath, archive.size);
+            providerError.clear();
+            const bool oversizedArchive = group.size() == 1
+                && group.first().size + conservativeArchiveAllowance(group.first().size, 1) > options.stagingBudget;
+            if (!matchesRemote(object, &providerError, oversizedArchive)) {
+                if (stopped()) return fail(QStringLiteral("The backup was stopped; its checkpoint is preserved."));
+                if (!providerError.isEmpty()) return fail(providerError, reuseStorageFailure);
+                continue;
+            }
+            if (stopped()) return fail(QStringLiteral("The backup was stopped; its checkpoint is preserved."));
+            draft.archives.append(archive);
+            for (const auto &entry : group) {
+                reusableSources.insert(entry.sourcePath);
+                recordVerified(entry);
+                ++progress.processedFiles;
+                progress.processedBytes += entry.size;
+            }
+            report("checking");
+        }
+    }
+
     for (const QString &sourcePath : orderedFiles) {
         if (stopped()) return fail(QStringLiteral("The backup was stopped; its checkpoint is preserved."));
         const QString sourceIdentity = sourceOwnership.value(sourcePath);
@@ -408,7 +464,7 @@ bool BackupEngine::backupBatches(const QStringList &sources, const QString &remo
         const auto mapping = continuation.mappings.constFind(sourcePath);
         if (mapping != continuation.mappings.cend()) {
             mapped = mapping->restorePath;
-            remoteMapped = mapping->remotePath.mid(root.size() + 1);
+            remoteMapped = archiveMode ? mapping->memberPath : mapping->remotePath.mid(root.size() + 1);
         }
         else {
             const QString relative = QFileInfo(sourceIdentity).isDir() ? QDir(sourceIdentity).relativeFilePath(sourcePath) : QFileInfo(sourcePath).fileName();
@@ -418,6 +474,7 @@ bool BackupEngine::backupBatches(const QStringList &sources, const QString &remo
             mapped = allocateFilePath(mapped, restoreFiles, restoreDirectories);
         }
         draft.expectedItems.append(mapped);
+        if (reusableSources.contains(sourcePath)) continue;
         qint64 plannedSize = qMax(qint64(0), QFileInfo(sourcePath).size());
         bool oversizedFile = false;
         if (options.boundedArchives) {
@@ -454,7 +511,7 @@ bool BackupEngine::backupBatches(const QStringList &sources, const QString &remo
             oversizedBatch = oversizedFile;
             if (oversizedFile) report("preparing-oversized-file", sourcePath, singleWorking);
         }
-        if (previous != continuation.verified.cend()) {
+        if (!archiveMode && previous != continuation.verified.cend()) {
             report("checking", sourcePath, plannedSize);
             QByteArray checksum;
             qint64 size;
@@ -474,7 +531,7 @@ bool BackupEngine::backupBatches(const QStringList &sources, const QString &remo
             }
             if (stopped()) return fail(QStringLiteral("The backup was stopped; its checkpoint is preserved."));
         }
-        if (recovering) {
+        if (!archiveMode && recovering) {
             // Reconcile uploads missing from the last committed checkpoint.
             // Hash before staging so remote checksum evidence needs only one
             // payload allocation, including on size-only providers.
@@ -561,6 +618,7 @@ bool BackupEngine::backupBatches(const QStringList &sources, const QString &remo
     if (stopped()) return fail(QStringLiteral("The backup was stopped; its checkpoint is preserved."));
     progress.finalizing = true;
     report("finalizing");
+    if (stopped()) return fail(QStringLiteral("The backup was stopped; its checkpoint is preserved."));
     // The manifest itself lives on the staging disk, never system /tmp. Keep
     // the final local manifest for the caller, matching the engine API contract.
     QTemporaryDir manifestDirectory(QDir(options.retainLocalManifest ? staging.root() : staging.path()).filePath("manifest-XXXXXX"));
@@ -577,6 +635,7 @@ bool BackupEngine::backupBatches(const QStringList &sources, const QString &remo
     if (!hashFile(path, &checksum, &size, options.stopped) || !provider.inspect(remoteManifest, &remote, &providerError)
         || !PayloadMetadataPolicy::matchesAfterTransfer(remote, size, checksum))
         return fail(providerError.isEmpty() ? QStringLiteral("Remote manifest verification failed.") : providerError);
+    if (stopped()) return fail(QStringLiteral("The backup was stopped; its checkpoint is preserved."));
     outcome.manifestVerified = true;
     if (manifestPath && options.retainLocalManifest) { manifestDirectory.setAutoRemove(false); *manifestPath = path; }
     report("finalizing");

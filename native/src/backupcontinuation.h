@@ -11,6 +11,7 @@ class BackupContinuation final
 {
 public:
     explicit BackupContinuation(QString directory);
+    static int recordedFormat(const QString &directory, QString *error);
     bool open(const QString &remoteRoot, const BackupCopyMetadata &metadata, QString *error, int payloadFormat = 2);
     bool saveRoots(QString *error);
     bool checkpoint(const QVector<BackupEntry> &entries, QString *error, bool verifiedPayloads = true);

@@ -4,6 +4,7 @@
 #include "backupprerequisites.h"
 #include "backupcatalog.h"
 #include "backupstaging.h"
+#include "backupcontinuation.h"
 #include "backupecleanup.h"
 #include "protonprovider.h"
 #include "protonfolderlink.h"
@@ -237,6 +238,17 @@ int runBackupWorker(const QString &configuredPath, BackupPrerequisiteProbe &prer
         options.stagingBudget = setIterator->stagingBudget;
         options.continuationDirectory = QDir(stateDirectory).filePath(QStringLiteral("continuations/")
             + QString::fromLatin1(QCryptographicHash::hash(copyRoot.toUtf8(), QCryptographicHash::Sha256).toHex()));
+        const int recordedFormat = BackupContinuation::recordedFormat(options.continuationDirectory, &error);
+        if (recordedFormat < 0) {
+            qCritical().noquote() << error;
+            return 1;
+        }
+        if (recordedFormat != 0) {
+            // Recovery follows the durable copy format, not today's defaults or
+            // the environment used to start the replacement worker.
+            options.singleArchive = false;
+            options.boundedArchives = recordedFormat == 3;
+        }
         options.stopped = stopped;
         options.retainLocalManifest = false;
         options.stagingReady = [&](const QString &root, QString *error) { return runStore.rememberStagingRoot(record, root, error); };

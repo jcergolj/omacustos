@@ -160,7 +160,234 @@ private slots:
     void boundedArchivesRoundTrip();
     void boundedArchivesStorageWaiting_data();
     void boundedArchivesStorageWaiting();
+    void archiveInterruptionRecovery_data();
+    void archiveInterruptionRecovery();
+    void archiveReuseStorageWaiting_data();
+    void archiveReuseStorageWaiting();
 };
+
+void WorkerRecoveryTest::archiveInterruptionRecovery_data()
+{
+    QTest::addColumn<QString>("boundary");
+    QTest::addColumn<QString>("action");
+    QTest::addColumn<bool>("sizeOnly");
+    for (const QString &boundary : {"preparation", "compression", "upload", "verification", "checkpoint", "finalization"})
+        for (bool sizeOnly : {false, true})
+            QTest::newRow(qPrintable(boundary + (sizeOnly ? " size-only" : " checksum"))) << boundary << QString("kill") << sizeOnly;
+    QTest::newRow("pause during upload") << QString("upload") << QString("pause") << false;
+    QTest::newRow("pause during verification") << QString("verification") << QString("pause") << true;
+    QTest::newRow("cancel during upload") << QString("upload") << QString("cancel") << false;
+    QTest::newRow("final-index transfer failure") << QString("failure") << QString("retry") << false;
+    QTest::newRow("checkpoint quota waiting") << QString("quota") << QString("resume") << false;
+    QTest::newRow("archive preparation quota waiting") << QString("storage") << QString("resume") << false;
+    QTest::newRow("transient archive transfer failure") << QString("transfer") << QString("retry") << false;
+    QTest::newRow("archive authentication failure") << QString("authentication") << QString("retry") << false;
+    QTest::newRow("partially transferred archive") << QString("partial") << QString("retry") << true;
+    for (const QString &boundary : {"upload", "checkpoint"})
+        for (bool sizeOnly : {false, true})
+            QTest::newRow(qPrintable("multi-member " + boundary + (sizeOnly ? " size-only" : " checksum")))
+                << QString("multi-" + boundary) << QString("kill") << sizeOnly;
+}
+
+void WorkerRecoveryTest::archiveInterruptionRecovery()
+{
+    QFETCH(QString, boundary);
+    QFETCH(QString, action);
+    QFETCH(bool, sizeOnly);
+    const int membersPerArchive = boundary.startsWith("multi-") ? 3 : 1;
+    if (membersPerArchive > 1) boundary.remove(0, 6);
+    const int totalFiles = 3 * membersPerArchive;
+    WorkerFixture fixture;
+    QVERIFY(fixture.prepare(200000));
+    fixture.environment.insert("OMACUSTOS_INTERNAL_BOUNDED_ARCHIVES", "1");
+    fixture.environment.insert("OMACUSTOS_INTERNAL_ARCHIVE_TARGET", QString::number(4 * membersPerArchive));
+    fixture.environment.insert("FIXTURE_SIZE_ONLY", sizeOnly ? "yes" : "no");
+    fixture.environment.insert("FIXTURE_COMMAND_LOG", fixture.directory.filePath("commands.jsonl"));
+    for (int index = 0; index < totalFiles; ++index) {
+        const QString name(QChar('a' + index));
+        QVERIFY(writeFile(fixture.directory.filePath("source/" + name), name.toUtf8().repeated(4)));
+    }
+    if (boundary == "preparation" || boundary == "compression" || boundary == "checkpoint") {
+        fixture.environment.insert("LD_PRELOAD", QStringLiteral(OMACUSTOS_QUOTA_FIXTURE));
+        fixture.environment.insert("FIXTURE_BLOCK_WORKER_PHASE", boundary);
+    } else if (boundary == "upload" || boundary == "verification") {
+        fixture.environment.insert("FIXTURE_BLOCK_ARCHIVE_PHASE", boundary);
+    } else if (boundary == "finalization") {
+        fixture.environment.insert("FIXTURE_BLOCK_ITEM", "manifest.json");
+    } else if (boundary == "failure") {
+        fixture.environment.insert("FIXTURE_FAIL_ITEM", "manifest.json");
+    } else if (boundary == "transfer" || boundary == "authentication" || boundary == "partial") {
+        fixture.environment.insert("FIXTURE_FAIL_ARCHIVE_NUMBER", "2");
+        if (boundary == "authentication") fixture.environment.insert("FIXTURE_TRANSFER_ERROR", "Authentication required: please log in");
+        if (boundary == "partial") fixture.environment.insert("FIXTURE_PARTIAL_ARCHIVE", "yes");
+    } else {
+        fixture.environment.insert("LD_PRELOAD", QStringLiteral(OMACUSTOS_QUOTA_FIXTURE));
+        fixture.environment.insert(boundary == "quota" ? "FIXTURE_CHECKPOINT_FAILURE" : "FIXTURE_ARCHIVE_QUOTA", "yes");
+    }
+    if (action == "kill" || action == "pause" || action == "cancel") {
+        QProcess worker;
+        fixture.start(worker);
+        QVERIFY(worker.waitForStarted());
+        QTRY_VERIFY_WITH_TIMEOUT(QFile::exists(fixture.directory.filePath("blocked")), 10000);
+        QVERIFY(fixture.runs.load());
+        if (action == "kill") worker.kill();
+        else QVERIFY(fixture.runs.requestControl("documents", action));
+        QVERIFY(worker.waitForFinished(5000));
+    } else QVERIFY2(fixture.run(), qPrintable(fixture.error));
+    QVERIFY(fixture.runs.load());
+    const QString copy = fixture.record().remoteCopyPath;
+    const auto transfersBefore = logEntries(fixture.directory.filePath("transfers.jsonl"));
+    const int verifiedBefore = boundary == "finalization" || boundary == "failure" ? totalFiles
+        : boundary == "quota" || boundary == "storage" ? 0 : membersPerArchive;
+    const QString journal = fixture.directory.filePath("continuations/")
+        + QString::fromLatin1(QCryptographicHash::hash(copy.toUtf8(), QCryptographicHash::Sha256).toHex());
+    if (action != "cancel") {
+        int durableVerified = 0;
+        for (const QString &path : QDir(journal).entryList({"batch-*.json"}, QDir::Files)) {
+            QFile file(QDir(journal).filePath(path));
+            QVERIFY(file.open(QIODevice::ReadOnly));
+            const auto object = QJsonDocument::fromJson(file.readAll()).object();
+            if (object.value("verified").toBool()) durableVerified += object.value("entries").toArray().size();
+        }
+        QCOMPARE(durableVerified, verifiedBefore);
+    }
+    for (const QString &key : {"LD_PRELOAD", "FIXTURE_BLOCK_WORKER_PHASE", "FIXTURE_BLOCK_ARCHIVE_PHASE", "FIXTURE_BLOCK_ITEM",
+             "FIXTURE_FAIL_ITEM", "FIXTURE_FAIL_ARCHIVE_NUMBER", "FIXTURE_TRANSFER_ERROR", "FIXTURE_PARTIAL_ARCHIVE", "FIXTURE_CHECKPOINT_FAILURE",
+             "FIXTURE_ARCHIVE_QUOTA", "OMACUSTOS_INTERNAL_BOUNDED_ARCHIVES"})
+        fixture.environment.remove(key);
+    if (action == "pause" || action == "cancel") {
+        QVERIFY(fixture.run()); // scheduler never resumes user-paused work
+        QCOMPARE(fixture.record().status, action == "pause" ? QString("paused") : QString("cancelled"));
+        QCOMPARE(fixture.record().remoteCopyPath, copy);
+        QCOMPARE(logEntries(fixture.directory.filePath("transfers.jsonl")).size(), transfersBefore.size());
+        QVERIFY(fixture.emptyStaging());
+    }
+    if (action == "cancel") {
+        QVERIFY(!fixture.runs.requestControl("documents", "resume"));
+        QVERIFY(fixture.runs.queueManual({"documents"}, true));
+        fixture.environment.insert("OMACUSTOS_INTERNAL_BOUNDED_ARCHIVES", "1");
+    } else if (action != "kill") QVERIFY(fixture.runs.requestControl("documents", "resume"));
+    if (boundary == "storage") {
+        fixture.config.sets[0].stagingDirectory = fixture.directory.filePath("another-disk");
+        QVERIFY(fixture.save());
+    }
+    QVERIFY2(fixture.run(), qPrintable(fixture.error));
+    QCOMPARE(fixture.record().status, QString("success"));
+    if (action == "cancel") {
+        QVERIFY(fixture.record().remoteCopyPath != copy);
+        QVERIFY(fixture.record().cancelledCopies.contains(copy));
+    } else QCOMPARE(fixture.record().remoteCopyPath, copy);
+    QCOMPARE(fixture.record().result.verifiedFiles, totalFiles);
+    QCOMPARE(fixture.record().result.verifiedBytes, qint64(totalFiles * 4));
+    QCOMPARE(fixture.record().progress.verifiedFiles, totalFiles);
+    QVERIFY(fixture.record().result.manifestVerified);
+    QVERIFY(fixture.emptyStaging());
+    const auto transfersAfter = logEntries(fixture.directory.filePath("transfers.jsonl"));
+    for (int i = 0; i < verifiedBefore / membersPerArchive && action != "cancel"; ++i) {
+        const QString path = transfersBefore.at(i).value("remote").toString();
+        int count = 0;
+        for (const auto &transfer : transfersAfter) if (transfer.value("remote").toString() == path) ++count;
+        QCOMPARE(count, 1); // unchanged verified archives are never uploaded twice
+    }
+    for (const auto &command : logEntries(fixture.directory.filePath("commands.jsonl")))
+        QVERIFY(command.value("command").toString() != "trash" && command.value("command").toString() != "delete");
+    QVector<BackupEntry> entries;
+    BackupManifestInfo info;
+    QVERIFY(BackupManifest::load(QDir(fixture.remoteCopy()).filePath("manifest.json"), &entries, &info));
+    QCOMPARE(info.version, 3); // replacement worker uses recorded format without the opt-in flag
+    QCOMPARE(entries.size(), totalFiles);
+    QProcessRunner runner(fixture.config.protonBinary);
+    // The controller uses the same isolated fixture as the worker subprocess.
+    const auto oldEnvironment = QProcessEnvironment::systemEnvironment();
+    for (const QString &key : {"FIXTURE_REMOTE", "FIXTURE_LOG", "FIXTURE_BATCH_LOG", "FIXTURE_SIZE_ONLY"})
+        qputenv(key.toUtf8(), fixture.environment.value(key).toUtf8());
+    const auto restoreEnvironment = qScopeGuard([&] {
+        for (const QString &key : {"FIXTURE_REMOTE", "FIXTURE_LOG", "FIXTURE_BATCH_LOG", "FIXTURE_SIZE_ONLY"}) {
+            if (oldEnvironment.contains(key)) qputenv(key.toUtf8(), oldEnvironment.value(key).toUtf8());
+            else qunsetenv(key.toUtf8());
+        }
+    });
+    ProtonProvider provider(runner);
+    BackupEngine engine;
+    BackupRestoreController controller(engine, &provider);
+    QSignalSpy completed(&controller, &BackupRestoreController::restoreCompleted);
+    QSignalSpy failed(&controller, &BackupRestoreController::failed);
+    controller.loadManifest(QDir(fixture.remoteCopy()).filePath("manifest.json"));
+    QVERIFY(controller.restoreEligible());
+    QVariantList selected;
+    for (int i = 0; i < entries.size(); ++i) selected.append(i);
+    controller.restoreSelected(selected, fixture.directory.filePath("restored"));
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.busy(), 10000);
+    QCOMPARE(failed.size(), 0);
+    QCOMPARE(completed.size(), 1);
+    for (const auto &entry : entries) {
+        QFile restored(fixture.directory.filePath("restored/" + entry.restorePath));
+        QVERIFY(restored.open(QIODevice::ReadOnly));
+        QCOMPARE(restored.readAll(), QFileInfo(entry.sourcePath).fileName().toUtf8().repeated(4));
+    }
+}
+
+void WorkerRecoveryTest::archiveReuseStorageWaiting_data()
+{
+    QTest::addColumn<QString>("failure");
+    QTest::newRow("lowered budget bounds verification downloads") << QString("budget");
+    QTest::newRow("download quota despite reported free space") << QString("quota");
+}
+
+void WorkerRecoveryTest::archiveReuseStorageWaiting()
+{
+    QFETCH(QString, failure);
+    WorkerFixture fixture;
+    QVERIFY(fixture.prepare(200000));
+    fixture.environment.insert("OMACUSTOS_INTERNAL_BOUNDED_ARCHIVES", "1");
+    fixture.environment.insert("OMACUSTOS_INTERNAL_ARCHIVE_TARGET", "8");
+    fixture.environment.insert("FIXTURE_SIZE_ONLY", "yes");
+    fixture.environment.insert("FIXTURE_FAIL_ITEM", "manifest.json");
+    fixture.environment.insert("FIXTURE_COMMAND_LOG", fixture.directory.filePath("commands.jsonl"));
+    for (const QString &name : {"a", "b", "c", "d"})
+        QVERIFY(writeFile(fixture.directory.filePath("source/" + name), name.toUtf8().repeated(4)));
+    QVERIFY2(fixture.run(), qPrintable(fixture.error));
+    QCOMPARE(fixture.record().status, QString("retrying"));
+    QCOMPARE(fixture.record().result.verifiedFiles, 4);
+    const QString copy = fixture.record().remoteCopyPath;
+    const auto before = logEntries(fixture.directory.filePath("transfers.jsonl"));
+    QCOMPARE(before.size(), 2); // two whole two-member groups are durably verified
+    fixture.environment.remove("FIXTURE_FAIL_ITEM");
+    fixture.environment.remove("OMACUSTOS_INTERNAL_BOUNDED_ARCHIVES");
+    if (failure == "budget") {
+        fixture.config.sets[0].stagingBudget = 1;
+        QVERIFY(fixture.save());
+    } else {
+        fixture.environment.insert("LD_PRELOAD", QStringLiteral(OMACUSTOS_QUOTA_FIXTURE));
+        fixture.environment.insert("FIXTURE_REUSE_DOWNLOAD_QUOTA", "yes");
+    }
+    QVERIFY(fixture.runs.requestControl("documents", "resume"));
+    QVERIFY2(fixture.run(), qPrintable(fixture.error));
+    QCOMPARE(fixture.record().status, QString("waiting"));
+    QVERIFY(fixture.record().unfinished);
+    QVERIFY(fixture.record().result.waitingForSpace);
+    QVERIFY(!fixture.record().result.manifestVerified);
+    QCOMPARE(fixture.record().remoteCopyPath, copy);
+    QCOMPARE(logEntries(fixture.directory.filePath("transfers.jsonl")).size(), before.size());
+    QVERIFY(fixture.record().lastError.contains(failure == "budget" ? "budget" : "quota", Qt::CaseInsensitive));
+    QVERIFY(fixture.emptyStaging());
+    fixture.environment.remove("LD_PRELOAD");
+    fixture.environment.remove("FIXTURE_REUSE_DOWNLOAD_QUOTA");
+    fixture.config.sets[0].stagingBudget = 200000;
+    fixture.config.sets[0].stagingDirectory = fixture.directory.filePath("another-disk");
+    QVERIFY(fixture.save());
+    QVERIFY(fixture.runs.requestControl("documents", "resume"));
+    QVERIFY2(fixture.run(), qPrintable(fixture.error));
+    QCOMPARE(fixture.record().status, QString("success"));
+    QCOMPARE(fixture.record().remoteCopyPath, copy);
+    QCOMPARE(fixture.record().result.verifiedFiles, 4);
+    QCOMPARE(logEntries(fixture.directory.filePath("transfers.jsonl")).size(), 3); // only final index added
+    QVector<BackupEntry> entries;
+    QVERIFY(BackupManifest::load(QDir(fixture.remoteCopy()).filePath("manifest.json"), &entries));
+    QCOMPARE(entries.size(), 4);
+    for (const auto &entry : entries) QCOMPARE(entry.archive.members.size(), 2);
+    QVERIFY(fixture.emptyStaging());
+}
 
 void WorkerRecoveryTest::boundedArchivesRoundTrip_data()
 {

@@ -9,6 +9,7 @@
 
 #include "../src/backupengine.h"
 #include "../src/backupmanifest.h"
+#include "../src/backupcontinuation.h"
 #include "../src/localprovider.h"
 
 class FailingProvider final : public BackupProvider
@@ -96,7 +97,71 @@ private slots:
     void progressPersistenceBoundsWritesAndKeepsFinalSamples();
     void restoresLegacyEntriesWithEffectiveDestinations_data();
     void restoresLegacyEntriesWithEffectiveDestinations();
+    void archiveControlsPreserveOnlyDurableProgress_data();
+    void archiveControlsPreserveOnlyDurableProgress();
 };
+
+void BackupEngineTest::archiveControlsPreserveOnlyDurableProgress_data()
+{
+    QTest::addColumn<QString>("phase");
+    QTest::addColumn<int>("occurrence");
+    QTest::addColumn<int>("verified");
+    QTest::newRow("preparation") << QString("preparing") << 2 << 1;
+    QTest::newRow("upload") << QString("uploading") << 2 << 1;
+    QTest::newRow("verification") << QString("verifying") << 2 << 1;
+    QTest::newRow("verified checkpoint") << QString("checkpointing") << 5 << 1;
+    QTest::newRow("finalization") << QString("finalizing") << 1 << 3;
+}
+
+void BackupEngineTest::archiveControlsPreserveOnlyDurableProgress()
+{
+    QFETCH(QString, phase);
+    QFETCH(int, occurrence);
+    QFETCH(int, verified);
+    QTemporaryDir directory(QDir::current().filePath("archive-controls-XXXXXX"));
+    QVERIFY(directory.isValid());
+    const QString source = directory.filePath("source");
+    QVERIFY(QDir().mkpath(source));
+    for (const QString &name : {"a", "b", "c"}) {
+        QFile file(QDir(source).filePath(name));
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QCOMPARE(file.write("data"), qint64(4));
+    }
+    QVERIFY(QDir().mkpath(directory.filePath("remote")));
+    LocalProvider provider(directory.filePath("remote"));
+    BackupEngine engine;
+    BackupOptions options;
+    options.freshCopy = true;
+    options.boundedArchives = true;
+    options.archiveTargetBytes = 4;
+    options.stagingBudget = 200000;
+    options.stagingDirectory = directory.filePath("stage");
+    options.continuationDirectory = directory.filePath("journal");
+    options.retainLocalManifest = false;
+    bool stop = false;
+    options.stopped = [&] { return stop; };
+    int seen = 0;
+    BackupResult result;
+    QString error, manifest;
+    const BackupCopyMetadata metadata {"computer", "set", "Set", "copy", QDateTime::currentDateTimeUtc()};
+    QVERIFY(!engine.backup({source}, "copies/copy", {}, metadata, provider, &manifest, &error,
+        [&](const BackupProgress &progress) { if (progress.phase == phase && ++seen == occurrence) stop = true; }, &result, options));
+    QVERIFY(stop);
+    QVERIFY(result.interrupted);
+    QVERIFY(!result.manifestVerified);
+    QCOMPARE(result.verifiedFiles, verified);
+    BackupContinuation journal(options.continuationDirectory);
+    QVERIFY2(journal.open("copies/copy", metadata, &error, 3), qPrintable(error));
+    QCOMPARE(journal.verified.size(), verified);
+    for (const auto &entry : journal.verified) {
+        QVERIFY(!entry.archive.id.isEmpty());
+        QCOMPARE(entry.archive.members, QStringList({entry.memberPath}));
+    }
+    stop = false;
+    QVERIFY2(engine.backup({source}, "copies/copy", {}, metadata, provider, &manifest, &error, {}, &result, options), qPrintable(error));
+    QCOMPARE(result.verifiedFiles, 3);
+    QVERIFY(result.manifestVerified);
+}
 
 void BackupEngineTest::restoresLegacyEntriesWithEffectiveDestinations_data()
 {

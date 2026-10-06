@@ -30,6 +30,15 @@ def metadata(path):
     return result
 
 
+def block_archive(path, phase):
+    if (path.name.endswith(".tar.gz")
+            and os.environ.get("FIXTURE_BLOCK_ARCHIVE_PHASE") == phase
+            and len(list(root.rglob("*.tar.gz"))) == int(os.environ.get("FIXTURE_BLOCK_ARCHIVE_NUMBER", "2"))):
+        Path(os.environ["FIXTURE_MARKER"]).write_text(str(path))
+        while True:
+            time.sleep(0.05)
+
+
 def transfer(source, destination):
     if source.is_dir():
         destination.mkdir(exist_ok=True)
@@ -38,6 +47,11 @@ def transfer(source, destination):
         return
     if source.name == os.environ.get("FIXTURE_FAIL_ITEM"):
         raise RuntimeError("Connection interrupted")
+    if (source.name.endswith(".tar.gz") and os.environ.get("FIXTURE_FAIL_ARCHIVE_NUMBER")
+            and len(list(root.rglob("*.tar.gz"))) + 1 == int(os.environ["FIXTURE_FAIL_ARCHIVE_NUMBER"])):
+        if os.environ.get("FIXTURE_PARTIAL_ARCHIVE"):
+            destination.write_bytes(source.read_bytes()[:source.stat().st_size // 2])
+        raise RuntimeError(os.environ.get("FIXTURE_TRANSFER_ERROR", "Connection interrupted"))
     shutil.copyfile(source, destination)
     if source.name.endswith(".tar.gz") and os.environ.get("FIXTURE_REPLACE_SOURCE"):
         changed = Path(os.environ["FIXTURE_REPLACE_SOURCE"])
@@ -45,6 +59,7 @@ def transfer(source, destination):
         changed.write_bytes(b"changed pathname after preparation")
     with open(os.environ["FIXTURE_LOG"], "a") as log:
         log.write(json.dumps({"source": str(source), "remote": str(destination), "size": source.stat().st_size}) + "\n")
+    block_archive(destination, "upload")
     if source.name == os.environ.get("FIXTURE_CORRUPT_ITEM"):
         destination.write_bytes(b"!" * source.stat().st_size)
     if source.name.endswith(".tar.gz") and os.environ.get("FIXTURE_CORRUPT_ARCHIVE"):
@@ -73,6 +88,7 @@ try:
         path = remote(args[-1])
         if not path.is_file():
             raise RuntimeError("Node not found")
+        block_archive(path, "verification")
         print(json.dumps(metadata(path)))
     elif command == "upload":
         source = Path(args[-2])
@@ -83,7 +99,11 @@ try:
         transfer(source, remote(args[-1]) / source.name)
         print("{}")
     elif command == "download":
-        shutil.copyfile(remote(args[-2]), Path(args[-1]) / Path(args[-2]).name)
+        # Explicit writes let the quota fixture exercise the real download sink,
+        # instead of bypassing it through copy_file_range/sendfile.
+        with remote(args[-2]).open("rb") as source, (Path(args[-1]) / Path(args[-2]).name).open("wb", buffering=0) as destination:
+            while chunk := source.read(64 * 1024):
+                destination.write(chunk)
         print("{}")
     elif command in ("trash", "delete"):
         raise RuntimeError("Cleanup must not be invoked by these integration fixtures")
