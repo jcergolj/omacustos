@@ -127,6 +127,8 @@ class WorkerRecoveryTest : public QObject
     Q_OBJECT
 
 private slots:
+    void workerAppliesIncludeOnlyRules_data();
+    void workerAppliesIncludeOnlyRules();
     void archiveRolloutDefaults_data();
     void archiveRolloutDefaults();
     void recoveryPreservesTheLogicalRun();
@@ -172,6 +174,50 @@ private slots:
     void archiveReconciliation_data();
     void archiveReconciliation();
 };
+
+void WorkerRecoveryTest::workerAppliesIncludeOnlyRules_data()
+{
+    QTest::addColumn<bool>("scheduled");
+    QTest::addColumn<bool>("archived");
+    QTest::newRow("manual files") << false << false;
+    QTest::newRow("scheduled files") << true << false;
+    QTest::newRow("manual archives") << false << true;
+    QTest::newRow("scheduled archives") << true << true;
+}
+
+void WorkerRecoveryTest::workerAppliesIncludeOnlyRules()
+{
+    QFETCH(bool, scheduled);
+    QFETCH(bool, archived);
+    WorkerFixture fixture;
+    QVERIFY(fixture.prepare(200000));
+    if (archived) fixture.environment.remove("OMACUSTOS_INTERNAL_BOUNDED_ARCHIVES");
+    fixture.config.sets[0].inclusions = {".env"};
+    fixture.config.sets[0].exclusions = {"vendor"};
+    QVERIFY(fixture.save());
+    for (const QString &name : {QString(".env"), QString("app/.env"), QString("app/README"), QString("vendor/.env")})
+        QVERIFY(writeFile(fixture.directory.filePath("source/" + name), "secret"));
+    QVERIFY(QFile::link(fixture.directory.filePath("source/app"), fixture.directory.filePath("source/ignored-link")));
+    if (scheduled) {
+        fixture.runs.records().clear(); // Replace the fixture's default manual request.
+        QVERIFY(fixture.runs.enqueue("documents", "scheduled", QDateTime::currentDateTimeUtc()));
+        QVERIFY(fixture.runs.save());
+    }
+    QVERIFY2(fixture.run(), qPrintable(fixture.error));
+    QCOMPARE(fixture.record().status, QString("success"));
+    QCOMPARE(fixture.record().result.verifiedFiles, 2);
+    QCOMPARE(fixture.record().result.verifiedBytes, qint64(12));
+    QVERIFY(fixture.record().result.issues.isEmpty());
+    QVector<BackupEntry> entries;
+    BackupManifestInfo info;
+    QVERIFY(BackupManifest::load(QDir(fixture.remoteCopy()).filePath("manifest.json"), &entries, &info));
+    QCOMPARE(info.version, archived ? 3 : 2);
+    QCOMPARE(entries.size(), 2);
+    QSet<QString> sources;
+    for (const auto &entry : entries) sources.insert(entry.sourcePath);
+    QCOMPARE(sources, (QSet<QString> {fixture.directory.filePath("source/.env"), fixture.directory.filePath("source/app/.env")}));
+    QVERIFY(fixture.emptyStaging());
+}
 
 void WorkerRecoveryTest::archiveRolloutDefaults_data()
 {

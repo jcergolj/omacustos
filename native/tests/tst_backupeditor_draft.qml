@@ -23,6 +23,7 @@ TestCase {
         backupSetController.currentRemoteRoot = "/custom-backups"
         backupSetController.currentSources = ["/safe/documents"]
         backupSetController.currentExclusions = ["cache"]
+        backupSetController.currentInclusions = [".env"]
         backupSetController.currentScheduleFrequency = "weekly"
         backupSetController.currentScheduleHour = 9
         backupSetController.currentScheduleMinute = 30
@@ -49,6 +50,11 @@ TestCase {
         name.text = "Updated documents"
         editor.addSource("file:///safe/notes.txt")
         editor.addExclusion("file:///safe/private")
+        const inclusions = findChild(app, "inclusionsField")
+        compare(inclusions.text, ".env")
+        inclusions.text = " .env \n\n .env.* "
+        editor.addInclusion("file:///safe/documents/config")
+        editor.addInclusion("file:///safe/documents/config")
         findChild(app, "scheduleFrequency").currentIndex = 3
 
         findChild(app, data.action === "save" ? "saveBackupSetButton" : "previewBackupSetButton").clicked()
@@ -57,6 +63,7 @@ TestCase {
         compare(backupSetController.lastDraft, {
             name: "Updated documents", remoteRoot: "/custom-backups",
             sources: ["/safe/documents", "/safe/notes.txt"], exclusions: ["cache", "/safe/private"],
+            inclusions: [".env", ".env.*", "/safe/documents/config"],
             scheduleFrequency: "monthly", scheduleHour: 9, scheduleMinute: 30,
             scheduleWeekday: 4, scheduleDayOfMonth: 12, retention: 7, onlyOnAcPower: true,
             stagingDirectory: "", stagingBudget: 1000000000

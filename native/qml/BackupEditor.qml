@@ -49,6 +49,7 @@ ScrollView {
             sourceModel.append({ path: source })
         })
         exclusionsField.text = controller.currentExclusions.join("\n")
+        inclusionsField.text = controller.currentInclusions.join("\n")
         scheduleFrequency.currentIndex = scheduleFrequency.model.indexOf(controller.currentScheduleFrequency)
         scheduleTimeField.text = "%1:%2".arg(controller.currentScheduleHour.toString().padStart(2, "0"))
             .arg(controller.currentScheduleMinute.toString().padStart(2, "0"))
@@ -116,6 +117,15 @@ ScrollView {
         }
     }
 
+    function addInclusion(url) {
+        const path = LocalPaths.localPath(url)
+        const inclusions = lines(inclusionsField.text)
+        if (path.length > 0 && inclusions.indexOf(path) < 0) {
+            inclusions.push(path)
+            inclusionsField.text = inclusions.join("\n")
+        }
+    }
+
     function syncCurrentSet() {
         syncingCurrentSet = true
         try {
@@ -129,6 +139,7 @@ ScrollView {
                 remoteRoot: remoteField.text,
                 sources: sources,
                 exclusions: lines(exclusionsField.text),
+                inclusions: lines(inclusionsField.text),
                 scheduleFrequency: scheduleFrequency.currentText,
                 scheduleHour: Number(timeParts[0]),
                 scheduleMinute: Number(timeParts[1]),
@@ -287,6 +298,76 @@ ScrollView {
                     onClicked: sourceModel.remove(index)
                 }
             }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: editor.style.buttonSpacing
+
+            Label {
+                text: qsTr("Include only (optional)")
+                font.pixelSize: editor.style.sectionTitleSize
+                font.weight: Font.Normal
+                color: editor.style.accentColor
+                Layout.fillWidth: true
+            }
+
+            ActionButton {
+                id: addInclusionButton
+                style: editor.style
+                objectName: "addInclusionButton"
+                text: "+"
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("Include a specific file or folder inside your sources")
+                onClicked: inclusionMenu.open()
+            }
+        }
+
+        Label {
+            text: qsTr("Leave blank to back up everything in your sources. Enter names or paths, one per line: .env matches at every depth; .env* also matches .env.local. Matching folders include their contents. Exclusions take priority.")
+            font.pixelSize: editor.style.metadataTypeSize
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
+        }
+
+        TextArea {
+            id: inclusionsField
+            objectName: "inclusionsField"
+            Accessible.name: qsTr("Include only")
+            placeholderText: qsTr("e.g. .env, .env*, config, or project/.env (one per line)")
+            wrapMode: TextArea.Wrap
+            Layout.fillWidth: true
+            Layout.preferredHeight: 72
+        }
+
+        Menu {
+            id: inclusionMenu
+            objectName: "inclusionMenu"
+            parent: addInclusionButton
+            x: addInclusionButton.width - width
+            y: addInclusionButton.height
+
+            MenuItem {
+                text: qsTr("Include files")
+                onTriggered: inclusionFilesDialog.open()
+            }
+            MenuItem {
+                text: qsTr("Include folder")
+                onTriggered: inclusionFolderDialog.open()
+            }
+        }
+
+        FileDialog {
+            id: inclusionFilesDialog
+            title: qsTr("Select files to include")
+            fileMode: FileDialog.OpenFiles
+            onAccepted: selectedFiles.forEach(function (url) { editor.addInclusion(url) })
+        }
+
+        FolderDialog {
+            id: inclusionFolderDialog
+            title: qsTr("Select folder to include")
+            onAccepted: editor.addInclusion(selectedFolder)
         }
 
         RowLayout {
@@ -594,7 +675,7 @@ ScrollView {
                 style: editor.style
                 key: "excluded"
                 heading: qsTr("Excluded")
-                emptyText: qsTr("No paths matched the exclusions.")
+                emptyText: qsTr("No paths were excluded by the selection rules.")
                 paths: editor.controller.previewExcluded
             }
 

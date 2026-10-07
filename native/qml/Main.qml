@@ -177,6 +177,51 @@ ApplicationWindow {
         }
     }
 
+    function openDocumentation(url) {
+        if (!Qt.openUrlExternally(url)) {
+            root.setStatus(qsTr("Unable to open documentation in your browser."))
+        }
+    }
+
+    ActionDialog {
+        id: aboutDialog
+        objectName: "aboutDialog"
+        style: uiStyle
+        anchors.centerIn: parent
+        title: qsTr("About OmaCustos")
+        width: Math.min(root.width - 2 * root.contentPadding, 480)
+        modal: true
+        standardButtons: Dialog.Close
+
+        ColumnLayout {
+            width: parent.width
+            spacing: 12
+
+            Label {
+                objectName: "aboutAppName"
+                text: qsTr("OmaCustos for Proton Drive")
+                font.family: root.displayFontFamily
+                font.pixelSize: root.sectionTitleSize
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+
+            Label {
+                objectName: "aboutDescription"
+                text: qsTr("Back up and restore selected files and folders with Proton Drive from your Omarchy desktop. Uses Proton's official proton-drive CLI.")
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+
+            Label {
+                text: qsTr("MIT License · Copyright © 2026 jcergolj")
+                color: root.mutedColor
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+        }
+    }
+
     Timer {
         id: notificationTimer
         interval: 5000
@@ -195,7 +240,8 @@ ApplicationWindow {
         }
     }
 
-    Dialog {
+    ActionDialog {
+        style: uiStyle
         id: importModeDialog
         objectName: "importModeDialog"
         anchors.centerIn: parent
@@ -297,7 +343,8 @@ ApplicationWindow {
         showEditor = false
     }
 
-    Dialog {
+    ActionDialog {
+        style: uiStyle
         id: removeSetDialog
         objectName: "removeSetDialog"
         anchors.centerIn: parent
@@ -336,7 +383,8 @@ ApplicationWindow {
         onOpened: standardButton(Dialog.Ok).text = qsTr("Delete")
     }
 
-    Dialog {
+    ActionDialog {
+        style: uiStyle
         id: deleteCopyDialog
         objectName: "deleteCopyDialog"
         anchors.centerIn: parent
@@ -357,7 +405,8 @@ ApplicationWindow {
         onRejected: recentBackupCopies.cancelDelete()
     }
 
-    Dialog {
+    ActionDialog {
+        style: uiStyle
         id: restoreIssuesDialog
         objectName: "restoreIssuesDialog"
         anchors.centerIn: parent
@@ -406,7 +455,8 @@ ApplicationWindow {
         }
     }
 
-    Dialog {
+    ActionDialog {
+        style: uiStyle
         id: backupDetailsDialog
         objectName: "backupDetailsDialog"
         anchors.centerIn: parent
@@ -584,6 +634,26 @@ ApplicationWindow {
                         objectName: "downloadTemplateButton"
                         text: qsTr("Download template")
                         onTriggered: templateDialog.open()
+                    }
+
+                    MenuSeparator {}
+
+                    MenuItem {
+                        objectName: "userManualButton"
+                        text: qsTr("User manual")
+                        onTriggered: root.openDocumentation("https://github.com/jcergolj/omacustos/blob/master/MANUAL.md")
+                    }
+
+                    MenuItem {
+                        objectName: "technicalNotesButton"
+                        text: qsTr("Technical notes")
+                        onTriggered: root.openDocumentation("https://github.com/jcergolj/omacustos/blob/master/TECHNICAL.md")
+                    }
+
+                    MenuItem {
+                        objectName: "aboutButton"
+                        text: qsTr("About")
+                        onTriggered: aboutDialog.open()
                     }
                 }
             }

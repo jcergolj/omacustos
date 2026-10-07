@@ -27,6 +27,7 @@ QVariantMap currentDraft(const BackupSetController &controller)
     return {
         {"name", controller.currentName()}, {"remoteRoot", controller.currentRemoteRoot()},
         {"sources", controller.currentSources()}, {"exclusions", controller.currentExclusions()},
+        {"inclusions", controller.currentInclusions()},
         {"scheduleFrequency", controller.currentScheduleFrequency()},
         {"scheduleHour", controller.currentScheduleHour()}, {"scheduleMinute", controller.currentScheduleMinute()},
         {"scheduleWeekday", controller.currentScheduleWeekday()},
@@ -101,6 +102,7 @@ void BackupSetControllerTest::completeDraftPublishesCoherentStateAndSkipsUnchang
         {"name", " Updated documents "}, {"remoteRoot", " /new-backups "},
         {"sources", QStringList {" /safe/new ", " ", "/safe/notes.txt"}},
         {"exclusions", QStringList {" cache ", "", " /safe/new/excluded "}},
+        {"inclusions", QStringList {" .env ", " ", "config"}},
         {"scheduleFrequency", "monthly"}, {"scheduleHour", 99}, {"scheduleMinute", -1},
         {"scheduleWeekday", 99}, {"scheduleDayOfMonth", 99},
         {"retention", 0}, {"onlyOnAcPower", true},
@@ -108,6 +110,7 @@ void BackupSetControllerTest::completeDraftPublishesCoherentStateAndSkipsUnchang
     QVariantMap expected = draft;
     expected["sources"] = QStringList {"/safe/new", "/safe/notes.txt"};
     expected["exclusions"] = QStringList {"cache", "/safe/new/excluded"};
+    expected["inclusions"] = QStringList {".env", "config"};
     expected["scheduleHour"] = 23;
     expected["scheduleMinute"] = 0;
     expected["scheduleWeekday"] = 7;
@@ -163,6 +166,7 @@ void BackupSetControllerTest::draftPreservesOrInvalidatesInFlightPreview_data()
     QTest::newRow("unrelated settings") << QString("settings");
     QTest::newRow("sources") << QString("sources");
     QTest::newRow("exclusions") << QString("exclusions");
+    QTest::newRow("inclusions") << QString("inclusions");
     QTest::newRow("sources and exclusions") << QString("both");
 }
 
@@ -206,9 +210,11 @@ void BackupSetControllerTest::draftPreservesOrInvalidatesInFlightPreview()
     draft["onlyOnAcPower"] = true;
     const bool sourcesChanged = change == "sources" || change == "both";
     const bool exclusionsChanged = change == "exclusions" || change == "both";
-    const bool inputsChanged = sourcesChanged || exclusionsChanged;
+    const bool inclusionsChanged = change == "inclusions";
+    const bool inputsChanged = sourcesChanged || exclusionsChanged || inclusionsChanged;
     if (sourcesChanged) draft["sources"] = QStringList {home.filePath("missing.txt")};
     if (exclusionsChanged) draft["exclusions"] = QStringList {source.fileName()};
+    if (inclusionsChanged) draft["inclusions"] = QStringList {".env"};
     controller.applyCurrentDraft(draft);
     QCOMPARE(current.count(), 1);
     QVERIFY(sets.isEmpty());
@@ -232,7 +238,7 @@ void BackupSetControllerTest::draftPreservesOrInvalidatesInFlightPreview()
     QCOMPARE(preview.count(), inputsChanged ? 2 : 1);
     QCOMPARE(controller.previewIncluded(), inputsChanged ? QStringList {} : QStringList {source.fileName()});
     QCOMPARE(controller.previewMissing(), sourcesChanged ? QStringList {home.filePath("missing.txt")} : QStringList {});
-    QCOMPARE(controller.previewExcluded(), !sourcesChanged && exclusionsChanged ? QStringList {source.fileName()} : QStringList {});
+    QCOMPARE(controller.previewExcluded(), !sourcesChanged && (exclusionsChanged || inclusionsChanged) ? QStringList {source.fileName()} : QStringList {});
 }
 
 void BackupSetControllerTest::unchangedPollingDoesNotResetDashboardAndProgressUpdatesStaySeparate()
@@ -857,6 +863,7 @@ void BackupSetControllerTest::exportsSavedSetsAndImportsTheirSettings()
     projects.schedule = {QStringLiteral("monthly"), 9, 30, 2, 31};
     projects.retention = 7;
     projects.onlyOnAcPower = true;
+    projects.inclusions = {".env", "config"};
     original.sets = {projects, {QStringLiteral("photos-id"), QStringLiteral("Photos"),
         QStringLiteral("/my-files/backups"), {QStringLiteral("/home/user/photos")}, {}}};
     QVERIFY(BackupConfigStore(originalPath).save(original));
@@ -886,6 +893,7 @@ void BackupSetControllerTest::exportsSavedSetsAndImportsTheirSettings()
     QCOMPARE(destination.currentId(), projects.id);
     QCOMPARE(destination.currentSources(), projects.sourceDirectories);
     QCOMPARE(destination.currentExclusions(), projects.exclusions);
+    QCOMPARE(destination.currentInclusions(), projects.inclusions);
     QCOMPARE(destination.currentScheduleFrequency(), QStringLiteral("monthly"));
     QCOMPARE(destination.currentScheduleHour(), 9);
     QCOMPARE(destination.currentScheduleMinute(), 30);
@@ -933,6 +941,8 @@ void BackupSetControllerTest::invalidImportLeavesExistingSetsUntouched_data()
     addField("wrong source item type", "source_directories", QJsonArray {42});
     addField("wrong exclusions type", "exclusions", "node_modules");
     addField("wrong exclusion item type", "exclusions", QJsonArray {false});
+    addField("wrong inclusions type", "inclusions", ".env");
+    addField("wrong inclusion item type", "inclusions", QJsonArray {false});
     addField("wrong schedule type", "schedule", QJsonValue::Null);
     addField("zero retention", "retention", 0);
     addField("string retention", "retention", "3");

@@ -41,6 +41,8 @@ If the terminal does not open, see [sign-in instructions](MANUAL.md#authenticate
 2. Give it a name and use **+** under **Source files and folders** to choose files
    or folders.
 3. Add any **Exclusions**, such as `node_modules` or `vendor`, one per line.
+   To save only specific contents of a parent folder, use **Include only**, for
+   example `.env` for all its `.env` files, including subfolders.
 4. Use **Preview** to check what will be included.
 5. Press **Save**, then **Back up now** on the dashboard card.
 

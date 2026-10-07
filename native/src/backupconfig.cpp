@@ -92,15 +92,16 @@ bool validateImport(const QJsonObject &document, QString *error)
                 return false;
             }
         }
-        if (set.contains(QStringLiteral("exclusions"))) {
-            const QJsonValue exclusions = set.value(QStringLiteral("exclusions"));
-            if (!exclusions.isArray()) {
-                return invalidImportField(path + QStringLiteral(".exclusions"), QStringLiteral("must be an array of strings"), error);
+        for (const QString &field : {QStringLiteral("exclusions"), QStringLiteral("inclusions")}) {
+            if (!set.contains(field)) continue;
+            const QJsonValue rules = set.value(field);
+            if (!rules.isArray()) {
+                return invalidImportField(path + '.' + field, QStringLiteral("must be an array of strings"), error);
             }
-            const QJsonArray exclusionArray = exclusions.toArray();
-            for (qsizetype exclusion = 0; exclusion < exclusionArray.size(); ++exclusion) {
-                if (!exclusionArray.at(exclusion).isString()) {
-                    return invalidImportField(path + QStringLiteral(".exclusions[%1]").arg(exclusion), QStringLiteral("must be a string"), error);
+            const QJsonArray ruleArray = rules.toArray();
+            for (qsizetype rule = 0; rule < ruleArray.size(); ++rule) {
+                if (!ruleArray.at(rule).isString()) {
+                    return invalidImportField(path + '.' + field + QStringLiteral("[%1]").arg(rule), QStringLiteral("must be a string"), error);
                 }
             }
         }
@@ -246,6 +247,19 @@ bool BackupConfigStore::loadFile(BackupConfig *config, bool setsOnly, QString *e
             for (const QJsonValue &exclusion : exclusions) {
                 set.exclusions.append(exclusion.toString());
             }
+            // Never silently broaden a filtered backup if its rules are malformed.
+            const QJsonValue inclusions = setObject.value(QStringLiteral("inclusions"));
+            if (!inclusions.isUndefined() && !inclusions.isArray()) {
+                if (error) *error = QStringLiteral("The inclusions must be an array of strings.");
+                return false;
+            }
+            for (const QJsonValue &inclusion : inclusions.toArray()) {
+                if (!inclusion.isString()) {
+                    if (error) *error = QStringLiteral("Each inclusion must be a string.");
+                    return false;
+                }
+                set.inclusions.append(inclusion.toString());
+            }
 
             const QJsonObject schedule = setObject.value(QStringLiteral("schedule")).toObject();
             set.schedule.frequency = schedule.value(QStringLiteral("frequency")).toString(QStringLiteral("disabled"));
@@ -381,6 +395,7 @@ bool BackupConfigStore::saveFile(const BackupConfig &config, bool setsOnly, QStr
             {QStringLiteral("remote_root"), set.remoteRoot},
             {QStringLiteral("source_directories"), sources},
             {QStringLiteral("exclusions"), exclusions},
+            {QStringLiteral("inclusions"), QJsonArray::fromStringList(set.inclusions)},
             {QStringLiteral("schedule"), schedule},
             {QStringLiteral("retention"), qMax(1, set.retention)},
             {QStringLiteral("only_on_ac_power"), set.onlyOnAcPower},

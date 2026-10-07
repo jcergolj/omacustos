@@ -47,7 +47,8 @@ Frame {
                 Layout.fillWidth: true
                 Layout.minimumWidth: 0
                 spacing: 2
-                Button {
+                ActionButton {
+                    style: card.style
                     objectName: "setName-" + card.cardIndex
                     text: card.setName
                     flat: true

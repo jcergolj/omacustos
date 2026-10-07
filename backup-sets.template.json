@@ -19,6 +19,7 @@
         "remote_root": "Proton Drive destination root. Use /my-files/backups unless the user requests another remote folder. OmaCustos adds computer and backup-set folders automatically.",
         "source_directories": "Required nonempty array of absolute local paths. Both folders and individual files are supported. Replace /home/you with the user's actual home path; do not use ~ or environment variables.",
         "exclusions": "Array of exclusions, or [] for none. A name such as node_modules excludes matching folders at any depth; an absolute path excludes only that file or folder. Do not invent glob patterns. Hidden files and folders are included unless excluded.",
+        "inclusions": "Optional array of include-only rules; [] or omitted includes everything. Names such as .env match files or folders at any depth inside each source. Paths are absolute or relative to each source folder. Matching folders include their contents. Wildcards * and ? are supported within a path segment; .env* also includes .env.local. Exclusions always win. Select a parent folder as a source and use [\".env\"] to back up only its .env files recursively.",
         "retention": "Positive whole number of verified successful copies to keep. Default: 3.",
         "only_on_ac_power": "Boolean: true waits for AC power; false allows backups on battery. Default: false."
       },
@@ -31,6 +32,7 @@
         "/home/you/.config/hypr/hyprland.conf"
       ],
       "exclusions": [],
+      "inclusions": [],
       "schedule": {
         "_comment": {
           "frequency": "One of disabled, daily, weekly, monthly. Use disabled for manual-only backups. Daily at 2 means daily at 02:00 unless the user specifies 2 pm; ask if ambiguous.",

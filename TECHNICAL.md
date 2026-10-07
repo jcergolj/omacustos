@@ -167,6 +167,17 @@ Rules are normalized once per scan. Backup selection prunes excluded directory
 subtrees; the interactive preview still traverses them to report individual
 excluded files.
 
+Optional per-set `inclusions` rules narrow the selected sources without changing
+their restore layout. Empty/absent rules preserve full-folder selection. Bare
+names match at every depth within each source, paths match absolutely or relative
+to each selected folder, and matched folders include descendants. Case-sensitive
+wildcards match within path segments. Exclusions take precedence; unmatched
+directories remain traversable to find matching descendants. Preview reports
+nonmatching files as excluded. The same scanner applies captured inclusion rules
+to preview, individual-file execution, archives, and continuation rescans. Rules
+are persisted and exported/imported with the set; malformed inclusion arrays are
+rejected rather than silently turning a narrow backup into a full-folder backup.
+
 Folder traversal includes hidden regular files and hidden subdirectories, whether
 the selected root itself is hidden or visible. The same exclusion rules apply to
 hidden content. Symbolic links are never followed; hidden links are reported as

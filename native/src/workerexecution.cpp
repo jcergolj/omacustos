@@ -239,6 +239,7 @@ int runBackupWorker(const QString &configuredPath, BackupPrerequisiteProbe &prer
         if (archiveTargetValid && archiveTarget > 0) options.archiveTargetBytes = archiveTarget;
         options.stagingDirectory = setIterator->stagingDirectory;
         options.stagingBudget = setIterator->stagingBudget;
+        options.inclusions = setIterator->inclusions;
         options.continuationDirectory = QDir(stateDirectory).filePath(QStringLiteral("continuations/")
             + QString::fromLatin1(QCryptographicHash::hash(copyRoot.toUtf8(), QCryptographicHash::Sha256).toHex()));
         const int recordedFormat = BackupContinuation::recordedFormat(options.continuationDirectory, &error);

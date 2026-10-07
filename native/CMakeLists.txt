@@ -91,6 +91,7 @@ qt_add_qml_module(omacustos
         qml/RestoreProgressPanel.qml
         qml/RestoreSelection.qml
         qml/ActionButton.qml
+        qml/ActionDialog.qml
         qml/FormCard.qml
         qml/TransferProgress.qml
         qml/PreviewGroup.qml

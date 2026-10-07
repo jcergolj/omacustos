@@ -92,6 +92,27 @@ starts a separate copy; recovery and Resume continue that unfinished copy.
 By default, copies are stored under `/my-files/backups`
 in Proton Drive, and the latest three verified successful copies are kept.
 
+### Back up only specific files or folders inside a parent folder
+
+Add the parent folder under **Source files and folders**, then enter rules in
+**Include only (optional)**, one per line. For example, select your projects
+folder and enter `.env` to back up only files named `.env`, including those in
+subfolders. Use `.env*` to also include `.env.local`, `.env.production`, etc.
+
+- A name such as `config` matches files or folders at any depth inside your sources.
+  Matching folders include all their contents.
+- A relative path such as `project-one/.env` selects that path inside each source
+  folder. An absolute path selects only that specific file or folder. You can
+  choose specific files or folders with **+** beside **Include only**.
+- `*` matches zero or more characters and `?` matches one character within a path
+  segment. Matching is case-sensitive; symbolic links are never followed.
+- Multiple rules are alternatives. Exclusions still take priority.
+- Leave **Include only** blank to keep the usual full-folder backup behavior.
+
+Rules apply to all sources in that backup set and are re-evaluated on every run,
+so new matching files are picked up automatically. Use **Preview** to check the
+result: nonmatching files appear under **Excluded**. Save before running a backup.
+
 ### Dashboard and results
 
 The dashboard shows a card for each backup set with its sources, latest attempt,

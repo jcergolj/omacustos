@@ -153,7 +153,7 @@ bool BackupEngine::backupBatches(const QStringList &sources, const QString &remo
     BackupProgress progress;
     progress.phase = QStringLiteral("scanning");
     if (reportProgress) reportProgress(progress);
-    const BackupPreview selection = scan(sources, exclusions, false, stopped);
+    const BackupPreview selection = scan(sources, exclusions, false, stopped, options.inclusions);
     if (stopped()) return fail(QStringLiteral("The backup was stopped; its checkpoint is preserved."));
     for (const QString &path : selection.missingPaths)
         outcome.issues.append({path, "selection", "The source path does not exist."});

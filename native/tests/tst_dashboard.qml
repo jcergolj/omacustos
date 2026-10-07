@@ -41,6 +41,7 @@ TestCase {
         backupSetController.currentName = Qt.binding(function () { return backupSetController.setNames[backupSetController.currentIndex] || "" })
         backupSetController.currentRemoteRoot = Qt.binding(function () { return "/backups/" + backupSetController.currentId })
         backupSetController.currentSources = Qt.binding(function () { return ["/safe/" + backupSetController.currentId] })
+        backupSetController.currentInclusions = []
         backupSetController.currentStagingDirectory = ""
         backupSetController.currentStagingBudget = 1000000000
         backupSetController.previewBusy = false
@@ -272,6 +273,44 @@ TestCase {
         tryCompare(app, "showEditor", true)
         tryCompare(control("setNameField"), "text", "New set")
         waitForRendering(app.contentItem)
+    }
+
+    function test_menuOpensAboutDialog() {
+        mouseClick(control("backupSetsMenuButton"))
+        tryCompare(control("backupSetsMenu"), "opened", true)
+        mouseClick(control("aboutButton"))
+        const dialog = control("aboutDialog")
+        tryCompare(dialog, "opened", true)
+        compare(dialog.title, "About OmaCustos")
+        verify(dialog.modal)
+        compare(control("aboutAppName").text, "OmaCustos for Proton Drive")
+        verify(control("aboutDescription").text.indexOf("proton-drive CLI") >= 0)
+        compare(app.showEditor, false)
+        compare(app.showRestore, false)
+        mouseClick(dialog.standardButton(Dialog.Close))
+        tryCompare(dialog, "opened", false)
+    }
+
+    function test_menuDocumentationLinks_data() {
+        return [
+            { tag: "manual", button: "userManualButton", label: "User manual", file: "MANUAL.md" },
+            { tag: "technical", button: "technicalNotesButton", label: "Technical notes", file: "TECHNICAL.md" }
+        ]
+    }
+
+    function test_menuDocumentationLinks(data) {
+        dashboardBrowser.openDocumentation("")
+        mouseClick(control("backupSetsMenuButton"))
+        const menu = control("backupSetsMenu")
+        tryCompare(menu, "opened", true)
+        const button = control(data.button)
+        compare(button.text, data.label)
+        verify(button.enabled)
+        mouseClick(button)
+        compare(dashboardBrowser.openedDocumentationUrl(), "https://github.com/jcergolj/omacustos/blob/master/" + data.file)
+        tryCompare(menu, "opened", false)
+        compare(app.showEditor, false)
+        compare(app.showRestore, false)
     }
 
     function test_editLoadsTheMenuTarget() {

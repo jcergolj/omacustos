@@ -1,4 +1,5 @@
 #include <QGuiApplication>
+#include <QDesktopServices>
 #include <QFile>
 #include <QDir>
 #include <QPalette>
@@ -25,9 +26,20 @@ public:
         QStandardPaths::setTestModeEnabled(true);
     }
 
+    Q_INVOKABLE QString openedDocumentationUrl() const
+    {
+        return documentationUrl.toString();
+    }
+
 public slots:
+    void openDocumentation(const QUrl &url)
+    {
+        documentationUrl = url;
+    }
+
     void applicationAvailable()
     {
+        QDesktopServices::setUrlHandler(QStringLiteral("https"), this, "openDocumentation");
         QPalette darkPalette;
         darkPalette.setColor(QPalette::Window, QColor("#12161c"));
         darkPalette.setColor(QPalette::WindowText, Qt::white);
@@ -36,6 +48,7 @@ public slots:
 
     void qmlEngineAvailable(QQmlEngine *engine)
     {
+        engine->rootContext()->setContextProperty(QStringLiteral("dashboardBrowser"), this);
         const QString importPath = home.filePath(QStringLiteral("imported sets.json"));
         const QString invalidPath = home.filePath(QStringLiteral("invalid sets.json"));
         for (const QString &path : {importPath, invalidPath}) {
@@ -67,6 +80,7 @@ public slots:
     }
 
 private:
+    QUrl documentationUrl;
     QTemporaryDir home;
 };
 

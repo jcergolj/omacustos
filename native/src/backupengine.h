@@ -32,6 +32,7 @@ struct BackupOptions {
     std::function<bool()> stopped;
     bool retainLocalManifest = true;
     std::function<bool(const QString &, QString *)> stagingReady;
+    QStringList inclusions;
 };
 
 struct BackupRestoreRequest {
@@ -60,8 +61,8 @@ public:
 
     Q_INVOKABLE bool validateSelection(const QString &sourceDirectory, QString *error = nullptr) const;
     Q_INVOKABLE QStringList selectableFiles(const QString &sourceDirectory) const;
-    Q_INVOKABLE QStringList selectableFiles(const QStringList &sourceDirectories, const QStringList &exclusions) const;
-    Q_INVOKABLE QVariantMap previewSelection(const QStringList &sourceDirectories, const QStringList &exclusions) const;
+    Q_INVOKABLE QStringList selectableFiles(const QStringList &sourceDirectories, const QStringList &exclusions, const QStringList &inclusions = {}) const;
+    Q_INVOKABLE QVariantMap previewSelection(const QStringList &sourceDirectories, const QStringList &exclusions, const QStringList &inclusions = {}) const;
     Q_INVOKABLE QString previewError(const QString &sourceDirectory) const;
     bool backup(const QString &sourceDirectory, const QString &remoteRoot, BackupProvider &provider, QString *manifestPath, QString *error = nullptr) const;
     bool backup(const QStringList &sourceDirectories, const QString &remoteRoot, const QStringList &exclusions, BackupProvider &provider, QString *manifestPath, QString *error = nullptr) const;
@@ -70,7 +71,7 @@ public:
     BackupRestoreResult restoreFiles(const BackupRestoreRequest &request, BackupProvider &provider,
         const std::function<void(int)> &reportProgress = {}) const;
 
-    BackupPreview preview(const QStringList &sourceDirectories, const QStringList &exclusions, const std::function<bool()> &cancelled = {}) const;
+    BackupPreview preview(const QStringList &sourceDirectories, const QStringList &exclusions, const std::function<bool()> &cancelled = {}, const QStringList &inclusions = {}) const;
 
 private:
     bool restoreEntry(const BackupEntry &entry, const QString &destinationDirectory, BackupProvider &provider,
@@ -79,5 +80,5 @@ private:
     bool backupBatches(const QStringList &sources, const QString &remoteRoot, const QStringList &exclusions,
         const BackupCopyMetadata &metadata, BackupProvider &provider, QString *manifestPath, QString *error,
         const std::function<void(const BackupProgress &)> &reportProgress, BackupResult *result, const BackupOptions &options) const;
-    BackupPreview scan(const QStringList &sourceDirectories, const QStringList &exclusions, bool reportExcluded, const std::function<bool()> &cancelled = {}) const;
+    BackupPreview scan(const QStringList &sourceDirectories, const QStringList &exclusions, bool reportExcluded, const std::function<bool()> &cancelled = {}, const QStringList &inclusions = {}) const;
 };

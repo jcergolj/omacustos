@@ -23,6 +23,8 @@ private slots:
     void rejectsIncompleteConfiguration();
     void rejectsDuplicateSetIdsAndInvalidSchedules();
     void rejectsNullOutput();
+    void rejectsMalformedInclusions_data();
+    void rejectsMalformedInclusions();
 };
 
 void BackupConfigTest::loadsLegacyConfigurationAndSavesModernSets_data()
@@ -30,6 +32,32 @@ void BackupConfigTest::loadsLegacyConfigurationAndSavesModernSets_data()
     QTest::addColumn<bool>("customBinary");
     QTest::newRow("default CLI") << false;
     QTest::newRow("configured CLI") << true;
+}
+
+void BackupConfigTest::rejectsMalformedInclusions_data()
+{
+    QTest::addColumn<QJsonValue>("rules");
+    QTest::newRow("string") << QJsonValue(".env");
+    QTest::newRow("null") << QJsonValue(QJsonValue::Null);
+    QTest::newRow("non-string entry") << QJsonValue(QJsonArray {".env", false});
+}
+
+void BackupConfigTest::rejectsMalformedInclusions()
+{
+    QFETCH(QJsonValue, rules);
+    QTemporaryDir directory;
+    BackupConfigStore store(directory.filePath("settings.json"));
+    QFile file(store.filePath());
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write(QJsonDocument(QJsonObject {{"sets", QJsonArray {QJsonObject {
+        {"id", "env"}, {"name", "Env"}, {"remote_root", "/backups"},
+        {"source_directories", QJsonArray {"/safe/projects"}}, {"inclusions", rules},
+    }}}}).toJson());
+    file.close();
+    BackupConfig config;
+    QString error;
+    QVERIFY(!store.load(&config, &error));
+    QVERIFY(!error.isEmpty());
 }
 
 void BackupConfigTest::loadsLegacyConfigurationAndSavesModernSets()
@@ -61,6 +89,7 @@ void BackupConfigTest::loadsLegacyConfigurationAndSavesModernSets()
     QCOMPARE(actual.sets.first().retention, 3);
     QVERIFY(!actual.sets.first().onlyOnAcPower);
     QVERIFY(actual.sets.first().exclusions.isEmpty());
+    QVERIFY(actual.sets.first().inclusions.isEmpty());
 
     QVERIFY(store.save(actual));
     QVERIFY(file.open(QIODevice::ReadOnly));
@@ -149,6 +178,7 @@ void BackupConfigTest::savesAndLoadsIndependentSets()
     expected.sets[0].schedule = {QStringLiteral("monthly"), 8, 45, 2, 31};
     expected.sets[0].retention = 5;
     expected.sets[0].onlyOnAcPower = true;
+    expected.sets[0].inclusions = {".env", "config", "project/.env*"};
 
     QVERIFY(store.save(expected));
     BackupConfig actual;
@@ -159,6 +189,7 @@ void BackupConfigTest::savesAndLoadsIndependentSets()
     QCOMPARE(actual.sets.at(0).name, QStringLiteral("Documents"));
     QCOMPARE(actual.sets.at(0).sourceDirectories, expected.sets.at(0).sourceDirectories);
     QCOMPARE(actual.sets.at(0).exclusions, expected.sets.at(0).exclusions);
+    QCOMPARE(actual.sets.at(0).inclusions, expected.sets.at(0).inclusions);
     QCOMPARE(actual.sets.at(0).schedule.frequency, QStringLiteral("monthly"));
     QCOMPARE(actual.sets.at(0).schedule.hour, 8);
     QCOMPARE(actual.sets.at(0).schedule.minute, 45);

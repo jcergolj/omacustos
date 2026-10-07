@@ -58,6 +58,7 @@ QtObject {
         property string currentRemoteRoot: "/backups/" + currentId
         property var currentSources: ["/safe/" + currentId]
         property var currentExclusions: []
+        property var currentInclusions: []
         property string currentScheduleFrequency: "disabled"
         property int currentScheduleHour: 2
         property int currentScheduleMinute: 0
@@ -142,6 +143,7 @@ QtObject {
             currentSources = draft.sources.map(function (path) { return path.trim() })
                 .filter(function (path) { return path.length > 0 })
             currentExclusions = draft.exclusions
+            currentInclusions = draft.inclusions
             currentScheduleFrequency = draft.scheduleFrequency
             currentScheduleHour = draft.scheduleHour
             currentScheduleMinute = draft.scheduleMinute

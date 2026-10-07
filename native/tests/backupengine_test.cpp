@@ -63,6 +63,10 @@ class BackupEngineTest final : public QObject
     Q_OBJECT
 
 private slots:
+    void filtersParentFolderContents_data();
+    void filtersParentFolderContents();
+    void filteredBackupsPreserveLayoutAndRescan_data();
+    void filteredBackupsPreserveLayoutAndRescan();
     void rejectsMissingSource();
     void rejectsUnsafeRemoteRoot();
     void listsRegularFilesAndSkipsSymlinks();
@@ -102,6 +106,134 @@ private slots:
     void lateStopAfterFinalRestoreCommitReportsSuccess_data();
     void lateStopAfterFinalRestoreCommitReportsSuccess();
 };
+
+void BackupEngineTest::filtersParentFolderContents_data()
+{
+    QTest::addColumn<QStringList>("rules");
+    QTest::addColumn<QStringList>("expected");
+    const QStringList all {".env", ".env.local", "README", "app/.env", "app/config/settings.json",
+        "app/config/nested/secret", "other/.env", "other/config/settings.json", "vendor/.env"};
+    QTest::newRow("empty preserves full backup") << QStringList {} << all;
+    QTest::newRow("blank preserves full backup") << QStringList {" ", ""} << all;
+    QTest::newRow("env at every depth") << QStringList {".env"}
+        << QStringList {".env", "app/.env", "other/.env", "vendor/.env"};
+    QTest::newRow("env variants") << QStringList {" .env* "}
+        << QStringList {".env", ".env.local", "app/.env", "other/.env", "vendor/.env"};
+    QTest::newRow("folder names include descendants") << QStringList {"config"}
+        << QStringList {"app/config/settings.json", "app/config/nested/secret", "other/config/settings.json"};
+    QTest::newRow("relative file") << QStringList {"app/.env"} << QStringList {"app/.env"};
+    QTest::newRow("relative folder") << QStringList {"app/config/"}
+        << QStringList {"app/config/settings.json", "app/config/nested/secret"};
+    QTest::newRow("absolute file") << QStringList {"ABS:app/.env"} << QStringList {"app/.env"};
+    QTest::newRow("absolute folder") << QStringList {"ABS:app/config"}
+        << QStringList {"app/config/settings.json", "app/config/nested/secret"};
+    QTest::newRow("path wildcard only one level") << QStringList {"*/.env"}
+        << QStringList {"app/.env", "other/.env", "vendor/.env"};
+    QTest::newRow("alternatives deduplicate") << QStringList {".env", "app", "app/.env"}
+        << QStringList {".env", "app/.env", "app/config/settings.json", "app/config/nested/secret", "other/.env", "vendor/.env"};
+    QTest::newRow("case sensitive") << QStringList {".ENV"} << QStringList {};
+    QTest::newRow("no matches") << QStringList {"not-present"} << QStringList {};
+    QTest::newRow("selected root folder name") << QStringList {"source"} << all;
+}
+
+void BackupEngineTest::filtersParentFolderContents()
+{
+    QFETCH(QStringList, rules);
+    QFETCH(QStringList, expected);
+    QTemporaryDir directory;
+    const QString root = directory.filePath("source");
+    const QStringList all {".env", ".env.local", "README", "app/.env", "app/config/settings.json",
+        "app/config/nested/secret", "other/.env", "other/config/settings.json", "vendor/.env"};
+    for (const QString &name : all) {
+        const QString path = QDir(root).filePath(name);
+        QVERIFY(QDir().mkpath(QFileInfo(path).path()));
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QCOMPARE(file.write("data"), qint64(4));
+    }
+    for (QString &rule : rules) if (rule.startsWith("ABS:")) rule = QDir(root).filePath(rule.mid(4));
+    for (QString &path : expected) path = QDir(root).filePath(path);
+    expected.sort();
+    BackupEngine engine;
+    const auto preview = engine.preview({root}, {}, {}, rules);
+    QCOMPARE(preview.includedFiles, expected);
+    QCOMPARE(preview.totalBytes, qint64(4 * expected.size()));
+    QCOMPARE(preview.excludedFiles.size(), all.size() - expected.size());
+    QVERIFY(preview.missingPaths.isEmpty());
+    QVERIFY(preview.skippedPaths.isEmpty());
+    QCOMPARE(engine.selectableFiles({root}, {}, rules), expected);
+
+    const auto envOnly = engine.preview({root}, {"vendor", QDir(root).filePath("other/.env")}, {}, {".env"});
+    QCOMPARE(envOnly.includedFiles, (QStringList {QDir(root).filePath(".env"), QDir(root).filePath("app/.env")}));
+    // Explicit file sources use the same filter; overlapping roots still count once.
+    QCOMPARE(engine.preview({QDir(root).filePath(".env"), QDir(root).filePath("README")}, {}, {}, {".env"}).includedFiles,
+        QStringList {QDir(root).filePath(".env")});
+    const auto overlapping = engine.preview({root, QDir(root).filePath("app")}, {}, {}, {"app/.env"});
+    QCOMPARE(overlapping.includedFiles, QStringList {QDir(root).filePath("app/.env")});
+    QVERIFY(!overlapping.excludedFiles.contains(QDir(root).filePath("app/.env")));
+    QVERIFY(QFile::link(QDir(root).filePath(".env"), QDir(root).filePath("app/.env.link")));
+    QVERIFY(QFile::link(QDir(root).filePath("app"), QDir(root).filePath("linked-folder")));
+    const auto links = engine.preview({root}, {}, {}, {".env*"});
+    QCOMPARE(links.skippedPaths, QStringList {QDir(root).filePath("app/.env.link")});
+    QVERIFY(links.excludedFiles.contains(QDir(root).filePath("linked-folder")));
+}
+
+void BackupEngineTest::filteredBackupsPreserveLayoutAndRescan_data()
+{
+    QTest::addColumn<int>("format");
+    QTest::newRow("legacy execution") << 0;
+    QTest::newRow("bounded individual files") << 2;
+    QTest::newRow("bounded archives") << 3;
+}
+
+void BackupEngineTest::filteredBackupsPreserveLayoutAndRescan()
+{
+    QFETCH(int, format);
+    QTemporaryDir directory(QDir::current().filePath("filtered-backup-XXXXXX"));
+    QVERIFY(directory.isValid());
+    const QString root = directory.filePath("source");
+    QVERIFY(QDir().mkpath(QDir(root).filePath("app")));
+    for (const QString &name : {QString(".env"), QString("app/.env"), QString("app/README")}) {
+        QFile file(QDir(root).filePath(name));
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QCOMPARE(file.write("secret"), qint64(6));
+    }
+    QVERIFY(QDir().mkpath(directory.filePath("remote")));
+    LocalProvider provider(directory.filePath("remote"));
+    BackupEngine engine;
+    BackupOptions options;
+    options.freshCopy = format != 0;
+    options.boundedArchives = format == 3;
+    options.stagingDirectory = directory.filePath("stage");
+    options.stagingBudget = 200000;
+    if (format != 0) options.continuationDirectory = directory.filePath("journal");
+    options.inclusions = {".env"};
+    const BackupCopyMetadata metadata {"computer", "env", "Env", "copy", QDateTime::currentDateTimeUtc()};
+    QString manifest, error;
+    BackupResult outcome;
+    QVERIFY2(engine.backup({root}, "copies/copy", {}, metadata, provider, &manifest, &error, {}, &outcome, options), qPrintable(error));
+    QCOMPARE(outcome.verifiedFiles, 2);
+    QVERIFY(outcome.issues.isEmpty());
+    QVector<BackupEntry> entries;
+    QVERIFY2(BackupManifest::load(manifest, &entries, &error), qPrintable(error));
+    QCOMPARE(entries.size(), 2);
+    QStringList restored;
+    for (const auto &entry : entries) {
+        QVERIFY(entry.sourcePath.endsWith(".env"));
+        QVERIFY2(engine.restoreFile(entry, directory.filePath("destination"), provider, &error), qPrintable(error));
+        restored.append(entry.restorePath);
+        QFile file(QDir(directory.filePath("destination")).filePath(entry.restorePath));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QCOMPARE(file.readAll(), QByteArray("secret"));
+    }
+    QVERIFY(std::any_of(restored.cbegin(), restored.cend(), [](const QString &path) { return path.endsWith("app/.env"); }));
+    // A resumed/repeated namespace must finalize only the newly filtered selection.
+    options.inclusions = {"app/.env"};
+    QVERIFY2(engine.backup({root}, "copies/copy", {}, metadata, provider, &manifest, &error, {}, &outcome, options), qPrintable(error));
+    QVERIFY2(BackupManifest::load(manifest, &entries, &error), qPrintable(error));
+    QCOMPARE(entries.size(), 1);
+    QCOMPARE(entries.first().sourcePath, QDir(root).filePath("app/.env"));
+}
 
 void BackupEngineTest::lateStopAfterFinalRestoreCommitReportsSuccess_data()
 {

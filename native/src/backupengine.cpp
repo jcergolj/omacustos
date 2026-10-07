@@ -9,6 +9,7 @@
 #include <QFileInfo>
 #include <QDirIterator>
 #include <QHash>
+#include <QRegularExpression>
 #include <QSet>
 #include <QSaveFile>
 #include <QStandardPaths>
@@ -77,6 +78,46 @@ bool isExcluded(const QFileInfo &file, const ExclusionRules &rules)
             ? path.startsWith('/') : path.startsWith(root + QDir::separator()));
     });
 }
+
+// Names match at every depth; paths are absolute or relative to each selected
+// folder. Matching an ancestor folder includes its contents, never following links.
+struct InclusionRules {
+    struct Rule {
+        QRegularExpression pattern;
+        bool name;
+        bool absolute;
+    };
+    QVector<Rule> rules;
+
+    explicit InclusionRules(const QStringList &inclusions)
+    {
+        for (const QString &inclusion : inclusions) {
+            if (inclusion.trimmed().isEmpty()) continue;
+            const QString rule = QDir::cleanPath(inclusion.trimmed());
+            rules.append({QRegularExpression(QRegularExpression::wildcardToRegularExpression(rule)),
+                !rule.contains('/'), QDir::isAbsolutePath(rule)});
+        }
+    }
+
+    bool matches(const QFileInfo &file, const QFileInfo &source) const
+    {
+        if (rules.isEmpty()) return true;
+        const QString root = QDir::cleanPath(source.absoluteFilePath());
+        const QDir base(source.isDir() ? root : source.absolutePath());
+        QString path = QDir::cleanPath(file.absoluteFilePath());
+        for (;;) {
+            for (const Rule &rule : rules) {
+                const QString candidate = rule.absolute ? path
+                    : rule.name ? QFileInfo(path).fileName() : base.relativeFilePath(path);
+                if (rule.pattern.match(candidate).hasMatch()) return true;
+            }
+            if (path == root) return false;
+            const QString parent = QFileInfo(path).absolutePath();
+            if (parent == path) return false;
+            path = parent;
+        }
+    }
+};
 
 QString remoteSegment(QString value)
 {
@@ -213,14 +254,14 @@ QStringList BackupEngine::selectableFiles(const QString &sourceDirectory) const
     return selectableFiles(QStringList {sourceDirectory}, {});
 }
 
-QStringList BackupEngine::selectableFiles(const QStringList &sourceDirectories, const QStringList &exclusions) const
+QStringList BackupEngine::selectableFiles(const QStringList &sourceDirectories, const QStringList &exclusions, const QStringList &inclusions) const
 {
-    return preview(sourceDirectories, exclusions).includedFiles;
+    return preview(sourceDirectories, exclusions, {}, inclusions).includedFiles;
 }
 
-QVariantMap BackupEngine::previewSelection(const QStringList &sourceDirectories, const QStringList &exclusions) const
+QVariantMap BackupEngine::previewSelection(const QStringList &sourceDirectories, const QStringList &exclusions, const QStringList &inclusions) const
 {
-    const BackupPreview result = preview(sourceDirectories, exclusions);
+    const BackupPreview result = preview(sourceDirectories, exclusions, {}, inclusions);
 
     return {
         {QStringLiteral("included"), result.includedFiles},
@@ -231,14 +272,15 @@ QVariantMap BackupEngine::previewSelection(const QStringList &sourceDirectories,
     };
 }
 
-BackupPreview BackupEngine::preview(const QStringList &sourceDirectories, const QStringList &exclusions, const std::function<bool()> &cancelled) const
+BackupPreview BackupEngine::preview(const QStringList &sourceDirectories, const QStringList &exclusions, const std::function<bool()> &cancelled, const QStringList &inclusions) const
 {
-    return scan(sourceDirectories, exclusions, true, cancelled);
+    return scan(sourceDirectories, exclusions, true, cancelled, inclusions);
 }
 
-BackupPreview BackupEngine::scan(const QStringList &sourceDirectories, const QStringList &exclusions, bool reportExcluded, const std::function<bool()> &cancelled) const
+BackupPreview BackupEngine::scan(const QStringList &sourceDirectories, const QStringList &exclusions, bool reportExcluded, const std::function<bool()> &cancelled, const QStringList &inclusions) const
 {
     const ExclusionRules rules(exclusions);
+    const InclusionRules includeRules(inclusions);
     BackupPreview result;
     QSet<QString> included;
     QStringList excluded;
@@ -258,7 +300,8 @@ BackupPreview BackupEngine::scan(const QStringList &sourceDirectories, const QSt
             missing.append(source.absoluteFilePath());
             continue;
         }
-        if (isExcluded(source, rules)) {
+        if (isExcluded(source, rules)
+            || ((!source.isDir() || source.isSymLink()) && !includeRules.matches(source, source))) {
             excluded.append(source.absoluteFilePath());
             continue;
         }
@@ -290,6 +333,8 @@ BackupPreview BackupEngine::scan(const QStringList &sourceDirectories, const QSt
                     if (file.isFile() || file.isSymLink()) {
                         excluded.append(path);
                     }
+                } else if ((!file.isDir() || file.isSymLink()) && !includeRules.matches(file, source)) {
+                    if (reportExcluded) excluded.append(path);
                 } else if (file.isSymLink()) {
                     skipped.append(path);
                 } else if (file.isDir() && !file.isReadable()) {
@@ -306,6 +351,10 @@ BackupPreview BackupEngine::scan(const QStringList &sourceDirectories, const QSt
     }
 
     if (cancelled && cancelled()) return {};
+    // Relative rules can match through one overlapping root but not another.
+    excluded.erase(std::remove_if(excluded.begin(), excluded.end(), [&](const QString &path) {
+        return included.contains(path);
+    }), excluded.end());
     excluded.removeDuplicates();
     skipped.removeDuplicates();
     missing.removeDuplicates();
@@ -366,7 +415,7 @@ bool BackupEngine::backup(const QStringList &sourceDirectories, const QString &r
         return false;
     }
 
-    const BackupPreview selection = scan(sourceDirectories, exclusions, false);
+    const BackupPreview selection = scan(sourceDirectories, exclusions, false, {}, options.inclusions);
     for (const QString &path : selection.missingPaths) {
         outcome.issues.append({path, QStringLiteral("selection"), QStringLiteral("The source path does not exist.")});
     }

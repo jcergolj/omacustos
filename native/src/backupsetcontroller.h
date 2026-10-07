@@ -25,6 +25,7 @@ class BackupSetController final : public QObject
     Q_PROPERTY(QString currentRemoteRoot READ currentRemoteRoot WRITE setCurrentRemoteRoot NOTIFY currentSetChanged)
     Q_PROPERTY(QStringList currentSources READ currentSources WRITE setCurrentSources NOTIFY currentSetChanged)
     Q_PROPERTY(QStringList currentExclusions READ currentExclusions WRITE setCurrentExclusions NOTIFY currentSetChanged)
+    Q_PROPERTY(QStringList currentInclusions READ currentInclusions WRITE setCurrentInclusions NOTIFY currentSetChanged)
     Q_PROPERTY(QString currentScheduleFrequency READ currentScheduleFrequency WRITE setCurrentScheduleFrequency NOTIFY currentSetChanged)
     Q_PROPERTY(int currentScheduleHour READ currentScheduleHour WRITE setCurrentScheduleHour NOTIFY currentSetChanged)
     Q_PROPERTY(int currentScheduleMinute READ currentScheduleMinute WRITE setCurrentScheduleMinute NOTIFY currentSetChanged)
@@ -74,6 +75,8 @@ public:
     void setCurrentSources(const QStringList &sources);
     QStringList currentExclusions() const;
     void setCurrentExclusions(const QStringList &exclusions);
+    QStringList currentInclusions() const;
+    void setCurrentInclusions(const QStringList &inclusions);
     QString currentScheduleFrequency() const;
     void setCurrentScheduleFrequency(const QString &frequency);
     int currentScheduleHour() const;
@@ -174,6 +177,7 @@ private:
     quint64 activePreviewGeneration = 0;
     QStringList pendingSources;
     QStringList pendingExclusions;
+    QStringList pendingInclusions;
     QFutureWatcher<BackupPreview> previewWatcher;
     std::shared_ptr<std::atomic_bool> previewCancelled;
     QTimer stateTimer;

@@ -255,6 +255,22 @@ void BackupSetController::setCurrentExclusions(const QStringList &exclusions)
     }
 }
 
+QStringList BackupSetController::currentInclusions() const
+{
+    const BackupSet *set = currentSet();
+    return set == nullptr ? QStringList() : set->inclusions;
+}
+
+void BackupSetController::setCurrentInclusions(const QStringList &inclusions)
+{
+    if (BackupSet *set = currentSet()) {
+        if (set->inclusions == inclusions) return;
+        set->inclusions = inclusions;
+        clearPreview();
+        emit currentSetChanged();
+    }
+}
+
 QString BackupSetController::currentScheduleFrequency() const
 {
     const BackupSet *set = currentSet();
@@ -680,6 +696,7 @@ void BackupSetController::applyCurrentDraft(const QVariantMap &draft)
     candidate.remoteRoot = draft.value(QStringLiteral("remoteRoot")).toString();
     candidate.sourceDirectories = draftPaths(draft.value(QStringLiteral("sources")));
     candidate.exclusions = draftPaths(draft.value(QStringLiteral("exclusions")));
+    if (draft.contains("inclusions")) candidate.inclusions = draftPaths(draft.value("inclusions"));
     candidate.schedule.frequency = draft.value(QStringLiteral("scheduleFrequency")).toString();
     candidate.schedule.hour = qBound(0, draft.value(QStringLiteral("scheduleHour")).toInt(), 23);
     candidate.schedule.minute = qBound(0, draft.value(QStringLiteral("scheduleMinute")).toInt(), 59);
@@ -692,7 +709,7 @@ void BackupSetController::applyCurrentDraft(const QVariantMap &draft)
 
     const bool nameChanged = candidate.name != set->name;
     const bool previewInputsChanged = candidate.sourceDirectories != set->sourceDirectories
-        || candidate.exclusions != set->exclusions;
+        || candidate.exclusions != set->exclusions || candidate.inclusions != set->inclusions;
     if (!nameChanged && !previewInputsChanged && candidate.remoteRoot == set->remoteRoot
         && candidate.schedule.frequency == set->schedule.frequency
         && candidate.schedule.hour == set->schedule.hour
@@ -723,6 +740,7 @@ void BackupSetController::preview()
 
     pendingSources = set->sourceDirectories;
     pendingExclusions = set->exclusions;
+    pendingInclusions = set->inclusions;
     if (previewCancelled) previewCancelled->store(true);
     ++previewGeneration;
     if (!previewWorking) {
@@ -738,11 +756,12 @@ void BackupSetController::startPreview()
     scanInFlight = true;
     const auto sources = pendingSources;
     const auto exclusions = pendingExclusions;
+    const auto inclusions = pendingInclusions;
     BackupEngine *worker = &engine;
     previewCancelled = std::make_shared<std::atomic_bool>(false);
     const auto cancelled = previewCancelled;
-    previewWatcher.setFuture(QtConcurrent::run([worker, sources, exclusions, cancelled] {
-        return worker->preview(sources, exclusions, [cancelled] { return cancelled->load(); });
+    previewWatcher.setFuture(QtConcurrent::run([worker, sources, exclusions, inclusions, cancelled] {
+        return worker->preview(sources, exclusions, [cancelled] { return cancelled->load(); }, inclusions);
     }));
 }
 

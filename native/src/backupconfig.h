@@ -17,6 +17,7 @@ struct BackupSet {
     bool onlyOnAcPower = false;
     QString stagingDirectory;
     qint64 stagingBudget = 1000 * 1000 * 1000;
+    QStringList inclusions;
 
     QString remoteFolder(const QString &computerName) const;
 };
