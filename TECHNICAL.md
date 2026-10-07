@@ -563,7 +563,7 @@ the entry list so returning to another backup can rebuild its folder state befor
 the controller publishes refreshed entries. Cached selection does not change the
 controller's restore-eligibility gate.
 
-Source preview scans run asynchronously against captured source/exclusion lists.
+Source preview scans run asynchronously against captured source/inclusion/exclusion lists.
 Selection/input changes invalidate obsolete results, and repeated requests coalesce
 to the latest pending scan. Loading feedback distinguishes the previous preview
 from the pending result. Superseded scans and controller shutdown cancel traversal

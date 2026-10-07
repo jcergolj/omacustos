@@ -7,6 +7,8 @@
 #include <QSaveFile>
 #include <QScopeGuard>
 
+#include <algorithm>
+
 #include "../src/backupengine.h"
 #include "../src/backupmanifest.h"
 #include "../src/backupcontinuation.h"
@@ -111,14 +113,15 @@ void BackupEngineTest::filtersParentFolderContents_data()
 {
     QTest::addColumn<QStringList>("rules");
     QTest::addColumn<QStringList>("expected");
-    const QStringList all {".env", ".env.local", "README", "app/.env", "app/config/settings.json",
+    const QStringList all {".env", ".env.local", "README", "app/.env", "app/deep/.env", "app/config/settings.json",
         "app/config/nested/secret", "other/.env", "other/config/settings.json", "vendor/.env"};
     QTest::newRow("empty preserves full backup") << QStringList {} << all;
     QTest::newRow("blank preserves full backup") << QStringList {" ", ""} << all;
     QTest::newRow("env at every depth") << QStringList {".env"}
-        << QStringList {".env", "app/.env", "other/.env", "vendor/.env"};
+        << QStringList {".env", "app/.env", "app/deep/.env", "other/.env", "vendor/.env"};
     QTest::newRow("env variants") << QStringList {" .env* "}
-        << QStringList {".env", ".env.local", "app/.env", "other/.env", "vendor/.env"};
+        << QStringList {".env", ".env.local", "app/.env", "app/deep/.env", "other/.env", "vendor/.env"};
+    QTest::newRow("single-character wildcard") << QStringList {".env.loca?"} << QStringList {".env.local"};
     QTest::newRow("folder names include descendants") << QStringList {"config"}
         << QStringList {"app/config/settings.json", "app/config/nested/secret", "other/config/settings.json"};
     QTest::newRow("relative file") << QStringList {"app/.env"} << QStringList {"app/.env"};
@@ -130,7 +133,7 @@ void BackupEngineTest::filtersParentFolderContents_data()
     QTest::newRow("path wildcard only one level") << QStringList {"*/.env"}
         << QStringList {"app/.env", "other/.env", "vendor/.env"};
     QTest::newRow("alternatives deduplicate") << QStringList {".env", "app", "app/.env"}
-        << QStringList {".env", "app/.env", "app/config/settings.json", "app/config/nested/secret", "other/.env", "vendor/.env"};
+        << QStringList {".env", "app/.env", "app/deep/.env", "app/config/settings.json", "app/config/nested/secret", "other/.env", "vendor/.env"};
     QTest::newRow("case sensitive") << QStringList {".ENV"} << QStringList {};
     QTest::newRow("no matches") << QStringList {"not-present"} << QStringList {};
     QTest::newRow("selected root folder name") << QStringList {"source"} << all;
@@ -142,7 +145,7 @@ void BackupEngineTest::filtersParentFolderContents()
     QFETCH(QStringList, expected);
     QTemporaryDir directory;
     const QString root = directory.filePath("source");
-    const QStringList all {".env", ".env.local", "README", "app/.env", "app/config/settings.json",
+    const QStringList all {".env", ".env.local", "README", "app/.env", "app/deep/.env", "app/config/settings.json",
         "app/config/nested/secret", "other/.env", "other/config/settings.json", "vendor/.env"};
     for (const QString &name : all) {
         const QString path = QDir(root).filePath(name);
@@ -164,7 +167,7 @@ void BackupEngineTest::filtersParentFolderContents()
     QCOMPARE(engine.selectableFiles({root}, {}, rules), expected);
 
     const auto envOnly = engine.preview({root}, {"vendor", QDir(root).filePath("other/.env")}, {}, {".env"});
-    QCOMPARE(envOnly.includedFiles, (QStringList {QDir(root).filePath(".env"), QDir(root).filePath("app/.env")}));
+    QCOMPARE(envOnly.includedFiles, (QStringList {QDir(root).filePath(".env"), QDir(root).filePath("app/.env"), QDir(root).filePath("app/deep/.env")}));
     // Explicit file sources use the same filter; overlapping roots still count once.
     QCOMPARE(engine.preview({QDir(root).filePath(".env"), QDir(root).filePath("README")}, {}, {}, {".env"}).includedFiles,
         QStringList {QDir(root).filePath(".env")});
@@ -233,6 +236,10 @@ void BackupEngineTest::filteredBackupsPreserveLayoutAndRescan()
     QVERIFY2(BackupManifest::load(manifest, &entries, &error), qPrintable(error));
     QCOMPARE(entries.size(), 1);
     QCOMPARE(entries.first().sourcePath, QDir(root).filePath("app/.env"));
+    options.inclusions = {"no-matching-files"};
+    QVERIFY(!engine.backup({root}, "copies/empty", {}, metadata, provider, &manifest, &error, {}, &outcome, options));
+    QVERIFY(!outcome.manifestVerified);
+    QVERIFY(!error.isEmpty());
 }
 
 void BackupEngineTest::lateStopAfterFinalRestoreCommitReportsSuccess_data()

@@ -194,7 +194,7 @@ after success, Incomplete, failure, or cancellation uses archives.
 
 - **Pause** stops the current transfer and releases temporary payloads while
   preserving verified progress. The scheduler respects Pause until you press Resume.
-- **Resume** re-scans sources and exclusions and continues the same remote copy.
+- **Resume** re-scans sources, include-only rules, and exclusions and continues the same remote copy.
   New/changed files are included; deleted/excluded files are omitted from the final
   manifest. Reuse requires matching local content and fresh remote verification.
   Size-only remote metadata may require a verification download.

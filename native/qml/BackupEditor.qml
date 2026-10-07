@@ -326,6 +326,8 @@ ScrollView {
         Label {
             text: qsTr("Leave blank to back up everything in your sources. Enter names or paths, one per line: .env matches at every depth; .env* also matches .env.local. Matching folders include their contents. Exclusions take priority.")
             font.pixelSize: editor.style.metadataTypeSize
+            lineHeight: editor.style.bodyLeading
+            lineHeightMode: Text.ProportionalHeight
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
         }
