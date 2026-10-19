@@ -12,6 +12,7 @@
 #include "../src/backupengine.h"
 #include "../src/backupmanifest.h"
 #include "../src/backupcontinuation.h"
+#include "../src/backupcatalog.h"
 #include "../src/localprovider.h"
 
 class FailingProvider final : public BackupProvider
@@ -91,6 +92,8 @@ private slots:
     void excludesMatchingFolderNamesAtEveryDepth();
     void absoluteExclusionDoesNotExcludeSameNamedFoldersElsewhere();
     void backsUpMultipleSourcesWithoutCollisions();
+    void sourcePrefixCollisionsRemainRestorable_data();
+    void sourcePrefixCollisionsRemainRestorable();
     void preservesVerifiedItemsInAnIncompleteCopy();
     void retriesOnlyReuseMatchingChecksummedPayloads_data();
     void retriesOnlyReuseMatchingChecksummedPayloads();
@@ -1027,6 +1030,77 @@ void BackupEngineTest::backsUpMultipleSourcesWithoutCollisions()
     QVERIFY(entries.at(0).remotePath != entries.at(1).remotePath);
     QVERIFY(QFileInfo::exists(remote.filePath(entries.at(0).remotePath)));
     QVERIFY(QFileInfo::exists(remote.filePath(entries.at(1).remotePath)));
+}
+
+void BackupEngineTest::sourcePrefixCollisionsRemainRestorable_data()
+{
+    QTest::addColumn<int>("format");
+    QTest::addColumn<QStringList>("roots");
+    for (int format : {0, 2, 3}) {
+        QTest::newRow(qPrintable(QString("suffix collision format %1").arg(format)))
+            << format << QStringList {"a/project", "b/project", "c/project-2"};
+        QTest::newRow(qPrintable(QString("sanitized collision format %1").arg(format)))
+            << format << QStringList {"a/project?", "b/project*", "c/project_-2"};
+        QTest::newRow(qPrintable(QString("suffix chain format %1").arg(format)))
+            << format << QStringList {"a/project", "b/project", "c/project-2", "d/project-3", "e/project", "f/project-2"};
+        QTest::newRow(qPrintable(QString("reserved prefix first format %1").arg(format)))
+            << format << QStringList {"c/project-2", "a/project", "b/project"};
+    }
+}
+
+void BackupEngineTest::sourcePrefixCollisionsRemainRestorable()
+{
+    QFETCH(int, format);
+    QFETCH(QStringList, roots);
+    QTemporaryDir directory(QDir::current().filePath("source-prefix-XXXXXX"));
+    QVERIFY(directory.isValid());
+    QStringList sources;
+    for (const QString &root : roots) {
+        const QString source = directory.filePath(root);
+        QVERIFY(QDir().mkpath(source));
+        QFile file(QDir(source).filePath("README.md"));
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QCOMPARE(file.write(root.toUtf8()), qint64(root.toUtf8().size()));
+        sources.append(source);
+    }
+    QVERIFY(QDir().mkpath(directory.filePath("remote")));
+    LocalProvider provider(directory.filePath("remote"));
+    BackupEngine engine;
+    BackupOptions options;
+    options.freshCopy = format != 0;
+    options.boundedArchives = format == 3;
+    options.stagingDirectory = directory.filePath("stage");
+    options.stagingBudget = 200000;
+    if (format != 0) options.continuationDirectory = directory.filePath("journal");
+    const BackupCopyMetadata metadata {"computer", "set", "Set", "copy", QDateTime::currentDateTimeUtc()};
+    QString manifest, error;
+    const auto cleanup = qScopeGuard([&] {
+        if (!manifest.isEmpty()) QDir(QFileInfo(manifest).path()).removeRecursively();
+    });
+    BackupResult outcome;
+    QVERIFY2(engine.backup(sources, "copies/copy", {}, metadata, provider, &manifest, &error, {}, &outcome, options), qPrintable(error));
+    QVERIFY(outcome.manifestVerified);
+    QVector<BackupEntry> entries;
+    QVERIFY2(BackupManifest::load(manifest, &entries, &error), qPrintable(error));
+    QCOMPARE(entries.size(), roots.size());
+    QSet<QString> identities;
+    for (const auto &entry : entries) identities.insert(entry.restorePath);
+    QCOMPARE(identities.size(), roots.size());
+    RemoteCopy copy;
+    QVERIFY2(BackupCatalog::verifyCopy(provider, "copies/copy", "set", &copy, &error), qPrintable(error));
+    QVERIFY(copy.complete());
+    QCOMPARE(copy.entries.size(), roots.size());
+    for (const auto &entry : copy.entries) {
+        const int index = sources.indexOf(QFileInfo(entry.sourcePath).path());
+        QVERIFY(index >= 0);
+        const QString destination = directory.filePath("restore-" + QString::number(index));
+        const auto restored = engine.restoreFiles({{entry}, destination, "copies/copy"}, provider);
+        QVERIFY2(restored.success, qPrintable(restored.error));
+        QCOMPARE(restored.restoredCount, 1);
+        QFile file(QDir(destination).filePath(entry.restorePath));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QCOMPARE(file.readAll(), roots.at(index).toUtf8());
+    }
 }
 
 void BackupEngineTest::preservesVerifiedItemsInAnIncompleteCopy()

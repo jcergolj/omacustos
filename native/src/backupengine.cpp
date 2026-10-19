@@ -490,12 +490,19 @@ bool BackupEngine::backup(const QStringList &sourceDirectories, const QString &r
     for (const QString &sourceDirectory : sourceDirectories) {
         sourcePrefixes.append(remoteSegment(QFileInfo(sourceDirectory).fileName()));
     }
-    QHash<QString, int> prefixCounts;
+    // Reserve original (sanitized) names as well as generated ones, so a
+    // duplicate "project" cannot steal another root's "project-2" prefix.
+    const QSet<QString> reservedPrefixes(sourcePrefixes.cbegin(), sourcePrefixes.cend());
+    QSet<QString> allocatedPrefixes;
     for (QString &prefix : sourcePrefixes) {
-        const int count = ++prefixCounts[prefix];
-        if (count > 1) {
-            prefix += QStringLiteral("-") + QString::number(count);
+        const QString base = prefix;
+        int suffix = 2;
+        if (allocatedPrefixes.contains(prefix)) {
+            do {
+                prefix = base + QStringLiteral("-") + QString::number(suffix++);
+            } while (reservedPrefixes.contains(prefix) || allocatedPrefixes.contains(prefix));
         }
+        allocatedPrefixes.insert(prefix);
     }
 
     for (const QString &sourcePath : selection.includedFiles) {
