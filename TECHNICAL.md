@@ -655,5 +655,16 @@ ctest --test-dir build --output-on-failure
 The main binaries are `build/omacustos` and `build/omacustos-worker`. The Arch package
 recipe is in `pkgbuild/`.
 
+`dashboard-test` has a 180-second whole-suite CTest timeout. The offscreen UI
+correctness suite was observed to take about 82 seconds; the budget leaves
+headroom for slower runs while still terminating hangs. It is not an application
+responsiveness threshold.
+
+Validation for #54 on 2026-10-19 (Linux x86_64, Omarchy 4.0.5, Qt 6.12.0,
+GCC 16.2.1): the documented CTest command completed `dashboard-test` with 93
+passing cases in 86.60 seconds, using its configured offscreen/software/Fusion
+environment. Overall, 23 of 24 targets passed; the separate `workerrecovery-test`
+hit its unchanged 180-second timeout. That timeout is not addressed by #54.
+
 See [Responsiveness measurements](native/tests/responsiveness.md) for the opt-in
 on-screen benchmark, before/after results, and outstanding target-hardware checks.

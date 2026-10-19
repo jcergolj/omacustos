@@ -135,7 +135,9 @@ target_link_libraries(dashboard-test PRIVATE Qt6::QuickTest Qt6::QuickControls2 
 target_compile_definitions(dashboard-test PRIVATE QUICK_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests")
 add_test(NAME dashboard-test COMMAND dashboard-test)
 set_tests_properties(dashboard-test PROPERTIES
-    TIMEOUT 30
+    # Whole-suite correctness budget: allow headroom over the observed ~82 s run
+    # while retaining bounded hang detection (not a responsiveness threshold).
+    TIMEOUT 180
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software;QT_QUICK_CONTROLS_STYLE=Fusion;QT_QPA_PLATFORMTHEME=;QT_FORCE_STDERR_LOGGING=1"
 )
 
