@@ -79,6 +79,10 @@ private slots:
     void discardingUnsavedSetDoesNotWriteConfiguration_data();
     void discardingUnsavedSetDoesNotWriteConfiguration();
     void savedSetIsKeptWhenEditorIsCancelled();
+    void cancelledExistingDraftDoesNotLeakIntoLaterWrites_data();
+    void cancelledExistingDraftDoesNotLeakIntoLaterWrites();
+    void cancellingExistingDraftRestoresEditorState_data();
+    void cancellingExistingDraftRestoresEditorState();
     void mergingImportDoesNotSaveAnUnfinishedNewSet();
     void remainingTimeIsReportedForTheRunningSetOnly();
     void reportsVerifiedCountsAndFailureDetailsWithoutInventingLegacyCounts();
@@ -644,11 +648,166 @@ void BackupSetControllerTest::savedSetIsKeptWhenEditorIsCancelled()
     controller.setCurrentSources({"/safe/documents"});
     const QString id = controller.currentId();
     QVERIFY(controller.save());
+    controller.setCurrentName("Cancelled rename");
     controller.discardUnsavedSet();
     QCOMPARE(controller.setIds(), QStringList {id});
+    QCOMPARE(controller.currentName(), QString("Saved documents"));
     BackupSetController reopened(engine, settings);
     QCOMPARE(reopened.setIds(), QStringList {id});
     QCOMPARE(reopened.setNames(), QStringList {"Saved documents"});
+}
+
+void BackupSetControllerTest::cancelledExistingDraftDoesNotLeakIntoLaterWrites_data()
+{
+    QTest::addColumn<QString>("operation");
+    QTest::addColumn<bool>("failedSave");
+    for (const QString &operation : {QString("save"), QString("delete"), QString("merge")}) {
+        QTest::newRow(qPrintable(operation + " after preview")) << operation << false;
+        QTest::newRow(qPrintable(operation + " after failed save")) << operation << true;
+    }
+}
+
+void BackupSetControllerTest::cancelledExistingDraftDoesNotLeakIntoLaterWrites()
+{
+    QFETCH(QString, operation);
+    QFETCH(bool, failedSave);
+    QTemporaryDir directory;
+    const QString settings = directory.filePath("settings.json");
+    BackupConfig config;
+    config.sets = {{"documents", "Documents", "/backups", {"/safe/documents"}, {}},
+                   {"photos", "Photos", "/photos", {"/safe/photos"}, {}}};
+    QVERIFY(BackupConfigStore(settings).save(config));
+    BackupEngine engine;
+    BackupSetController controller(engine, settings);
+    const QVariantMap original = currentDraft(controller);
+    QVariantMap draft = original;
+    draft["name"] = "Cancelled documents";
+    draft["remoteRoot"] = "/cancelled";
+    draft["sources"] = QStringList {"/safe/cancelled"};
+    draft["exclusions"] = QStringList {"cache"};
+    draft["inclusions"] = QStringList {"*.txt"};
+    draft["scheduleFrequency"] = "daily";
+    draft["scheduleHour"] = 14;
+    draft["scheduleMinute"] = 25;
+    draft["scheduleWeekday"] = 4;
+    draft["scheduleDayOfMonth"] = 19;
+    draft["retention"] = 9;
+    draft["onlyOnAcPower"] = true;
+    controller.applyCurrentDraft(draft);
+    controller.preview();
+    QTRY_VERIFY(controller.previewAvailable());
+    QSignalSpy saved(&controller, &BackupSetController::configurationSaved);
+    if (failedSave) {
+        // Fail the actual configuration write, not just draft validation.
+        QVERIFY(QFile::rename(settings, settings + ".saved"));
+        QVERIFY(QDir().mkdir(settings));
+        QVERIFY(!controller.save());
+        QVERIFY(QDir().rmdir(settings));
+        QVERIFY(QFile::rename(settings + ".saved", settings));
+    }
+    controller.discardUnsavedSet();
+    QVERIFY(saved.isEmpty());
+    controller.setCurrentIndex(1);
+    if (operation == "save") {
+        controller.setCurrentName("Saved photos");
+        QVERIFY(controller.save());
+    } else if (operation == "delete") {
+        controller.removeCurrentSet();
+    } else {
+        BackupConfig imported;
+        imported.sets = {{"notes", "Notes", "/notes", {"/safe/notes"}, {}}};
+        const QString importPath = directory.filePath("import.json");
+        QVERIFY(BackupConfigStore(importPath).exportSets(imported));
+        QVERIFY(controller.importSets(importPath, true));
+    }
+    QCOMPARE(saved.count(), 1);
+    BackupSetController reopened(engine, settings);
+    QCOMPARE(currentDraft(reopened), original);
+    if (operation == "save") QCOMPARE(reopened.setNames(), (QStringList {"Documents", "Saved photos"}));
+    if (operation == "delete") QCOMPARE(reopened.setNames(), QStringList {"Documents"});
+    if (operation == "merge") QCOMPARE(reopened.setNames(), (QStringList {"Documents", "Photos", "Notes"}));
+}
+
+void BackupSetControllerTest::cancellingExistingDraftRestoresEditorState_data()
+{
+    QTest::addColumn<QString>("attempt");
+    QTest::addColumn<QString>("laterWrite");
+    for (const QString &attempt : {QString("preview"), QString("invalid save"), QString("failed write")}) {
+        for (const QString &write : {QString("save"), QString("delete"), QString("merge")}) {
+            QTest::newRow(qPrintable(attempt + " then " + write)) << attempt << write;
+        }
+    }
+}
+
+void BackupSetControllerTest::cancellingExistingDraftRestoresEditorState()
+{
+    QFETCH(QString, attempt);
+    QFETCH(QString, laterWrite);
+    QTemporaryDir directory;
+    const QString settings = directory.filePath("settings.json");
+    BackupConfig original;
+    original.sets = {{"documents", "Documents", "/backups", {"/safe/documents"}, {}},
+                     {"photos", "Photos", "/backups", {"/safe/photos"}, {}}};
+    QVERIFY(BackupConfigStore(settings).save(original));
+    BackupEngine engine;
+    BackupSetController controller(engine, settings);
+    const QVariantMap savedDraft = currentDraft(controller);
+    QVariantMap draft = savedDraft;
+    draft["name"] = "Cancelled documents";
+    draft["remoteRoot"] = "/cancelled";
+    draft["sources"] = QStringList {"/safe/cancelled"};
+    draft["exclusions"] = QStringList {"cache"};
+    draft["inclusions"] = QStringList {".env"};
+    draft["scheduleFrequency"] = "daily";
+    draft["scheduleHour"] = 19;
+    draft["retention"] = 9;
+    draft["onlyOnAcPower"] = true;
+    controller.applyCurrentDraft(draft);
+    controller.preview();
+    QTRY_VERIFY(controller.previewAvailable());
+    QSignalSpy saved(&controller, &BackupSetController::configurationSaved);
+    if (attempt == "invalid save") {
+        draft["name"] = "";
+        controller.applyCurrentDraft(draft);
+        QVERIFY(!controller.save());
+    } else if (attempt == "failed write") {
+        // A directory at the destination forces a real persistence failure.
+        QVERIFY(QFile::rename(settings, settings + ".original"));
+        QVERIFY(QDir().mkdir(settings));
+        QVERIFY(!controller.save());
+        QVERIFY(QDir().rmdir(settings));
+        QVERIFY(QFile::rename(settings + ".original", settings));
+    }
+    controller.discardUnsavedSet();
+    QVERIFY(saved.isEmpty());
+    controller.setCurrentIndex(1);
+    if (laterWrite == "save") {
+        controller.setCurrentName("Saved photos");
+        QVERIFY(controller.save());
+    } else if (laterWrite == "delete") {
+        controller.removeCurrentSet();
+    } else {
+        BackupConfig imported;
+        imported.sets = {{"music", "Music", "/backups", {"/safe/music"}, {}}};
+        const QString importPath = directory.filePath("import.json");
+        QVERIFY(BackupConfigStore(importPath).exportSets(imported));
+        QVERIFY(controller.importSets(importPath, true));
+    }
+    QCOMPARE(saved.count(), 1);
+    BackupSetController reopened(engine, settings);
+    QCOMPARE(currentDraft(reopened), savedDraft);
+    QCOMPARE(reopened.currentScheduleFrequency(), QString("disabled"));
+    if (laterWrite == "save") {
+        reopened.setCurrentIndex(1);
+        QCOMPARE(reopened.currentName(), QString("Saved photos"));
+    } else {
+        QCOMPARE(reopened.setIds().contains("photos"), laterWrite != "delete");
+        QCOMPARE(reopened.setIds().contains("music"), laterWrite == "merge");
+    }
+    controller.setCurrentIndex(0);
+    QCOMPARE(currentDraft(controller), savedDraft);
+    QVERIFY(!controller.previewAvailable());
+    QVERIFY(!controller.previewBusy());
 }
 
 void BackupSetControllerTest::mergingImportDoesNotSaveAnUnfinishedNewSet()

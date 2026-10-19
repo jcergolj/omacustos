@@ -167,6 +167,7 @@ private:
     BackupRunStore runStore;
     CleanupStore cleanupStore;
     BackupConfig config;
+    QVector<BackupSet> savedSets;
     QSet<QString> unsavedSetIds;
     int selectedIndex = -1;
     BackupPreview previewResult;

@@ -134,6 +134,7 @@ BackupSetController::BackupSetController(BackupEngine &engine, QString configPat
         config.protonBinary = qEnvironmentVariable("OMACUSTOS_PROTON_BIN", QStringLiteral("proton-drive"));
         selectedIndex = -1;
     }
+    savedSets = config.sets;
     connect(this, &BackupSetController::setsChanged, this, &BackupSetController::updateDashboard);
     connect(this, &BackupSetController::setsChanged, this, &BackupSetController::runDetailsChanged);
     connect(this, &BackupSetController::currentSetChanged, this, &BackupSetController::updateDashboard);
@@ -641,6 +642,19 @@ void BackupSetController::addSet()
 void BackupSetController::discardUnsavedSet()
 {
     if (!unsavedSetIds.remove(currentId())) {
+        BackupSet *set = currentSet();
+        if (set == nullptr) return;
+        const auto saved = std::find_if(savedSets.cbegin(), savedSets.cend(), [set](const BackupSet &candidate) {
+            return candidate.id == set->id;
+        });
+        if (saved == savedSets.cend()) return;
+
+        // Preview and failed saves can update the working set. Cancel restores
+        // the last successful write before any other operation can persist it.
+        *set = *saved;
+        clearPreview();
+        emit setsChanged();
+        emit currentSetChanged();
         return;
     }
 
@@ -672,6 +686,7 @@ void BackupSetController::removeSet(int index)
     }
 
     config = updated;
+    savedSets = config.sets;
     unsavedSetIds.clear();
     if (selectedIndex > index) {
         --selectedIndex;
@@ -787,6 +802,7 @@ bool BackupSetController::save()
         return false;
     }
 
+    savedSets = config.sets;
     unsavedSetIds.clear();
     emit statusChanged(QStringLiteral("Backup saved."));
     emit configurationSaved();
@@ -887,6 +903,7 @@ bool BackupSetController::importSets(const QString &filePath, bool merge)
         return false;
     }
     config = updated;
+    savedSets = config.sets;
     unsavedSetIds.clear();
     selectedIndex = config.sets.isEmpty() ? -1 : 0;
     clearPreview();
