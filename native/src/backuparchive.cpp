@@ -147,7 +147,8 @@ bool pack(const QString &tree, const QString &remoteRoot, const QString &output,
 }
 
 static bool readArchive(const QString &input, const QVector<BackupEntry> &selected,
-    const QString &workspace, QVector<BackupEntry> *payloads, QString *error, bool materialize)
+    const QString &workspace, QVector<BackupEntry> *payloads, QString *error, bool materialize,
+    const QVector<BackupPhysicalMember> &inventory = {})
 {
     struct archive *reader = archive_read_new();
     const auto release = qScopeGuard([&] { archive_read_free(reader); });
@@ -163,12 +164,23 @@ static bool readArchive(const QString &input, const QVector<BackupEntry> &select
     // cannot hide outside the authoritative index in the same gzip stream.
     if (archive_read_set_format_option(reader, "tar", "read_concatenated_archives", "1") != ARCHIVE_OK) return fail();
     if (archive_read_open_filename(reader, QFile::encodeName(input).constData(), 1024 * 1024) != ARCHIVE_OK) return fail();
-    QHash<QString, BackupEntry> wanted;
-    const QStringList indexed = selected.isEmpty() ? QStringList() : selected.first().archive.members;
+    QMultiHash<QString, BackupEntry> wanted;
+    QHash<QString, BackupPhysicalMember> physical;
+    QStringList indexed = selected.isEmpty() ? QStringList() : selected.first().archive.members;
+    if (!inventory.isEmpty()) {
+        indexed.clear();
+        for (const auto &member : inventory) {
+            if (!safeMember(member.path) || physical.contains(member.path) || member.size < 0 || member.checksum.size() != 32) return fail();
+            physical.insert(member.path, member);
+            indexed.append(member.path);
+        }
+    }
     const QSet<QString> allowed(indexed.cbegin(), indexed.cend());
     if (allowed.isEmpty()) return fail();
     for (const auto &entry : selected) {
-        if (!safeMember(entry.memberPath) || wanted.contains(entry.memberPath)) return fail();
+        if (!safeMember(entry.memberPath) || (inventory.isEmpty() && wanted.contains(entry.memberPath))) return fail();
+        if (!inventory.isEmpty() && (!physical.contains(entry.memberPath) || physical.value(entry.memberPath).size != entry.size
+            || physical.value(entry.memberPath).checksum != entry.checksum)) return fail();
         wanted.insert(entry.memberPath, entry);
     }
     QSet<QString> seen;
@@ -183,6 +195,9 @@ static bool readArchive(const QString &input, const QVector<BackupEntry> &select
             || archive_entry_size(header) < 0) return fail();
         seen.insert(member);
         const bool keep = wanted.contains(member);
+        const bool verifyPhysical = physical.contains(member);
+        const qint64 expectedSize = verifyPhysical ? physical.value(member).size : wanted.value(member).size;
+        if (verifyPhysical && archive_entry_size(header) != expectedSize) return fail();
         QFile output(QDir(workspace).filePath(QString::number(payloads->size())));
         if (keep && ((materialize && !output.open(QIODevice::WriteOnly))
             || archive_entry_size(header) != wanted.value(member).size)) return fail();
@@ -193,19 +208,22 @@ static bool readArchive(const QString &input, const QVector<BackupEntry> &select
         // Read even unselected data: skipped/truncated gzip must not certify a copy.
         while ((count = archive_read_data(reader, buffer, sizeof(buffer))) > 0) {
             size += count;
-            if (keep) {
-                if (size > wanted.value(member).size || (materialize && output.write(buffer, count) != count)) return fail();
+            if (keep || verifyPhysical) {
+                if (size > expectedSize || (keep && materialize && output.write(buffer, count) != count)) return fail();
                 hash.addData(QByteArrayView(buffer, count));
             }
         }
         if (count < 0 || size != archive_entry_size(header)) return fail();
+        if (verifyPhysical && (size != expectedSize || hash.result() != physical.value(member).checksum)) return fail();
         if (keep) {
-            BackupEntry entry = wanted.value(member);
-            if (size != entry.size || hash.result() != entry.checksum || (materialize && !output.flush())) return fail();
-            entry.remotePath = output.fileName();
-            entry.archive = {};
-            entry.memberPath.clear();
-            payloads->append(entry);
+            if (materialize && !output.flush()) return fail();
+            for (BackupEntry entry : wanted.values(member)) {
+                if (size != entry.size || hash.result() != entry.checksum) return fail();
+                entry.remotePath = output.fileName();
+                entry.archive = {};
+                entry.memberPath.clear();
+                payloads->append(entry);
+            }
         }
     }
     if (status != ARCHIVE_EOF || archive_filter_code(reader, 0) != ARCHIVE_FILTER_GZIP
@@ -223,5 +241,15 @@ bool verifyInventory(const QString &input, const QVector<BackupEntry> &inventory
 {
     QVector<BackupEntry> observations;
     return readArchive(input, inventory, {}, &observations, error, false);
+}
+
+bool extractShared(const QString &input, const QVector<BackupPhysicalMember> &inventory,
+    const QVector<BackupEntry> &selected, const QString &workspace, QVector<BackupEntry> *payloads, QString *error)
+{
+    if (inventory.isEmpty()) {
+        if (error) *error = "A shared archive requires its complete physical inventory.";
+        return false;
+    }
+    return readArchive(input, selected, workspace, payloads, error, true, inventory);
 }
 }

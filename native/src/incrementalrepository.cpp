@@ -837,3 +837,78 @@ IncrementalWriteResult IncrementalRepository::execute(const IncrementalWriteRequ
     if (!checkpoint("published")) return result;
     return finish(publication, false);
 }
+
+bool IncrementalRepository::takeover(const IncrementalWriteRequest &current, BackupProvider &provider,
+    const QString &newComputerId, bool oldWriterPermanentlyDisabled, QString *error)
+{
+    QString reason;
+    if (!error) error = &reason;
+    if (!oldWriterPermanentlyDisabled || !IncrementalManifest::validId(newComputerId)
+        || newComputerId == current.computerId || current.ownershipEpoch >= 9007199254740991LL) {
+        *error = "Offline handoff requires a fresh computer identity and confirmation that the old writer cannot restart. No server-side fence exists.";
+        return false;
+    }
+    Store store(current, provider);
+    const auto failed = [&] { *error = store.error; return false; };
+    if (!store.open()) return failed();
+    provider.beginBackupOperation();
+    const auto end = qScopeGuard([&] { provider.endBackupOperation(); });
+    if (!store.owner()) return failed();
+    QStringList operations;
+    if (!store.children("operations", &operations)) return failed();
+    for (const auto &id : operations) {
+        if (!IncrementalManifest::validId(id)) { *error = "Unknown operation blocks handoff."; return false; }
+        const QString root = "operations/" + id;
+        const auto complete = store.lookup(root + "/complete.json");
+        const auto cancelled = store.lookup(root + "/cancelled.json");
+        if (complete == RemoteLookup::Unknown || cancelled == RemoteLookup::Unknown) return failed();
+        if ((complete == RemoteLookup::Found) == (cancelled == RemoteLookup::Found)) {
+            *error = "Reconcile or explicitly cancel every protected operation before offline handoff: " + id;
+            return false;
+        }
+        QJsonObject record;
+        if (complete == RemoteLookup::Found) {
+            QJsonObject identity, manifest;
+            if (!store.get(root + "/identity.json", &identity) || !validPriorIdentity(identity, id, current)
+                || !store.get(root + "/complete.json", &record)
+                || !validCompletion(record, id, identity.value("snapshot_id").toString(), &store.error)
+                || !store.get("snapshots/" + record.value("snapshot_id").toString() + "/manifest.json", &manifest)
+                || !IncrementalManifest::validate(json(manifest), current.scan.setId, record.value("snapshot_id").toString(), &store.error)
+                || manifest.value("origin_computer_id") != current.originComputerId
+                || manifest.value("created_at") != record.value("last_saved_change")) {
+                if (store.error.isEmpty()) store.error = "Unreconciled completion blocks handoff.";
+                return failed();
+            }
+        } else if (!store.get(root + "/cancelled.json", &record)
+            || record != QJsonObject{{"version", 1}, {"operation_id", id}, {"state", "cancelled"}}) {
+            *error = "Invalid cancellation blocks handoff.";
+            return false;
+        }
+    }
+    const auto maintenance = store.lookup("maintenance");
+    if (maintenance == RemoteLookup::Unknown) return failed();
+    if (maintenance == RemoteLookup::Found) {
+        QStringList records;
+        if (!store.children("maintenance", &records)) return failed();
+        if (!records.isEmpty()) { *error = "Maintenance/deletion records require reconciliation before handoff."; return false; }
+    }
+    auto next = current;
+    next.computerId = newComputerId;
+    ++next.ownershipEpoch;
+    const auto replacement = anchor(next);
+    // Durable local intent precedes the only mutable control-record upload. A
+    // lost response is accepted only if fresh readback proves the exact anchor.
+    if (!store.local("handoff.json", QJsonObject{{"before", anchor(current)}, {"after", replacement}})
+        || !store.owner()) return failed();
+    QTemporaryDir temporary;
+    const QString path = temporary.filePath("repository.json");
+    if (!temporary.isValid() || !save(path, replacement, &store.error)) return failed();
+    provider.upload(path, store.remote("repository.json"), &store.error);
+    QJsonObject observed;
+    if (!store.get("repository.json", &observed) || observed != replacement) {
+        *error = "Ownership update is uncertain or conflicting; remain read-only and inspect repository.json. " + store.error;
+        return false;
+    }
+    error->clear();
+    return true;
+}

@@ -408,6 +408,12 @@ and authenticate `proton-drive` as the new machine's user. The current UI opens
 remote discovery through **Restore copies…** on a recorded backup; it does not yet have
 a standalone remote-root discovery action for a fresh installation.
 
+Advanced v4 shared-archive repositories created by `omacustos-incremental` can
+instead be discovered and restored without any original local configuration.
+See [shared-archive recovery](docs/incremental-restore.md) for the read-only CLI
+commands and explicit offline ownership handoff. These commands do not recreate
+schedules or grant writes automatically; default UI backups remain unchanged.
+
 ## Manage copies
 
 - **⋯ → Open latest copy in Proton Drive** opens the latest recorded copy in your browser.

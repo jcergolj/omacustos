@@ -44,4 +44,8 @@ public:
     static bool initialize(const IncrementalWriteRequest &request, BackupProvider &provider,
         bool singleWriterConfirmed, QString *error);
     static IncrementalWriteResult execute(const IncrementalWriteRequest &request, BackupProvider &provider);
+    // Request identifies the exact CURRENT anchor. Only a secured offline writer
+    // handoff is supported; never an online lease steal or server-fencing claim.
+    static bool takeover(const IncrementalWriteRequest &current, BackupProvider &provider,
+        const QString &newComputerId, bool oldWriterPermanentlyDisabled, QString *error);
 };

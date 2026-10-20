@@ -23,6 +23,7 @@ add_library(omacustos-core STATIC
     src/incrementalmanifest.cpp
     src/incrementalplanner.cpp
     src/incrementalrepository.cpp
+    src/incrementalrestore.cpp
     src/backupcatalog.cpp
     src/payloadmetadatapolicy.h
     src/remotemetadatacache.h
@@ -176,6 +177,7 @@ set_tests_properties(workerrecovery-test PROPERTIES TIMEOUT 180)
 omacustos_add_test(backupconfig-test tests/backupconfig_test.cpp omacustos-core)
 omacustos_add_test(backupmanifest-test tests/backupmanifest_test.cpp omacustos-core)
 omacustos_add_test(incrementalmanifest-test tests/incrementalmanifest_test.cpp omacustos-core)
+omacustos_add_test(incrementalrestore-test tests/incrementalrestore_test.cpp omacustos-core)
 target_compile_definitions(incrementalmanifest-test PRIVATE OMACUSTOS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 omacustos_add_test(incrementalplanner-test tests/incrementalplanner_test.cpp omacustos-core)
 omacustos_add_test(incrementalrepository-test tests/incrementalrepository_test.cpp omacustos-core)

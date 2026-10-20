@@ -1,6 +1,7 @@
 #include "backupcatalog.h"
 
 #include "backupmanifest.h"
+#include "incrementalrestore.h"
 #include "payloadmetadatapolicy.h"
 #include "remotemetadatacache.h"
 
@@ -111,6 +112,9 @@ bool BackupCatalog::listCopies(BackupProvider &provider, const QString &backupFo
 bool BackupCatalog::verifyCopy(BackupProvider &provider, const QString &copyFolder, const QString &expectedSetId,
     RemoteCopy *copy, QString *error, const std::function<bool()> &cancelled)
 {
+    QString setRoot, setId, snapshotId;
+    if (IncrementalRestore::snapshotLocation(copyFolder, &setRoot, &setId, &snapshotId))
+        return IncrementalRestore::verifyCopy(provider, copyFolder, expectedSetId, copy, error, cancelled);
     if (cancelled && cancelled()) return false;
     if (copy == nullptr || copyFolder.trimmed().isEmpty()) {
         warning(error, QStringLiteral("A remote copy folder and destination are required."));

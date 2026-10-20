@@ -4,7 +4,7 @@
 #include <QString>
 
 // Pure v4 contract validation only. This does not authorize remote mutations,
-// certify receipt authenticity, or enable v4 in the legacy restore pipeline.
+// certify receipt authenticity. IncrementalRestore is the separate v4 adapter.
 class IncrementalManifest
 {
 public:

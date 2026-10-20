@@ -75,6 +75,10 @@ It contains the backup definitions and run history needed to access copies throu
 the app. A fresh installation cannot yet discover backups on its own. See
 [reinstall and migration instructions](MANUAL.md#reinstall-or-move-to-another-computer).
 
+Advanced v4 shared-archive repositories also support [read-only recovery without
+local configuration](docs/incremental-restore.md) through `omacustos-incremental`.
+This does not change default UI backups or enable writes on a replacement machine.
+
 ## Things to know
 
 - Folder backups include hidden files such as `.env` and `.git`. Add exclusions

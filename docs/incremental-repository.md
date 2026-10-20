@@ -1,10 +1,12 @@
 # Incremental repository contract (v4)
 
-Status: normative design for #56, not enabled in the application. Changed-file
+Status: normative design for #56, not enabled in the default worker. Changed-file
 incremental backups replace full uploads only after the release gates below pass.
 The pure `IncrementalManifest::validate` boundary implements the manifest schema;
 it performs no network I/O and does not authorize publication, restore, or deletion.
-Existing v1/v2/v3 readers, exact v3 membership checks, and full uploads are unchanged.
+The separate [v4 restore adapter](incremental-restore.md) validates remote identity
+and physical inventories. Existing v1/v2/v3 readers, exact v3 membership checks,
+and full uploads are unchanged.
 
 **Ownership amendment for #58 (2026-10-20, explicitly approved by the user):**
 the CLI-backed implementation uses one operational writer with manual offline
@@ -131,8 +133,8 @@ unselected ones, against the full inventory (names, size and SHA-256). Reject ex
 duplicate, missing, unsafe, nonregular or linked tar members. Do not materialize
 unselected members. Tar permission/time fields are not restore authority: use
 logical metadata, so reused content can have different mode/mtime. Never adapt the
-v3 extractor by merely allowing unexpected members. A future v4 restore adapter
-must explicitly pass the physical inventory and logical selection separately.
+v3 extractor by merely allowing unexpected members. The v4 restore adapter
+explicitly passes the physical inventory and logical selection separately.
 
 ## Ownership and operational coordination
 
@@ -169,7 +171,7 @@ abandon protected operations/intents; then assign a fresh computer ID and increm
 the ownership epoch, upload/read back the anchor, and enable only the new writer.
 If the old machine cannot be secured against resuming, remain read-only. A local
 journal cannot resume under a changed epoch. Never infer abandonment from time.
-User-facing takeover tooling remains the discovery/ownership follow-up (#59).
+User-facing offline takeover tooling is documented in [recovery](incremental-restore.md).
 
 Payload/control creation uses fresh immutable IDs and conflict-failing JSON-mode
 uploads, with mandatory readback verification. Never use replace/rename/new-revision
@@ -335,8 +337,8 @@ authorizes deleting shared objects. Integrity errors cannot authorize retention.
 under the explicitly approved manual-offline ownership amendment. The full default
 rollout still requires inventory-aware restore/discovery (#59), safe GC/integrity
 maintenance (#60) and the remaining release validation; no provider fence is claimed.
-Keep v4 outside `BackupManifest`/v3 restore until inventory-aware restore, catalog,
-remote-only discovery and takeover are implemented together.
+V4 stays outside `BackupManifest`; #59 adds inventory-aware restore, catalog,
+remote-only discovery and explicit offline takeover together.
 
 Test planner changes/renames/unchanged metadata, subset restore without ancestors,
 legacy restore, exact tar validation, original evidence after local-state loss,

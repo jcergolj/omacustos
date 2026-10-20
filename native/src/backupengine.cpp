@@ -1,4 +1,8 @@
 #include "backupengine.h"
+#include "incrementalrestore.h"
+#include "incrementalmanifest.h"
+#include <sys/stat.h>
+#include <unistd.h>
 #include "backuparchive.h"
 #include "localprovider.h"
 #include "payloadmetadatapolicy.h"
@@ -802,14 +806,25 @@ BackupRestoreResult BackupEngine::restoreFiles(const BackupRestoreRequest &reque
         phase = QStringLiteral("Preparing restore");
         if (!checkpoint()) return failure();
         if (!entry.archive.id.isEmpty()) {
+            const bool shared = !entry.archive.inventory.isEmpty();
+            QString setRoot, setId, snapshotId;
+            if (shared && (!IncrementalRestore::snapshotLocation(request.copyPath, &setRoot, &setId, &snapshotId)
+                || !IncrementalManifest::validId(entry.archive.id)
+                || entry.remotePath != setRoot + "/objects/" + entry.archive.id + ".tar.gz")) {
+                result.error = "Shared archive references require an exact selected set-scoped snapshot.";
+                return failure();
+            }
             QVector<BackupEntry> selected;
             for (const auto &candidate : request.entries) {
                 if (candidate.archive.id != entry.archive.id) continue;
                 if (candidate.archive.remotePath != entry.archive.remotePath
                     || candidate.remotePath != entry.archive.remotePath
                     || candidate.archive.size != entry.archive.size || candidate.archive.checksum != entry.archive.checksum
-                    || candidate.archive.members != entry.archive.members || !BackupArchiveIO::safeMember(candidate.restorePath)
-                    || (!request.copyPath.isEmpty()
+                    || candidate.archive.members != entry.archive.members || candidate.archive.inventory != entry.archive.inventory
+                    || !BackupArchiveIO::safeMember(candidate.restorePath)
+                    || (shared && (!IncrementalManifest::safeRelativePath(candidate.restorePath)
+                        || candidate.mode < 0 || candidate.mode > 0777 || candidate.mtimeNs < 0))
+                    || (!shared && !request.copyPath.isEmpty()
                         && (!isWithinPath(candidate.remotePath, QDir::cleanPath(request.copyPath))
                             || candidate.remotePath != QDir::cleanPath(candidate.remotePath)
                             || hasParentPathSegment(candidate.remotePath)))) {
@@ -832,7 +847,8 @@ BackupRestoreResult BackupEngine::restoreFiles(const BackupRestoreRequest &reque
             }
             if (!checkpoint()) return failure();
             phase = QStringLiteral("Extracting archive");
-            if (!BackupArchiveIO::extract(downloaded, selected, workspace.path(), &payloads, &result.error)) return failure();
+            if (shared ? !BackupArchiveIO::extractShared(downloaded, entry.archive.inventory, selected, workspace.path(), &payloads, &result.error)
+                       : !BackupArchiveIO::extract(downloaded, selected, workspace.path(), &payloads, &result.error)) return failure();
             if (!checkpoint()) return failure();
             LocalProvider extracted(workspace.path());
             for (BackupEntry payload : payloads) {
@@ -967,6 +983,26 @@ bool BackupEngine::restoreEntry(const BackupEntry &entry, const QString &destina
             *error = QStringLiteral("The restored file failed verification.");
         }
         return false;
+    }
+    // Logical metadata is applied to the verified atomic temporary file, never
+    // to an already placed destination or from untrusted tar header metadata.
+    if (entry.mode >= 0) {
+        const int fd = replacement.handle();
+        QFileDevice::Permissions permissions;
+        const QFileDevice::Permission bits[] = {QFileDevice::ExeOther, QFileDevice::WriteOther, QFileDevice::ReadOther,
+            QFileDevice::ExeGroup, QFileDevice::WriteGroup, QFileDevice::ReadGroup,
+            QFileDevice::ExeOwner, QFileDevice::WriteOwner, QFileDevice::ReadOwner};
+        for (int bit = 0; bit < 9; ++bit) if (entry.mode & (1 << bit)) permissions |= bits[bit];
+        const timespec times[2] = {{0, UTIME_OMIT}, {entry.mtimeNs / 1000000000, entry.mtimeNs % 1000000000}};
+        struct stat metadata {};
+        if (entry.mode > 0777 || entry.mtimeNs < 0 || !replacement.flush()
+            || !replacement.setPermissions(permissions) || ::fchmod(fd, entry.mode) != 0
+            || ::futimens(fd, times) != 0 || ::fstat(fd, &metadata) != 0
+            || (metadata.st_mode & 0777) != entry.mode || metadata.st_mtim.tv_sec != times[1].tv_sec
+            || metadata.st_mtim.tv_nsec != times[1].tv_nsec) {
+            if (error) *error = "The destination filesystem could not preserve the requested mode/mtime exactly.";
+            return false;
+        }
     }
     // Copying a large file can take time; recheck immediately before commit too.
     if (checkpoint && !checkpoint()) return false;

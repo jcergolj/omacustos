@@ -11,6 +11,8 @@ bool pack(const QString &tree, const QString &remoteRoot, const QString &output,
     QVector<BackupEntry> *entries, QString *error, const std::function<bool()> &stopped);
 bool extract(const QString &input, const QVector<BackupEntry> &selected,
     const QString &workspace, QVector<BackupEntry> *payloads, QString *error);
+bool extractShared(const QString &input, const QVector<BackupPhysicalMember> &inventory,
+    const QVector<BackupEntry> &selected, const QString &workspace, QVector<BackupEntry> *payloads, QString *error);
 bool verify(const QString &path, qint64 size, const QByteArray &checksum);
 // Complete physical inventory verification without materializing any payloads.
 bool verifyInventory(const QString &input, const QVector<BackupEntry> &inventory, QString *error);

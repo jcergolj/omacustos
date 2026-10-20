@@ -8,12 +8,22 @@
 #include <QStringList>
 #include <QVector>
 
+struct BackupPhysicalMember {
+    QString path;
+    qint64 size = 0;
+    QByteArray checksum;
+    bool operator==(const BackupPhysicalMember &other) const {
+        return path == other.path && size == other.size && checksum == other.checksum;
+    }
+};
+
 struct BackupArchive {
     QString id;
     QString remotePath;
     qint64 size = 0;
     QByteArray checksum;
     QStringList members; // Derived from the validated index, never independently persisted.
+    QVector<BackupPhysicalMember> inventory; // V4 authoritative physical bytes, not logical selection.
 };
 
 struct BackupEntry {
@@ -24,6 +34,8 @@ struct BackupEntry {
     QString restorePath;
     BackupArchive archive;
     QString memberPath;
+    int mode = -1; // V4 logical metadata; legacy behavior is unchanged.
+    qint64 mtimeNs = -1;
 };
 
 struct BackupCopyMetadata {
