@@ -119,6 +119,12 @@ when another worker holds exclusion.
 
 ## Remote Layout
 
+The future changed-file incremental format and its required ownership, verification,
+publication, recovery and deletion guarantees are specified in the
+[v4 incremental repository contract](docs/incremental-repository.md). Its isolated
+schema validator and examples do not enable incremental backups; the layout and
+v1/v2/v3 behavior described below remain current.
+
 Each copy is stored independently below:
 
 ```text
