@@ -7,6 +7,7 @@
 #include <QUuid>
 #include <QScopeGuard>
 #include <unistd.h>
+#include <sys/stat.h>
 
 LocalProvider::LocalProvider(QString rootPath)
     : rootPath(std::move(rootPath))
@@ -314,4 +315,64 @@ bool LocalProvider::permanentlyDelete(const QString &remotePath, QString *error)
         return false;
     }
     return true;
+}
+
+bool LocalProvider::listComplete(const QString &path, QVector<RemoteItem> *items, QString *error)
+{
+    if (!list(path, items, error)) return false;
+    const QDir directory(QDir(rootPath).filePath(path));
+    items->clear();
+    for (const auto &info : directory.entryInfoList(QDir::AllEntries | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot, QDir::Name)) {
+        if (info.isSymLink() || (!info.isDir() && !info.isFile())) {
+            if (error) *error = "Unsafe or unreadable child in complete inventory.";
+            return false;
+        }
+        items->append({path + '/' + info.fileName(), info.fileName(), info.isDir(), info.size(), info.lastModified()});
+    }
+    return true;
+}
+
+static QString localNodeIdentity(const QString &path)
+{
+    struct stat info{};
+    if (::lstat(QFile::encodeName(path).constData(), &info) != 0 || S_ISLNK(info.st_mode)) return {};
+    return QString::number(info.st_dev) + ':' + QString::number(info.st_ino);
+}
+
+bool LocalProvider::deletionIdentity(const QString &path, QString *identity, QString *error)
+{
+    if (!validRemotePath(path) || !safeLocalPath(rootPath, path)) return false;
+    *identity = localNodeIdentity(QDir(rootPath).filePath(path));
+    if (identity->isEmpty() && error) *error = "Cannot identify deletion target.";
+    return !identity->isEmpty();
+}
+
+bool LocalProvider::trashExact(const QString &path, const QString &identity, QString *error)
+{
+    if (identity.isEmpty() || !validRemotePath(path) || !safeLocalPath(rootPath, path)
+        || !safeLocalPath(rootPath, ".trash/" + path)) return false;
+    const QString live = QDir(rootPath).filePath(path), trashed = trashPath(rootPath, path);
+    if (QFileInfo::exists(live)) {
+        if (localNodeIdentity(live) != identity || QFileInfo::exists(trashed)) {
+            if (error) *error = "Deletion target identity changed or trash conflicts.";
+            return false;
+        }
+        return trash(path, error);
+    }
+    if (!QFileInfo::exists(trashed) || localNodeIdentity(trashed) == identity) return true;
+    if (error) *error = "Trashed target identity changed.";
+    return false;
+}
+
+bool LocalProvider::deleteExact(const QString &path, const QString &identity, QString *error)
+{
+    if (identity.isEmpty() || !validRemotePath(path) || !safeLocalPath(rootPath, path)
+        || !safeLocalPath(rootPath, ".trash/" + path) || QFileInfo::exists(QDir(rootPath).filePath(path))) return false;
+    const QString trashed = trashPath(rootPath, path);
+    if (!QFileInfo::exists(trashed)) return true;
+    if (localNodeIdentity(trashed) != identity) {
+        if (error) *error = "Trashed target identity changed.";
+        return false;
+    }
+    return permanentlyDelete(path, error);
 }

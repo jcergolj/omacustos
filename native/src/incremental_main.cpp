@@ -35,13 +35,14 @@ int main(int argc, char **argv)
 {
     QCoreApplication application(argc, argv);
     QCommandLineParser parser;
-    parser.setApplicationDescription("Incremental shared-archive executor. Requires one writer and manual offline ownership handoff. No automatic retention; rollout is not enabled.");
+    parser.setApplicationDescription("Incremental shared-archive executor. Requires one writer and manual offline ownership handoff. Exact-scope retention is opt-in; default-worker rollout is not enabled.");
     parser.addHelpOption();
     parser.addOption({"request", "JSON request containing stable identities, selected file mappings and staging limits.", "path"});
     parser.addOption({"proton-binary", "Proton Drive CLI executable.", "path", "proton-drive"});
     parser.addOption({"initialize", "Provision a new empty repository before the first run."});
     parser.addOption({"acknowledge-single-writer", "Confirm no other computer/configuration writes this set; handoff requires disabling the old writer offline."});
     parser.addOption({"cancel", "Durably cancel the named unfinished operation; never deletes objects or an already published snapshot."});
+    parser.addOption({"cleanup", "Plan or retry reference-aware retention only. Set retention, optional legacy_root and cleanup_confirmation in the request. Review proposal before confirming."});
     parser.addOption({"discover", "Read-only discovery below the chosen remote root; no local request or ownership needed.", "remote-root"});
     parser.addOption({"snapshot", "Read-only restore of this exact sets/<id>/snapshots/<id> directory.", "remote-path"});
     parser.addOption({"destination", "Restore destination. Regular files, POSIX modes and nanosecond mtimes only; no ACLs, owners, links or empty directories.", "path"});
@@ -50,7 +51,7 @@ int main(int argc, char **argv)
     parser.addOption({"confirm-old-writer-disabled", "Confirm old schedules, retries and processes have stopped and old installation access/configuration is disabled permanently."});
     parser.process(application);
     if (int(parser.isSet("discover")) + int(parser.isSet("snapshot")) + int(parser.isSet("takeover"))
-            + int(parser.isSet("initialize")) + int(parser.isSet("cancel")) > 1) {
+            + int(parser.isSet("initialize")) + int(parser.isSet("cancel")) + int(parser.isSet("cleanup")) > 1) {
         std::fprintf(stderr, "Choose one operation.\n"); return 2;
     }
     if (parser.isSet("discover") || parser.isSet("snapshot")) {
@@ -114,11 +115,14 @@ int main(int argc, char **argv)
     request.stagingBudget = object.value("staging_budget_bytes").toInteger(1000 * 1000 * 1000);
     request.archiveTargetBytes = object.value("archive_target_bytes").toInteger(1000 * 1000 * 1000);
     request.batchFileLimit = object.value("batch_file_limit").toInt(1000);
+    request.retention = object.value("retention").toInt(0);
+    request.legacyRoot = object.value("legacy_root").toString();
+    request.cleanupConfirmation = object.value("cleanup_confirmation").toString();
     request.scan.checkedAt = QDateTime::currentDateTimeUtc();
     if (!document.isObject() || (!parser.isSet("takeover") && !object.value("sources").isArray())) {
         std::fprintf(stderr, "Malformed request: an explicit sources array is required.\n"); return 2;
     }
-    for (const QString &key : {QString("ownership_epoch"), QString("staging_budget_bytes"), QString("archive_target_bytes"), QString("batch_file_limit")}) {
+    for (const QString &key : {QString("ownership_epoch"), QString("staging_budget_bytes"), QString("archive_target_bytes"), QString("batch_file_limit"), QString("retention")}) {
         if (object.contains(key) && (!object.value(key).isDouble() || object.value(key).toInteger(-1) < 1
             || object.value(key).toDouble() != double(object.value(key).toInteger(-1)))) {
             std::fprintf(stderr, "Invalid positive integer setting: %s\n", qPrintable(key)); return 2;
@@ -140,6 +144,14 @@ int main(int argc, char **argv)
     QProcessRunner runner(parser.value("proton-binary"));
     runner.setStopRequested([] { return interrupted != 0; });
     ProtonProvider provider(runner);
+    if (parser.isSet("cleanup")) {
+        QJsonObject proposal;
+        QString confirmation, error;
+        const bool success = IncrementalRepository::cleanup(request, provider, &proposal, &confirmation, &error);
+        std::puts(QJsonDocument(QJsonObject{{"success", success}, {"proposal", proposal},
+            {"cleanup_confirmation", confirmation}, {"error", error}}).toJson(QJsonDocument::Compact).constData());
+        return success ? 0 : 1;
+    }
     if (parser.isSet("takeover")) {
         QString error;
         if (!IncrementalRepository::takeover(request, provider, parser.value("takeover"),
@@ -165,7 +177,9 @@ int main(int argc, char **argv)
         {"manifest", result.manifestPath}, {"last_successful_check", result.lastSuccessfulCheck.toString(Qt::ISODateWithMs)},
         {"last_saved_change", result.lastSavedChange.toString(Qt::ISODateWithMs)},
         {"damaged_objects", QJsonArray::fromStringList(result.damagedObjects)},
-        {"affected_snapshots", QJsonArray::fromStringList(result.affectedSnapshots)}, {"issues", issues}};
+        {"affected_snapshots", QJsonArray::fromStringList(result.affectedSnapshots)}, {"issues", issues},
+        {"cleanup_needs_attention", result.cleanupNeedsAttention}, {"cleanup_proposal", result.cleanupProposal},
+        {"cleanup_confirmation", result.cleanupConfirmation}};
     std::puts(QJsonDocument(output).toJson(QJsonDocument::Compact).constData());
     return result.success() || result.state == IncrementalWriteResult::State::Cancelled ? 0 : 1;
 }

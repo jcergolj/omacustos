@@ -2,6 +2,7 @@
 
 #include "backupprovider.h"
 #include "incrementalplanner.h"
+#include <QJsonObject>
 
 enum class IncrementalControl { Continue, Pause, Cancel };
 
@@ -18,6 +19,9 @@ struct IncrementalWriteRequest {
     qint64 stagingBudget = 1000 * 1000 * 1000;
     qint64 archiveTargetBytes = 1000 * 1000 * 1000;
     int batchFileLimit = 1000;
+    int retention = 0; // Zero disables cleanup; positive values keep newest N saved states.
+    QString legacyRoot; // Optional exact legacy set folder; never a shared repository.
+    QString cleanupConfirmation; // SHA-256 of the exact presented proposal bytes.
     // Called at durable boundaries; capture/packing also poll the current control.
     std::function<IncrementalControl(const QString &)> checkpoint;
 };
@@ -32,18 +36,23 @@ struct IncrementalWriteResult {
     QStringList affectedSnapshots;
     QStringList damagedObjects;
     QVector<BackupIssue> issues;
+    bool cleanupNeedsAttention = false;
+    QJsonObject cleanupProposal;
+    QString cleanupConfirmation;
     bool success() const { return state == State::Saved || state == State::Unchanged; }
 };
 
 // CLI-compatible, operational single-writer repository. No remote lease/fencing
 // claim: the owner must disable all old writers before an offline handoff.
-// The executor never invokes retention, trash, or permanent deletion.
 class IncrementalRepository
 {
 public:
     static bool initialize(const IncrementalWriteRequest &request, BackupProvider &provider,
         bool singleWriterConfirmed, QString *error);
     static IncrementalWriteResult execute(const IncrementalWriteRequest &request, BackupProvider &provider);
+    // Also supports retry after a saved backup, without re-running the writer.
+    static bool cleanup(const IncrementalWriteRequest &request, BackupProvider &provider,
+        QJsonObject *proposal, QString *confirmation, QString *error);
     // Request identifies the exact CURRENT anchor. Only a secured offline writer
     // handoff is supported; never an online lease steal or server-fencing claim.
     static bool takeover(const IncrementalWriteRequest &current, BackupProvider &provider,

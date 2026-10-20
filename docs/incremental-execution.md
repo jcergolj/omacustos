@@ -162,14 +162,13 @@ All operation/reuse/prepared/verified/publication records protect their object
 references while unfinished. Pause has no age expiry. Cancel needs a durable marker;
 a lost cancellation response is retried, not assumed successful. Completed snapshots
 take over their own live references; terminal leftover objects become candidates
-only for future reference-aware GC, never immediate deletion by this executor.
+only for the separately authorized reference-aware cleanup phase.
 
-This module **never calls retention, trash or permanent deletion**, on success or
-failure. It cannot make room by deleting history. Local/remote quota exhaustion
-preserves all old states. Do not point legacy copy cleanup at `sets/<UUID>`;
-future #60 cleanup must understand every protected record and share the set UUID
-lock. Until #59/#60/release gates pass, the ordinary application does not discover,
-restore or retain v4 copies and incremental uploads are not the default.
+The write phase never makes room by deleting history. Local/remote quota exhaustion
+preserves all old states. A successful saved result can now propose opt-in
+[reference-aware retention](incremental-cleanup.md), with exact-scope confirmation
+and the same set UUID mutation lock. Do not point legacy cleanup at `sets/<UUID>`.
+Incremental uploads are still not the default worker behavior.
 
 ## Automated coverage
 
@@ -189,9 +188,9 @@ record fields/timestamps/snapshot consistency, and lowered-budget recovery. Reus
 matching builds previous logical-reference and recovered-object hash sets once;
 it does not scan all logical entries for each physical archive member.
 
-Future GC must reconcile or retire terminal operation/check metadata together with
-removed snapshots; stale completion records pointing at missing or mismatched
-history currently fail closed rather than authorizing success or new writes.
+Completed cleanup proposals retain expired manifests for validating historical
+completion records without treating them as live object references. Missing or
+mismatched history without a validated completed proposal still fails closed.
 
 ### Validation record (2026-10-20)
 

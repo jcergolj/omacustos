@@ -9,8 +9,10 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QHash>
 #include <QTemporaryDir>
 #include <QUuid>
+#include <sys/stat.h>
 
 // Offline subset of cli-drive@0.8.0's filesystem commands. See
 // protonclifixture.md for the checked CLI contract and deliberate limits.
@@ -31,10 +33,19 @@ public:
     bool includeListingContentSize = false;
     QString omitListingMetadataName;
     QString failListPath;
+    QString loseMutationResponse;
+    bool rejectMutation = false;
+    bool duplicateTrashName = false;
+    QHash<QString, QString> globalAliases; // CLI UID segments bypass the apparent parent.
+    QString wrongListedParentName;
+    QString wrongResolvedParentPath;
 
     QString remoteFile(const QString &path) const
     {
-        return remote.filePath(path.mid(1));
+        QString resolved = remote.path();
+        for (const auto &part : path.split('/', Qt::SkipEmptyParts))
+            resolved = globalAliases.contains(part) ? remote.filePath(globalAliases.value(part).mid(1)) : QDir(resolved).filePath(part);
+        return resolved;
     }
 
     ProcessOutput run(const QStringList &arguments) override
@@ -88,9 +99,12 @@ public:
         const QString path = remoteFile(arguments.last());
         if (command == "info") {
             const QFileInfo file(path);
-            if (!file.isFile()) return failure("Node not found");
-            QJsonObject info {{"type", "file"}, {"activeRevision", QJsonObject {{"claimedSize", file.size()}}}};
-            if (includeSha256) {
+            if (!file.exists()) return failure("Node not found");
+            QJsonObject info {{"uid", identity(path)}, {"parentUid", identity(file.absolutePath())},
+                {"name", QJsonObject{{"ok", true}, {"value", file.fileName()}}},
+                {"type", file.isDir() ? "folder" : "file"}, {"activeRevision", QJsonObject {{"claimedSize", file.size()}}}};
+            if (arguments.last() == wrongResolvedParentPath) info["parentUid"] = "outside-parent";
+            if (includeSha256 && file.isFile()) {
                 QFile contents(path);
                 if (!contents.open(QIODevice::ReadOnly)) return failure("Metadata read failed");
                 info.insert("sha256", QString::fromLatin1(QCryptographicHash::hash(contents.readAll(), QCryptographicHash::Sha256).toHex()));
@@ -99,11 +113,13 @@ public:
         }
         if (command == "list") {
             if (arguments.last() == failListPath) return failure("Listing interrupted");
+            if (arguments.last() == "/trash" && !QDir().mkpath(path)) return failure("Trash unavailable");
             if (!QFileInfo(path).isDir()) return failure("Folder not found");
             QJsonArray items;
             for (const QFileInfo &item : QDir(path).entryInfoList(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden)) {
-                QJsonObject node {{"name", QJsonObject {{"ok", true}, {"value", item.fileName()}}},
+                QJsonObject node {{"uid", identity(item.filePath())}, {"parentUid", identity(path)}, {"name", QJsonObject {{"ok", true}, {"value", item.fileName()}}},
                     {"type", item.isDir() ? "folder" : "file"}, {"totalStorageSize", item.size()}};
+                if (item.fileName() == wrongListedParentName) node["parentUid"] = "outside-parent";
                 if (item.isFile() && includeListingContentSize && item.fileName() != omitListingMetadataName) {
                     node.insert("activeRevision", QJsonObject {{"claimedSize", item.size()}});
                     if (includeSha256) {
@@ -113,8 +129,27 @@ public:
                     }
                 }
                 items.append(node);
+                if (arguments.last() == "/trash" && duplicateTrashName) {
+                    node["uid"] = "different-node";
+                    items.append(node);
+                }
             }
             return {0, QString::fromUtf8(QJsonDocument(items).toJson()), {}};
+        }
+        if ((command == "trash" || command == "delete") && arguments.size() == 4 && arguments[2] == "-j") {
+            const QString uid = identity(path);
+            if (uid.isEmpty()) return failure("Node not found");
+            if (rejectMutation) return {0, QString::fromUtf8(QJsonDocument(QJsonArray{QJsonObject{{"uid", uid}, {"ok", false}}}).toJson()), {}};
+            if (command == "trash") {
+                if (arguments.last().startsWith("/trash/")) return failure("Already trashed");
+                const QString trash = remoteFile("/trash");
+                if (!QDir().mkpath(trash) || !QDir().rename(path, QDir(trash).filePath(QFileInfo(path).fileName()))) return failure("Trash conflict");
+                trashedPaths.append(arguments.last());
+            } else {
+                if (!arguments.last().startsWith("/trash/") || !remove(path)) return failure("Only trashed nodes can be deleted");
+            }
+            if (loseMutationResponse == command) return failure("Lost mutation response");
+            return {0, QString::fromUtf8(QJsonDocument(QJsonArray{QJsonObject{{"uid", uid}, {"ok", true}}}).toJson()), {}};
         }
         if (command == "create-folder" && arguments.size() == 4) {
             const QString parent = remoteFile(arguments.at(2));
@@ -125,6 +160,12 @@ public:
     }
 
 private:
+    static QString identity(const QString &path)
+    {
+        struct stat info{};
+        if (::lstat(QFile::encodeName(path).constData(), &info) != 0) return {};
+        return QString::number(info.st_dev) + ':' + QString::number(info.st_ino);
+    }
     static ProcessOutput failure(const QString &message) { return {1, {}, message}; }
 
     static bool remove(const QString &path)

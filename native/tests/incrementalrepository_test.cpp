@@ -40,6 +40,10 @@ public:
     bool lostUploadResponse = false;
     bool sizeOnly = false;
     bool corruptUpload = false;
+    bool allowDeletion = false;
+    bool failDelete = false;
+    bool loseDeleteResponse = false;
+    QStringList deletions;
     int destructiveCalls = 0;
     bool upload(const QString &, const QString &, QString *) override { ++destructiveCalls; return false; }
     bool uploadImmutable(const QString &source, const QString &remote, QString *error) override
@@ -84,6 +88,23 @@ public:
     bool list(const QString &remote, QVector<RemoteItem> *items, QString *error) override { return local.list(remote, items, error); }
     bool trash(const QString &, QString *) override { ++destructiveCalls; return false; }
     bool permanentlyDelete(const QString &, QString *) override { ++destructiveCalls; return false; }
+    bool listComplete(const QString &path, QVector<RemoteItem> *items, QString *error) override { return local.listComplete(path, items, error); }
+    bool deletionIdentity(const QString &path, QString *identity, QString *error) override { return local.deletionIdentity(path, identity, error); }
+    bool trashExact(const QString &path, const QString &identity, QString *error) override
+    {
+        ++destructiveCalls;
+        deletions.append("trash:" + path);
+        return allowDeletion && local.trashExact(path, identity, error);
+    }
+    bool deleteExact(const QString &path, const QString &identity, QString *error) override
+    {
+        ++destructiveCalls;
+        deletions.append("delete:" + path);
+        if (failDelete) { if (error) *error = "Injected deletion failure"; return false; }
+        const bool success = allowDeletion && local.deleteExact(path, identity, error);
+        if (success && loseDeleteResponse) { if (error) *error = "Injected lost delete response"; return false; }
+        return success;
+    }
     int objectUploads() const { return uploads.filter(QRegularExpression("\\.tar\\.gz$")).size(); }
     int objectDownloads() const { return downloads.filter(QRegularExpression("\\.tar\\.gz$")).size(); }
 };
@@ -129,6 +150,18 @@ struct Fixture {
     QJsonObject snapshot(const QString &id) const { return read(cloud("snapshots/" + id + "/manifest.json")); }
     QStringList objectNames() const { return QDir(cloud("objects")).entryList({"*.tar.gz"}, QDir::Files, QDir::Name); }
     QStringList snapshotNames() const { return QDir(cloud("snapshots")).entryList(QDir::Dirs | QDir::NoDotAndDotDot); }
+    bool cleanup(QJsonObject *proposal, QString *confirmation, QString *error)
+    { return IncrementalRepository::cleanup(request, provider, proposal, confirmation, error); }
+    bool legacy(const QString &name, int secondsAgo, bool incomplete = false)
+    {
+        request.legacyRoot = "legacy/Documents";
+        const QString path = directory.filePath("cloud/" + request.legacyRoot + '/' + name);
+        if (!QDir().mkpath(path)) return false;
+        BackupManifestDraft draft;
+        draft.metadata = {"computer", request.scan.setId, "Documents", name, request.scan.checkedAt.addSecs(-secondsAgo)};
+        if (incomplete) { draft.expectedItems = {"missing"}; draft.failedItems = {"missing"}; }
+        return BackupManifest::write(QDir(path).filePath("manifest.json"), draft);
+    }
 };
 
 QString errors(const IncrementalWriteResult &result)
@@ -142,6 +175,387 @@ QString errors(const IncrementalWriteResult &result)
 class IncrementalRepositoryTest : public QObject {
     Q_OBJECT
 private slots:
+    void protonDeletionRequiresActualAncestry_data()
+    {
+        QTest::addColumn<QString>("fault");
+        for (const auto &fault : {"short UID alias", "long UID alias", "listed parent mismatch", "resolved parent mismatch"})
+            QTest::newRow(fault) << QString(fault);
+    }
+
+    void protonDeletionRequiresActualAncestry()
+    {
+        QFETCH(QString, fault);
+        FilesystemRunner runner;
+        ProtonProvider provider(runner);
+        QVERIFY(QDir().mkpath(runner.remoteFile("/my-files/allowed")));
+        QVERIFY(QDir().mkpath(runner.remoteFile("/my-files/outside")));
+        QVERIFY(write(runner.remoteFile("/my-files/outside/victim"), "unrelated data"));
+        QString path = "/my-files/outside/victim";
+        if (fault.contains("UID alias")) {
+            const int length = fault.startsWith("short") ? 22 : 88;
+            const QString alias = QString(length, 'a') + '~' + QString(length, 'b');
+            runner.globalAliases[alias] = "/my-files/outside";
+            path = "/my-files/allowed/" + alias + "/victim";
+            QCOMPARE(runner.remoteFile(path), runner.remoteFile("/my-files/outside/victim"));
+        } else if (fault == "listed parent mismatch") runner.wrongListedParentName = "victim";
+        else runner.wrongResolvedParentPath = path;
+        QString identity, error;
+        QVERIFY(!provider.deletionIdentity(path, &identity, &error));
+        QVERIFY2(!error.isEmpty(), qPrintable(fault));
+        QVector<RemoteItem> items;
+        QVERIFY(!provider.listComplete(path, &items, &error));
+        for (const auto &call : runner.calls) QVERIFY(call[1] != "trash" && call[1] != "delete");
+        QVERIFY(QFileInfo::exists(runner.remoteFile("/my-files/outside/victim")));
+    }
+
+    void cleanupProposalPublicationFailureIsRecoverable_data()
+    {
+        QTest::addColumn<bool>("lostResponse");
+        QTest::newRow("failed before publication") << false;
+        QTest::newRow("lost publication response") << true;
+    }
+
+    void cleanupProposalPublicationFailureIsRecoverable()
+    {
+        QFETCH(bool, lostResponse);
+        Fixture fixture;
+        QString error, confirmation;
+        QJsonObject proposal;
+        QVERIFY(fixture.source("a", "old"));
+        QVERIFY(fixture.initialize(&error));
+        QVERIFY(IncrementalRepository::execute(fixture.request, fixture.provider).success());
+        const QString old = fixture.request.snapshotId;
+        fixture.next();
+        QVERIFY(fixture.source("a", "new"));
+        fixture.request.retention = 1;
+        fixture.provider.failUpload = "proposal.json";
+        fixture.provider.lostUploadResponse = lostResponse;
+        const auto saved = IncrementalRepository::execute(fixture.request, fixture.provider);
+        QVERIFY2(saved.success(), qPrintable(errors(saved)));
+        QVERIFY(saved.cleanupNeedsAttention);
+        QCOMPARE(fixture.provider.destructiveCalls, 0);
+        QVERIFY(!fixture.snapshot(old).isEmpty());
+        QVERIFY(QDir(fixture.request.stateDirectory).removeRecursively());
+        fixture.provider.failUpload.clear();
+        fixture.provider.lostUploadResponse = false;
+        if (!lostResponse) {
+            auto writer = fixture.request;
+            writer.retention = 0;
+            const auto recovered = IncrementalRepository::execute(writer, fixture.provider);
+            QVERIFY2(recovered.success(), qPrintable(errors(recovered)));
+        }
+        QVERIFY(!fixture.cleanup(&proposal, &confirmation, &error)); // Fresh exact authorization is still required.
+        QVERIFY2(!confirmation.isEmpty(), qPrintable(error));
+        fixture.request.cleanupConfirmation = confirmation;
+        fixture.provider.allowDeletion = true;
+        QVERIFY2(fixture.cleanup(&proposal, &confirmation, &error), qPrintable(error));
+        QVERIFY(fixture.snapshot(old).isEmpty());
+        fixture.next();
+        const auto resumed = IncrementalRepository::execute(fixture.request, fixture.provider);
+        QVERIFY2(resumed.success(), qPrintable(errors(resumed)));
+        QCOMPARE(resumed.state, IncrementalWriteResult::State::Unchanged);
+    }
+
+    void protonCleanupRecovery_data()
+    {
+        QTest::addColumn<QString>("fault");
+        for (const auto &fault : {"trash", "delete", "item failure", "duplicate trash name"})
+            QTest::newRow(fault) << QString(fault);
+    }
+
+    void protonCleanupRecovery()
+    {
+        QFETCH(QString, fault);
+        Fixture fixture;
+        FilesystemRunner runner;
+        ProtonProvider provider(runner);
+        QVERIFY(QDir().mkpath(runner.remoteFile("/my-files")));
+        fixture.request.remoteSetRoot = "/my-files/" + fixture.request.remoteSetRoot;
+        QVERIFY(fixture.source("a", "old"));
+        QString error, confirmation;
+        QJsonObject proposal;
+        QVERIFY2(IncrementalRepository::initialize(fixture.request, provider, true, &error), qPrintable(error));
+        QVERIFY(IncrementalRepository::execute(fixture.request, provider).success());
+        fixture.next();
+        QVERIFY(fixture.source("a", "new"));
+        fixture.request.retention = 1;
+        const auto result = IncrementalRepository::execute(fixture.request, provider);
+        QVERIFY2(result.success(), qPrintable(errors(result)));
+        QVERIFY2(!result.cleanupConfirmation.isEmpty(), qPrintable(errors(result)));
+        fixture.request.cleanupConfirmation = result.cleanupConfirmation;
+        if (fault == "trash" || fault == "delete") runner.loseMutationResponse = fault;
+        else if (fault == "item failure") runner.rejectMutation = true;
+        else runner.duplicateTrashName = true;
+        QVERIFY(!IncrementalRepository::cleanup(fixture.request, provider, &proposal, &confirmation, &error));
+        runner.loseMutationResponse.clear();
+        runner.rejectMutation = false;
+        runner.duplicateTrashName = false;
+        QVERIFY2(IncrementalRepository::cleanup(fixture.request, provider, &proposal, &confirmation, &error), qPrintable(error));
+        for (const auto &call : runner.calls) {
+            QVERIFY(!call.contains("empty-trash"));
+            if (call.value(1) == "delete") QVERIFY(call.last().startsWith("/trash/"));
+        }
+        fixture.next();
+        const auto unchanged = IncrementalRepository::execute(fixture.request, provider);
+        QVERIFY2(unchanged.success(), qPrintable(errors(unchanged)));
+        QCOMPARE(unchanged.state, IncrementalWriteResult::State::Unchanged);
+    }
+
+    void cleanupPreservesSharedMembersAndSuccessfulHistory()
+    {
+        Fixture fixture;
+        QString error, confirmation;
+        QJsonObject proposal;
+        QVERIFY(fixture.source("a", "alpha"));
+        QVERIFY(fixture.source("b", "beta"));
+        QVERIFY2(fixture.initialize(&error), qPrintable(error));
+        QVERIFY(IncrementalRepository::execute(fixture.request, fixture.provider).success());
+        const auto first = fixture.request;
+        const QString shared = fixture.objectNames().first();
+        fixture.next();
+        fixture.request.scan.sources.removeFirst(); // b still keeps the entire shared archive live.
+        fixture.request.retention = 1;
+        auto result = IncrementalRepository::execute(fixture.request, fixture.provider);
+        QVERIFY2(result.success(), qPrintable(errors(result)));
+        QVERIFY(result.cleanupNeedsAttention);
+        QVERIFY(errors(result).contains("Backup saved; cleanup needs attention"));
+        QCOMPARE(result.cleanupProposal.value("objects").toArray().size(), 0);
+        QCOMPARE(result.cleanupProposal.value("estimated_live_member_bytes").toInteger(), qint64(4));
+        QCOMPARE(result.cleanupProposal.value("estimated_obsolete_member_bytes").toInteger(), qint64(5));
+        QCOMPARE(fixture.provider.destructiveCalls, 0);
+        fixture.request.cleanupConfirmation = result.cleanupConfirmation;
+        fixture.provider.allowDeletion = true;
+        QVERIFY2(fixture.cleanup(&proposal, &confirmation, &error), qPrintable(error));
+        QVERIFY(fixture.snapshot(first.snapshotId).isEmpty());
+        QVERIFY(QFileInfo::exists(fixture.cloud("objects/" + shared)));
+        fixture.next();
+        const auto unchanged = IncrementalRepository::execute(fixture.request, fixture.provider);
+        QVERIFY2(unchanged.success(), qPrintable(errors(unchanged)));
+        QCOMPARE(unchanged.state, IncrementalWriteResult::State::Unchanged);
+        fixture.request.retention = 0;
+        // Old completed operations may be replayed, but must never republish expired snapshots.
+        const auto replayed = IncrementalRepository::execute(first, fixture.provider);
+        QVERIFY2(replayed.success(), qPrintable(errors(replayed)));
+        QVERIFY(fixture.snapshot(first.snapshotId).isEmpty());
+        const QString newOwner = uuid();
+        QVERIFY2(IncrementalRepository::takeover(fixture.request, fixture.provider.local, newOwner, true, &error), qPrintable(error));
+        fixture.request.computerId = newOwner;
+        ++fixture.request.ownershipEpoch;
+        fixture.next();
+        const auto handedOff = IncrementalRepository::execute(fixture.request, fixture.provider);
+        QVERIFY2(handedOff.success(), qPrintable(errors(handedOff)));
+        QCOMPARE(handedOff.state, IncrementalWriteResult::State::Unchanged);
+    }
+
+    void cleanupInterruptions_data()
+    {
+        QTest::addColumn<QString>("phase");
+        QTest::newRow("authorized") << QString("cleanup-authorized");
+        for (const auto &kind : {QString("snapshot"), QString("legacy"), QString("object")})
+            for (const auto &state : {QString("trashed"), QString("deleted")})
+                for (const auto &prefix : {QString("cleanup-before-"), QString("cleanup-after-"), QString("cleanup-")}) {
+                    const QString phase = prefix + kind + '-' + state;
+                    QTest::newRow(qPrintable(phase)) << phase;
+                }
+        QTest::newRow("done") << QString("cleanup-done");
+    }
+
+    void cleanupInterruptions()
+    {
+        QFETCH(QString, phase);
+        Fixture fixture;
+        QString error, confirmation;
+        QJsonObject proposal;
+        QVERIFY(fixture.source("a", "old bytes"));
+        QVERIFY2(fixture.initialize(&error), qPrintable(error));
+        QVERIFY(IncrementalRepository::execute(fixture.request, fixture.provider).success());
+        const QString old = fixture.request.snapshotId;
+        const QString oldObject = fixture.objectNames().first();
+        QVERIFY(fixture.legacy("older", 100));
+        fixture.next();
+        QVERIFY(fixture.source("a", "new bytes"));
+        fixture.request.retention = 1;
+        const auto saved = IncrementalRepository::execute(fixture.request, fixture.provider);
+        QVERIFY2(saved.success(), qPrintable(errors(saved)));
+        QVERIFY(saved.cleanupNeedsAttention);
+        const auto retained = fixture.snapshot(fixture.request.snapshotId);
+        fixture.request.cleanupConfirmation = saved.cleanupConfirmation;
+        fixture.provider.allowDeletion = true;
+        bool interrupted = false;
+        fixture.request.checkpoint = [&](const QString &current) {
+            if (current == phase) { interrupted = true; return IncrementalControl::Pause; }
+            return IncrementalControl::Continue;
+        };
+        QVERIFY(!fixture.cleanup(&proposal, &confirmation, &error));
+        QVERIFY2(interrupted, qPrintable(error));
+        QCOMPARE(fixture.snapshot(fixture.request.snapshotId), retained);
+        // Lose all local checkpoints. Remote immutable intent alone fixes retry scope.
+        QVERIFY(QDir(fixture.request.stateDirectory).removeRecursively());
+        fixture.request.checkpoint = {};
+        fixture.request.cleanupConfirmation.clear(); // Persisted authorization survives restart.
+        QVERIFY2(fixture.cleanup(&proposal, &confirmation, &error), qPrintable(error));
+        QVERIFY(fixture.snapshot(old).isEmpty());
+        QVERIFY(!QFileInfo::exists(fixture.cloud("objects/" + oldObject)));
+        QCOMPARE(fixture.snapshot(fixture.request.snapshotId), retained);
+        QVERIFY(!QFileInfo::exists(fixture.directory.filePath("cloud/legacy/Documents/older")));
+        fixture.next();
+        const auto check = IncrementalRepository::execute(fixture.request, fixture.provider);
+        QVERIFY2(check.success(), qPrintable(errors(check)));
+        QCOMPARE(check.state, IncrementalWriteResult::State::Unchanged);
+    }
+
+    void cleanupFailsClosedAndResumesWriter()
+    {
+        Fixture fixture;
+        QString error, confirmation;
+        QJsonObject proposal;
+        QVERIFY(fixture.source("a", "alpha"));
+        QVERIFY(fixture.initialize(&error));
+        QVERIFY(IncrementalRepository::execute(fixture.request, fixture.provider).success());
+        const auto saved = fixture.request;
+        fixture.next();
+        QVERIFY(fixture.source("a", "changed"));
+        fixture.request.checkpoint = [](const QString &phase) {
+            return phase == "uploaded" ? IncrementalControl::Pause : IncrementalControl::Continue;
+        };
+        QCOMPARE(IncrementalRepository::execute(fixture.request, fixture.provider).state, IncrementalWriteResult::State::Paused);
+        auto paused = fixture.request;
+        fixture.request = saved;
+        fixture.request.retention = 1;
+        QVERIFY(!fixture.cleanup(&proposal, &confirmation, &error));
+        QVERIFY(error.contains("resumable"));
+        QCOMPARE(fixture.provider.destructiveCalls, 0);
+        fixture.request = paused;
+        fixture.request.checkpoint = {};
+        QVERIFY(IncrementalRepository::execute(fixture.request, fixture.provider).success());
+        fixture.request.retention = 1;
+        const QString retainedPath = fixture.cloud("snapshots/" + fixture.request.snapshotId + "/manifest.json");
+        const auto retained = fixture.snapshot(fixture.request.snapshotId);
+        QVERIFY(damage(retainedPath, "unreadable-json"));
+        QVERIFY(!fixture.cleanup(&proposal, &confirmation, &error));
+        QCOMPARE(fixture.provider.destructiveCalls, 0);
+        QVERIFY(damage(retainedPath, QJsonDocument(retained).toJson()));
+        QVERIFY(!fixture.cleanup(&proposal, &confirmation, &error));
+        QVERIFY(!confirmation.isEmpty());
+        fixture.request.cleanupConfirmation = QString(64, '0');
+        QVERIFY(!fixture.cleanup(&proposal, &confirmation, &error));
+        QCOMPARE(fixture.provider.destructiveCalls, 0);
+        fixture.request.cleanupConfirmation = confirmation;
+        fixture.provider.allowDeletion = true;
+        fixture.provider.failDelete = true;
+        QVERIFY(!fixture.cleanup(&proposal, &confirmation, &error));
+        const int calls = fixture.provider.destructiveCalls;
+        // An unresolved delete intent blocks even the original completed writer.
+        const auto blocked = IncrementalRepository::execute(fixture.request, fixture.provider);
+        QVERIFY(!blocked.success());
+        QCOMPARE(fixture.provider.destructiveCalls, calls);
+        fixture.provider.failDelete = false;
+        fixture.provider.loseDeleteResponse = true;
+        QVERIFY(!fixture.cleanup(&proposal, &confirmation, &error));
+        fixture.provider.loseDeleteResponse = false;
+        QVERIFY2(fixture.cleanup(&proposal, &confirmation, &error), qPrintable(error));
+        QCOMPARE(fixture.snapshot(fixture.request.snapshotId), retained);
+    }
+
+    void cleanupEmptyMixedStatesAndQuotaFailure()
+    {
+        Fixture fixture;
+        QString error, confirmation;
+        QJsonObject proposal;
+        QVERIFY(fixture.source("a", "alpha"));
+        QVERIFY(fixture.initialize(&error));
+        QVERIFY(IncrementalRepository::execute(fixture.request, fixture.provider).success());
+        const QString old = fixture.request.snapshotId;
+        QVERIFY(fixture.legacy("complete", 50));
+        QVERIFY(fixture.legacy("incomplete", 10, true));
+        fixture.next();
+        QVERIFY(fixture.source("a", "changed"));
+        fixture.request.retention = 1;
+        fixture.provider.failUpload = ".tar.gz";
+        const auto waiting = IncrementalRepository::execute(fixture.request, fixture.provider);
+        QCOMPARE(waiting.state, IncrementalWriteResult::State::Waiting);
+        QCOMPARE(fixture.provider.destructiveCalls, 0);
+        QVERIFY(!fixture.snapshot(old).isEmpty());
+        fixture.provider.failUpload.clear();
+        fixture.request.scan.sources.clear(); // A complete empty replacement is a saved state.
+        const auto saved = IncrementalRepository::execute(fixture.request, fixture.provider);
+        QVERIFY2(saved.success(), qPrintable(errors(saved)));
+        QVERIFY(saved.cleanupNeedsAttention);
+        QCOMPARE(saved.cleanupProposal.value("legacy").toArray().size(), 1);
+        QCOMPARE(saved.cleanupProposal.value("snapshots").toArray().size(), 1);
+        fixture.request.cleanupConfirmation = saved.cleanupConfirmation;
+        fixture.provider.allowDeletion = true;
+        QVERIFY2(fixture.cleanup(&proposal, &confirmation, &error), qPrintable(error));
+        QCOMPARE(fixture.objectNames().size(), 0);
+        QVERIFY(fixture.snapshot(old).isEmpty());
+        QVERIFY(QFileInfo::exists(fixture.directory.filePath("cloud/legacy/Documents/incomplete/manifest.json")));
+        fixture.next();
+        const auto unchanged = IncrementalRepository::execute(fixture.request, fixture.provider);
+        QVERIFY2(unchanged.success(), qPrintable(errors(unchanged)));
+        QCOMPARE(unchanged.state, IncrementalWriteResult::State::Unchanged);
+    }
+
+    void cleanupProtectsFreshReferencesAndRejectsUnsafeScopes()
+    {
+        Fixture fixture;
+        QString error, confirmation;
+        QJsonObject proposal;
+        QVERIFY(fixture.source("a", "old"));
+        QVERIFY(fixture.initialize(&error));
+        QVERIFY(IncrementalRepository::execute(fixture.request, fixture.provider).success());
+        const auto original = fixture.snapshot(fixture.request.snapshotId);
+        const QString oldObject = fixture.objectNames().first();
+        fixture.next();
+        QVERIFY(fixture.source("a", "new"));
+        fixture.request.retention = 1;
+        const auto result = IncrementalRepository::execute(fixture.request, fixture.provider);
+        QVERIFY(result.success());
+        fixture.request.cleanupConfirmation = result.cleanupConfirmation;
+        const auto request = fixture.request;
+        fixture.request.legacyRoot = fixture.request.remoteSetRoot + "/snapshots";
+        // A foreign owner or out-of-root set selection cannot authorize any mutation.
+        fixture.request.remoteSetRoot = "other/sets/" + uuid();
+        QVERIFY(!fixture.cleanup(&proposal, &confirmation, &error));
+        QCOMPARE(fixture.provider.destructiveCalls, 0);
+        fixture.request = request;
+        auto retained = fixture.snapshot(fixture.request.snapshotId);
+        retained["archives"] = original.value("archives");
+        retained["entries"] = original.value("entries");
+        QVERIFY(damage(fixture.cloud("snapshots/" + fixture.request.snapshotId + "/manifest.json"), QJsonDocument(retained).toJson()));
+        fixture.provider.allowDeletion = true;
+        QVERIFY(!fixture.cleanup(&proposal, &confirmation, &error));
+        QVERIFY2(error.contains("still referenced"), qPrintable(error));
+        QVERIFY(QFileInfo::exists(fixture.cloud("objects/" + oldObject)));
+        for (const auto &call : fixture.provider.deletions) QVERIFY(!call.endsWith("objects/" + oldObject));
+    }
+
+    void cancelledUnverifiedUploadsCanBeCollectedOnlyAfterSavedReplacement()
+    {
+        Fixture fixture;
+        QString error, confirmation;
+        QJsonObject proposal;
+        QVERIFY(fixture.source("a", "orphaned bytes"));
+        QVERIFY(fixture.initialize(&error));
+        fixture.request.checkpoint = [](const QString &phase) {
+            return phase == "uploaded" ? IncrementalControl::Pause : IncrementalControl::Continue;
+        };
+        QCOMPARE(IncrementalRepository::execute(fixture.request, fixture.provider).state, IncrementalWriteResult::State::Paused);
+        fixture.request.checkpoint = [](const QString &) { return IncrementalControl::Cancel; };
+        QCOMPARE(IncrementalRepository::execute(fixture.request, fixture.provider).state, IncrementalWriteResult::State::Cancelled);
+        fixture.request.retention = 1;
+        QVERIFY(!fixture.cleanup(&proposal, &confirmation, &error));
+        QCOMPARE(fixture.provider.destructiveCalls, 0);
+        fixture.next();
+        fixture.request.scan.sources.clear();
+        const auto saved = IncrementalRepository::execute(fixture.request, fixture.provider);
+        QVERIFY2(saved.success(), qPrintable(errors(saved)));
+        QCOMPARE(saved.cleanupProposal.value("objects").toArray().size(), 1);
+        fixture.request.cleanupConfirmation = saved.cleanupConfirmation;
+        fixture.provider.allowDeletion = true;
+        QVERIFY2(fixture.cleanup(&proposal, &confirmation, &error), qPrintable(error));
+        QCOMPARE(fixture.objectNames().size(), 0);
+    }
+
     void protonAdapterEndToEndWithoutCloud()
     {
         Fixture fixture;

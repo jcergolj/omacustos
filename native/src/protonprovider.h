@@ -5,10 +5,15 @@
 #include <QSet>
 
 class QJsonArray;
+class QJsonObject;
 
 class ProtonProvider final : public BackupProvider
 {
 public:
+    bool listComplete(const QString &, QVector<RemoteItem> *, QString * = nullptr) override;
+    bool deletionIdentity(const QString &, QString *, QString * = nullptr) override;
+    bool trashExact(const QString &, const QString &, QString * = nullptr) override;
+    bool deleteExact(const QString &, const QString &, QString * = nullptr) override;
     explicit ProtonProvider(ProcessRunner &runner);
 
     void beginBackupOperation() override;
@@ -27,6 +32,10 @@ public:
     bool permanentlyDelete(const QString &remotePath, QString *error = nullptr) override;
 
 private:
+    bool containedNode(const QString &, QJsonObject *, QString *);
+    bool containedChildren(const QString &, const QString &, QJsonArray *, QString *);
+    bool trashTarget(const QString &, QString *, bool *, QString *);
+    bool exactMutation(const QString &, const QString &, const QString &, QString *);
     bool run(const QStringList &arguments, QString *error) const;
     bool listing(const QString &remotePath, QJsonArray *values, QString *error);
     ProcessRunner &runner;

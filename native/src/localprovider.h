@@ -5,6 +5,10 @@
 class LocalProvider final : public BackupProvider
 {
 public:
+    bool listComplete(const QString &, QVector<RemoteItem> *, QString * = nullptr) override;
+    bool deletionIdentity(const QString &, QString *, QString * = nullptr) override;
+    bool trashExact(const QString &, const QString &, QString * = nullptr) override;
+    bool deleteExact(const QString &, const QString &, QString * = nullptr) override;
     explicit LocalProvider(QString rootPath);
 
     bool upload(const QString &localPath, const QString &remotePath, QString *error = nullptr) override;

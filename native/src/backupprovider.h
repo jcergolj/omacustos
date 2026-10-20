@@ -49,4 +49,11 @@ public:
     virtual bool list(const QString &remotePath, QVector<RemoteItem> *items, QString *error = nullptr) = 0;
     virtual bool trash(const QString &remotePath, QString *error = nullptr) = 0;
     virtual bool permanentlyDelete(const QString &remotePath, QString *error = nullptr) = 0;
+    // GC capabilities are opt-in. Complete enumeration must not silently omit
+    // unreadable/ambiguous children. Exact deletion uses a persisted stable node
+    // identity, reconciles trash, and is idempotent after a lost response.
+    virtual bool listComplete(const QString &, QVector<RemoteItem> *, QString * = nullptr) { return false; }
+    virtual bool deletionIdentity(const QString &, QString *, QString * = nullptr) { return false; }
+    virtual bool trashExact(const QString &, const QString &, QString * = nullptr) { return false; }
+    virtual bool deleteExact(const QString &, const QString &, QString * = nullptr) { return false; }
 };

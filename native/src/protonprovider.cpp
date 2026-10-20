@@ -7,6 +7,8 @@
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QMap>
+#include <QRegularExpression>
 #include <QSaveFile>
 #include <QTemporaryDir>
 #include <QtMath>
@@ -39,6 +41,21 @@ QString itemName(const QJsonObject &object)
 {
     const QJsonValue name = object.value(QStringLiteral("name"));
     return name.isObject() ? name.toObject().value(QStringLiteral("value")).toString() : name.toString();
+}
+
+bool cleanupPath(const QString &path)
+{
+    // The CLI treats UID-shaped segments as GLOBAL node lookups, not children
+    // of the apparent parent. Destructive operations support only name-based
+    // paths rooted in the unambiguous My Files virtual root.
+    static const QRegularExpression uid("^([a-zA-Z0-9=_-]{88,108}|[a-zA-Z0-9_-]{22})~([a-zA-Z0-9=_-]{88,108}|[a-zA-Z0-9_-]{22})$");
+    if (path != QDir::cleanPath(path) || (path != "/my-files" && !path.startsWith("/my-files/"))
+        || path.contains('\\') || path.split('/').contains("..")) return false;
+    for (const auto &part : path.split('/')) {
+        if (uid.match(part).hasMatch()) return false;
+        for (const auto ch : part) if (ch.unicode() < 32 || ch.unicode() == 127) return false;
+    }
+    return true;
 }
 
 }
@@ -354,7 +371,7 @@ bool ProtonProvider::listing(const QString &remotePath, QJsonArray *values, QStr
 
     if (document.isArray()) {
         *values = document.array();
-    } else if (document.isObject() && (document.object().value("items").isArray()
+    } else if (document.isObject() && document.object().size() == 1 && (document.object().value("items").isArray()
             != document.object().value("entries").isArray())
         && !(document.object().contains("items") && document.object().contains("entries"))) {
         const QJsonObject object = document.object();
@@ -423,4 +440,159 @@ bool ProtonProvider::run(const QStringList &arguments, QString *error) const
     }
 
     return false;
+}
+
+bool ProtonProvider::containedChildren(const QString &path, const QString &parentUid, QJsonArray *values, QString *error)
+{
+    if (!listing(path, values, error)) return false;
+    QSet<QString> names, uids;
+    for (const auto &value : *values) {
+        const auto object = value.toObject();
+        const auto nameValue = object.value("name");
+        const QString name = itemName(object), uid = object.value("uid").toString();
+        const QString type = object.value("type").toString();
+        if (!value.isObject() || (nameValue.isObject() && nameValue.toObject().value("ok") != QJsonValue(true))
+            || name.isEmpty() || name == "." || name == ".." || name.contains('/') || name.contains('\\')
+            || name.contains(QChar::Null) || names.contains(name) || uid.isEmpty() || uids.contains(uid)
+            || object.value("parentUid") != parentUid || (type != "file" && type != "folder" && type != "directory")
+            || (object.contains("path") && object.value("path") != path + '/' + name)) {
+            if (error) *error = "Ambiguous/unreadable child or parent UID mismatch in complete Proton inventory.";
+            return false;
+        }
+        names.insert(name);
+        uids.insert(uid);
+    }
+    return true; // CLI consumes the entire SDK iterator, not a paginated slice.
+}
+
+bool ProtonProvider::containedNode(const QString &path, QJsonObject *node, QString *error)
+{
+    if (!cleanupPath(path)) {
+        if (error) *error = "Cleanup requires a canonical name-based /my-files path; UID aliases and other virtual roots are forbidden.";
+        return false;
+    }
+    const auto info = [&](const QString &current, QJsonObject *object) {
+        const auto output = runner.run({"filesystem", "info", "-j", current});
+        const auto document = QJsonDocument::fromJson(output.standardOutput.toUtf8());
+        *object = document.object();
+        if (!output.successful() || !document.isObject() || object->value("uid").toString().isEmpty()
+            || (object->contains("path") && object->value("path") != current)) {
+            if (error) *error = "Cannot establish exact Proton node identity: " + output.standardError;
+            return false;
+        }
+        return true;
+    };
+    QString current = "/my-files";
+    if (!info(current, node) || node->value("type") != "folder") return false;
+    for (const auto &part : path.mid(current.size()).split('/', Qt::SkipEmptyParts)) {
+        const QString parentUid = node->value("uid").toString();
+        QJsonArray children;
+        if (!containedChildren(current, parentUid, &children, error)) return false;
+        QJsonObject selected;
+        for (const auto &value : children) if (itemName(value.toObject()) == part) selected = value.toObject();
+        current += '/' + part;
+        if (selected.isEmpty() || !info(current, node) || node->value("uid") != selected.value("uid")
+            || node->value("parentUid") != parentUid || itemName(*node) != part) {
+            if (error) *error = "Resolved Proton node is not the selected child of its allowed parent.";
+            return false;
+        }
+    }
+    return true;
+}
+
+bool ProtonProvider::listComplete(const QString &path, QVector<RemoteItem> *items, QString *error)
+{
+    QJsonObject parent;
+    QJsonArray values;
+    if (!items || !containedNode(path, &parent, error)
+        || !containedChildren(path, parent.value("uid").toString(), &values, error)) return false;
+    items->clear();
+    for (const auto &value : values) {
+        const auto object = value.toObject();
+        const QString name = itemName(object);
+        items->append({path + '/' + name, name, object.value("type") != "file", 0, {}});
+    }
+    return true;
+}
+
+bool ProtonProvider::deletionIdentity(const QString &path, QString *identity, QString *error)
+{
+    QJsonObject node;
+    if (!containedNode(path, &node, error)) return false;
+    *identity = node.value("uid").toString();
+    return true;
+}
+
+bool ProtonProvider::trashTarget(const QString &identity, QString *path, bool *found, QString *error)
+{
+    QJsonArray values;
+    if (!listing("/trash", &values, error)) return false;
+    QMap<QString, int> names;
+    QString target;
+    *found = false;
+    for (const auto &value : values) {
+        const auto object = value.toObject();
+        const QString name = itemName(object), uid = object.value("uid").toString();
+        if (!value.isObject() || name.isEmpty() || uid.isEmpty()
+            || (object.value("name").isObject() && object.value("name").toObject().value("ok") != QJsonValue(true))) {
+            if (error) *error = "Unreadable Proton trash inventory; refusing deletion.";
+            return false;
+        }
+        ++names[name];
+        if (uid == identity) {
+            if (*found) { if (error) *error = "Duplicate Proton trash identity."; return false; }
+            *found = true;
+            target = name;
+        }
+    }
+    if (*found && (names.value(target) != 1 || target.contains('/') || target.contains('\\') || target.contains(QChar::Null)
+        || target == "." || target == "..")) {
+        if (error) *error = "Ambiguous Proton trash name; reconcile this exact node manually.";
+        return false;
+    }
+    *path = *found ? "/trash/" + target : QString();
+    return true;
+}
+
+bool ProtonProvider::exactMutation(const QString &command, const QString &path, const QString &identity, QString *error)
+{
+    ensuredDirectories.clear();
+    const auto output = runner.run({"filesystem", command, "-j", path});
+    const auto document = QJsonDocument::fromJson(output.standardOutput.toUtf8());
+    const auto values = document.array();
+    if (!output.successful() || !document.isArray() || values.size() != 1
+        || values[0].toObject().value("uid") != identity || values[0].toObject().value("ok") != QJsonValue(true)) {
+        if (error) *error = "Unconfirmed exact Proton " + command + "; retry/reconcile the persisted identity. " + output.standardError;
+        return false;
+    }
+    return true;
+}
+
+bool ProtonProvider::trashExact(const QString &path, const QString &identity, QString *error)
+{
+    if (identity.isEmpty() || !cleanupPath(path)) return false;
+    const auto live = lookup(path, error);
+    if (live == RemoteLookup::Unknown) return false;
+    if (live == RemoteLookup::Found) {
+        QString observed;
+        if (!deletionIdentity(path, &observed, error) || observed != identity) {
+            if (error) *error = "Proton deletion target identity changed.";
+            return false;
+        }
+        if (!exactMutation("trash", path, identity, error)) return false;
+    }
+    QString target;
+    bool found;
+    return trashTarget(identity, &target, &found, error);
+}
+
+bool ProtonProvider::deleteExact(const QString &path, const QString &identity, QString *error)
+{
+    if (identity.isEmpty() || !cleanupPath(path) || lookup(path, error) != RemoteLookup::Missing) return false;
+    QString target;
+    bool found;
+    if (!trashTarget(identity, &target, &found, error)) return false;
+    if (!found) return true; // Complete fresh inventory proves an uncertain delete won.
+    if (!exactMutation("delete", target, identity, error)) return false;
+    return trashTarget(identity, &target, &found, error) && !found;
 }
