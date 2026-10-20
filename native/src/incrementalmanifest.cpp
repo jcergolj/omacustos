@@ -71,6 +71,16 @@ bool noFileParents(const QSet<QString> &paths)
 
 } // namespace
 
+bool IncrementalManifest::validId(const QString &value)
+{
+    return id(value);
+}
+
+bool IncrementalManifest::safeRelativePath(const QString &value)
+{
+    return path(value);
+}
+
 bool IncrementalManifest::validate(const QByteArray &json, const QString &setId,
     const QString &snapshotId, QString *error)
 {

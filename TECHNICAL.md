@@ -125,6 +125,11 @@ publication, recovery and deletion guarantees are specified in the
 schema validator and examples do not enable incremental backups; the layout and
 v1/v2/v3 behavior described below remain current.
 
+The [read-only incremental planner](docs/incremental-planner.md) hashes selected
+local files and compares one validated v4 snapshot, exposing deterministic logical
+changes, content reuse, and separate check/saved-change timestamps. It does not
+enable v4 execution or change the full-backup worker/UI.
+
 Each copy is stored independently below:
 
 ```text

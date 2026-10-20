@@ -21,6 +21,7 @@ add_library(omacustos-core STATIC
     src/backupstaging.cpp
     src/backupmanifest.cpp
     src/incrementalmanifest.cpp
+    src/incrementalplanner.cpp
     src/backupcatalog.cpp
     src/payloadmetadatapolicy.h
     src/remotemetadatacache.h
@@ -171,6 +172,7 @@ omacustos_add_test(backupconfig-test tests/backupconfig_test.cpp omacustos-core)
 omacustos_add_test(backupmanifest-test tests/backupmanifest_test.cpp omacustos-core)
 omacustos_add_test(incrementalmanifest-test tests/incrementalmanifest_test.cpp omacustos-core)
 target_compile_definitions(incrementalmanifest-test PRIVATE OMACUSTOS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+omacustos_add_test(incrementalplanner-test tests/incrementalplanner_test.cpp omacustos-core)
 omacustos_add_test(backuprestorecontroller-test tests/backuprestorecontroller_test.cpp omacustos-controllers)
 target_link_libraries(backuprestorecontroller-test PRIVATE Qt6::Qml)
 omacustos_add_test(retention-discovery-test tests/retention_discovery_test.cpp omacustos-controllers)

@@ -8,6 +8,8 @@
 class IncrementalManifest
 {
 public:
+    static bool validId(const QString &value);
+    static bool safeRelativePath(const QString &value);
     static bool validate(const QByteArray &json, const QString &setId,
         const QString &snapshotId, QString *error = nullptr);
 };
