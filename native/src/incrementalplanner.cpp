@@ -46,7 +46,7 @@ bool sameCapture(const struct stat &left, const struct stat &right)
 }
 
 bool capture(const IncrementalSource &source, const std::function<bool()> &stopped,
-    IncrementalPlannedFile *file, QString *error)
+    IncrementalPlannedFile *file, QString *error, QFile *output = nullptr)
 {
     const auto fail = [&](const QString &reason) { *error = reason; return false; };
     if (stopped && stopped()) return fail("Planning was stopped.");
@@ -74,6 +74,8 @@ bool capture(const IncrementalSource &source, const std::function<bool()> &stopp
         if (chunk.isEmpty()) break;
         bytes += chunk.size();
         if (bytes > before.st_size) return fail("Source changed while hashing.");
+        if (output && output->write(chunk) != chunk.size())
+            return fail("Waiting for staging storage: " + output->errorString());
         hash.addData(chunk);
     }
     if (::fstat(descriptor, &after) != 0) return fail("Unable to recheck the captured source.");
@@ -105,6 +107,28 @@ bool sameSavedFile(const IncrementalPlannedFile &file, const QJsonObject &entry)
 }
 
 } // namespace
+
+bool IncrementalPlanner::stage(const IncrementalPlannedFile &expected, const QString &outputPath,
+    QString *error, const std::function<bool()> &stopped)
+{
+    QFile output(outputPath);
+    if (!output.open(QIODevice::WriteOnly | QIODevice::NewOnly)) {
+        if (error) *error = "Waiting for staging storage: " + output.errorString();
+        return false;
+    }
+    IncrementalPlannedFile observed;
+    QString reason;
+    const bool captured = capture({expected.sourcePath, expected.restorePath}, stopped, &observed, &reason, &output);
+    const bool matches = captured && observed.size == expected.size && observed.checksum == expected.checksum
+        && observed.mode == expected.mode && observed.mtimeNs == expected.mtimeNs;
+    const bool flushed = matches && output.flush();
+    output.close();
+    if (flushed && output.setPermissions(QFileDevice::ReadOwner)) return true;
+    QFile::remove(outputPath);
+    if (error) *error = !reason.isEmpty() ? reason : !matches ? "Source changed since planning; replan before upload."
+        : "Waiting for staging storage: unable to flush or protect captured bytes.";
+    return false;
+}
 
 IncrementalPlan IncrementalPlanner::plan(const IncrementalPlanRequest &request)
 {

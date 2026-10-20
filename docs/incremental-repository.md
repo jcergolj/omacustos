@@ -6,6 +6,12 @@ The pure `IncrementalManifest::validate` boundary implements the manifest schema
 it performs no network I/O and does not authorize publication, restore, or deletion.
 Existing v1/v2/v3 readers, exact v3 membership checks, and full uploads are unchanged.
 
+**Ownership amendment for #58 (2026-10-20, explicitly approved by the user):**
+the CLI-backed implementation uses one operational writer with manual offline
+handoff, not server-enforced fencing. This supersedes the original fencing
+requirement; it does not relax payload verification, restore validation or deletion
+safeguards. See [executor and recovery details](incremental-execution.md).
+
 ## Scope and trust
 
 Target documents and source code. Changed files are saved in full, in bounded
@@ -43,10 +49,12 @@ read-only until takeover. Preserve the original computer ID across ownership cha
 
 `repository.json` is a version-1 control record: `application: "omacustos"`,
 `set_id`, immutable `origin_computer_id`, current `owner_computer_id`, positive
-`ownership_epoch`, and human-readable `set_name`/`computer_name`. Provision it with
-exclusive create, verify by readback, and never adopt an existing conflicting ID.
-Control updates are conditional on its revision and current fenced ownership.
-Display labels are advisory, never scope or authorization. The root is chosen
+`ownership_epoch`, and `coordination: "manual-offline-v1"`. Human-readable labels
+are kept outside this minimal authorization record. Provision it using a fresh,
+empty namespace with conflict-failing upload and verified readback; never adopt
+an existing conflicting ID. Anchor updates require confirmed offline handoff,
+not a claimed conditional remote write. Display labels are never authorization.
+The root is chosen
 explicitly during remote-only recovery; discover repositories below its direct
 `sets` child, not by guessing hostnames. Legacy discovery remains separate.
 
@@ -126,34 +134,48 @@ logical metadata, so reused content can have different mode/mtime. Never adapt t
 v3 extractor by merely allowing unexpected members. A future v4 restore adapter
 must explicitly pass the physical inventory and logical selection separately.
 
-## Ownership and enforced coordination
+## Ownership and operational coordination
 
 Serialize backup, full integrity maintenance, retention, and recovery mutations
 per set. Read-only discovery/restore need no write ownership. Local process/file
 locks remain useful but are insufficient across computers or cloned configurations.
 
-**Required provider capability:** a linearizable per-set mutation gate that grants
-an exclusive session with a monotonically increasing fencing token tied to the
-ownership epoch. Every object/control upload, manifest create, trash and permanent
-delete must be rejected server-side for an expired/revoked session or stale token.
-An exclusive-create immutable name and atomic complete-file visibility are also
-required. An advisory lock file, check-then-write, clock-based timeout, or CAS of
-only `repository.json` while payload mutations remain unfenced does not qualify.
+The installed Proton CLI 0.8.0 and inspected upstream commands do not expose
+per-set fencing tokens or caller-supplied conditional writes/deletes. The SDK's
+`CurrentRevisionID` on revision creation is not a per-set mutation fence. The
+CLI's local events PID lock is not cross-computer coordination. Do not pretend
+an advisory remote lock file or an expiring timestamp provides these guarantees.
 
-The current Proton CLI adapter has no demonstrated such gate. Therefore **v4
-mutations are unsupported and must fail closed** until a provider implementation
-proves these capabilities or an enforceable serialized mutation service supplies
-them. Do not turn this contract into a best-effort lease on the current CLI. The
-read-only schema work in #56 does not pretend to implement a remote lock.
+**Approved supported model:** exactly one owning computer and one shared local
+coordination-state directory per set. Backup, integrity maintenance and cleanup
+must all hold its non-expiring process lock (keyed by stable set UUID), and re-read
+the exact owner/epoch anchor before remote mutations. Reject mismatches. Never
+schedule writes from restored/imported configurations on another computer, and do
+not clone a writer identity into active use. No remote lease is acquired or stolen.
+Unfinished operations remain protected indefinitely, regardless of their age.
 
-Takeover is a separate user-confirmed recovery action: show exact root/current
-owner/epoch; atomically revoke and fence all old sessions, increment the epoch,
-assign the new computer ID, then acquire a fresh exclusive session. Reconcile all
-old operations/intents before writes or cleanup resume. Old journals cannot resume
-under a new epoch without explicit adoption and fresh verification. If revocation
-or current ownership cannot be proven, remain read-only, never steal a lock based
-on age. A crashed session may be revoked by the same owner through this same gate;
-an old paused process must receive a hard stale-token failure on its next mutation.
+**Explicit limitation:** a second computer, a second coordination-state directory,
+or an already-running old process can bypass local exclusion. Owner rechecks are
+diagnostics, not atomic fencing; a stale writer can race the next remote call.
+This model relies on the operator disabling the old writer before handoff. There
+is no safe online/automatic takeover through the CLI. Strict stale-writer rejection
+would require an enforcing service or future provider capabilities.
+
+Manual offline handoff must show the exact root/current owner/epoch and require:
+disable old schedules/services and auto-retries; stop all GUI/CLI writers and wait
+for transfers to exit; prevent the old installation from later restarting (revoke
+its access or remove/disable its writer configuration); reconcile or explicitly
+abandon protected operations/intents; then assign a fresh computer ID and increment
+the ownership epoch, upload/read back the anchor, and enable only the new writer.
+If the old machine cannot be secured against resuming, remain read-only. A local
+journal cannot resume under a changed epoch. Never infer abandonment from time.
+User-facing takeover tooling remains the discovery/ownership follow-up (#59).
+
+Payload/control creation uses fresh immutable IDs and conflict-failing JSON-mode
+uploads, with mandatory readback verification. Never use replace/rename/new-revision
+for objects or manifests. The CLI may skip identical content; verification must
+still prove the expected bytes. Final snapshot discovery validates a complete v4
+manifest; missing, draft, malformed or conflicting content is not restorable.
 
 ## Verification evidence and health policy
 
@@ -217,8 +239,11 @@ resolved. These are logical budgets, not a claim of bounded network-call duratio
 ## Manifest-last publication and interruption
 
 An operation protection record (version 1) contains set/operation/snapshot IDs,
-owner/epoch, captured selection, all prepared and reused object descriptors,
-verification states, and phase. Persist and verify it under the fenced session
+owner/epoch, all prepared and reused object descriptors, verification states and
+publication intent. The v4 executor records these as immutable per-object records
+and reuse-protection batches below the operation, not a repeatedly rewritten
+whole-history document. Re-scan current selected sources until publication intent
+fixes the final logical selection. Persist and verify protection under local exclusion
 **before** uploading or claiming any object. Extend it durably before each new
 object; local journals alone never protect remote reachability. Never overwrite
 published objects/manifests. Unknown upload results are reconciled by exact ID and
@@ -226,7 +251,7 @@ hash; conflicting bytes cause a new ID, never replacement.
 
 Ordering: prepared local journal → remote protection → upload → full verification
 → remote receipt → synced verified local checkpoint → release staging → daily
-reuse checks → validate complete manifest → exclusive atomic manifest upload last
+reuse checks → validate complete manifest → conflict-failing manifest upload last
 → download/hash/schema/location verification → durable run success → operation
 completion → retention eligibility. Manifest bytes must be assembled before upload;
 the provider must not expose a partial file at its final name. A successful
@@ -240,7 +265,7 @@ upload response does not make it unpublished. Remote-only discovery needs no run
 history. Invalid or unknown-version snapshots block cleanup, rather than being
 silently ignored. The app must not advertise success until readback succeeds.
 
-| Interruption | Recovery under fenced coordination |
+| Interruption | Recovery under operational single-writer coordination |
 | --- | --- |
 | Before remote protection | No upload permitted; discard/rebuild local preparation |
 | After protection, before/within upload | Protect named objects; inspect exact names; retry missing objects, fully hash existing objects before accepting them |
@@ -249,10 +274,10 @@ silently ignored. The app must not advertise success until readback succeeds.
 | Before manifest | Resume same snapshot/operation; rescan current sources, reconcile refs, and update protection before changing objects |
 | Manifest upload or readback outcome unknown | Read exact path; identical valid bytes mean committed; absent means retry; conflicting/invalid bytes mean quarantine and stop |
 | After manifest, before local success | Recover committed snapshot and success without uploading a duplicate; cleanup remains gated on durable success |
-| Pause/cancel/owner loss | Pause retains protection indefinitely; cancel records terminal abandonment under gate; never infer abandonment from time alone |
+| Pause/cancel/owner loss | Pause retains protection indefinitely; cancel durably records abandonment under local exclusion; never infer abandonment from time alone. An already committed manifest wins a late cancel |
 
 Protection is retired only after a verified committed snapshot takes over its
-references, or explicit abandonment by the current owner after fencing old sessions.
+references, or explicit abandonment by the current owner with old writers disabled.
 Lost/unreadable operation state blocks GC. Reinstall recovery enumerates remote
 operations before resuming; it never treats local journal absence as abandonment.
 
@@ -267,7 +292,8 @@ warn about coexistence with old full history; insufficient capacity stops the ru
 never deletes retained history to make room.
 
 Only a durably successful, verified publication can initiate automatic retention.
-Hold the fenced gate throughout planning and mutations. Read **all** manifests,
+Hold shared local exclusion throughout planning and mutations, with all other
+computers' writers disabled. Read **all** manifests,
 protection records, unresolved maintenance/deletion intents, and repository anchor
 freshly. Any unreadable, ambiguous, malformed, foreign or unsupported record stops
 GC. Do not use a possibly incomplete listing: provider must guarantee complete
@@ -279,7 +305,8 @@ object IDs/paths/digests/sizes, reachability generation, confirmation and per-ta
 phases. First cleanup requires exact-scope user confirmation, matching current
 proposal bytes; changed scope requires fresh confirmation. Later cleanup uses the
 saved policy but still durably records each exact scope before mutations. Existing
-local cleanup locks and run coordination remain required, not sufficient fencing.
+local cleanup locks and run coordination remain required. They do not provide
+remote fencing; the operational single-writer assumption applies to cleanup too.
 
 Order: authorize intent → remove only approved snapshot manifests/copy folders →
 persist each result → freshly recompute retained/protected reachability → trash
@@ -304,16 +331,17 @@ authorizes deleting shared objects. Integrity errors cannot authorize retention.
 
 ## Implementation and release gates
 
-#56 delivers schema tests and this contract, not remote mutation protocols. Future
-implementations must prove the provider gate/visibility/listing guarantees first;
-absence of those capabilities blocks the incremental rollout, not legacy backups.
+#56 delivered schema tests and this contract. #58 adds the CLI-compatible executor
+under the explicitly approved manual-offline ownership amendment. The full default
+rollout still requires inventory-aware restore/discovery (#59), safe GC/integrity
+maintenance (#60) and the remaining release validation; no provider fence is claimed.
 Keep v4 outside `BackupManifest`/v3 restore until inventory-aware restore, catalog,
 remote-only discovery and takeover are implemented together.
 
 Test planner changes/renames/unchanged metadata, subset restore without ancestors,
 legacy restore, exact tar validation, original evidence after local-state loss,
 same-size corruption (daily limitation/full detection), missing objects, uncertain
-network outcomes, quotas, pauses, stale-owner rejection, publication boundaries,
+network outcomes, quotas, pauses, owner/epoch mismatch rejection, publication boundaries,
 and deletion crash phases. Prove no retained/protected reference is deleted, including
 unknown manifests and unfinished operations. Supply safe GC in the first usable
 release. Benchmark baseline/unchanged/edit/full and single-file restore on documents

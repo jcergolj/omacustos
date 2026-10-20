@@ -3,8 +3,10 @@
 `IncrementalPlanner::plan` in `native/src/incrementalplanner.{h,cpp}` implements
 source capture and deterministic comparison against exactly one previous v4
 snapshot. It is deliberately not wired into today's full-backup worker or UI:
-the [repository contract](incremental-repository.md) still gates v4 writes on
-enforced remote fencing, publication, restore and GC support.
+the [repository contract](incremental-repository.md) still gates default rollout
+on restore, GC and release validation. #58 adds a separate executor using the
+explicitly approved operational single-writer/manual-offline-handoff model, not
+remote fencing.
 
 ## Inputs and capture
 

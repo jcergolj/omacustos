@@ -14,6 +14,8 @@ public:
     void beginBackupOperation() override;
     void endBackupOperation() override;
     bool upload(const QString &localPath, const QString &remotePath, QString *error = nullptr) override;
+    bool uploadImmutable(const QString &localPath, const QString &remotePath, QString *error = nullptr) override;
+    RemoteLookup lookup(const QString &remotePath, QString *error = nullptr) override;
     bool supportsDirectoryUpload() const override { return true; }
     bool uploadDirectory(const QString &localPath, const QString &remotePath, QString *error = nullptr) override;
     bool ensureDirectory(const QString &remotePath, QString *error = nullptr) override;

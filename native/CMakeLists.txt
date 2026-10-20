@@ -22,6 +22,7 @@ add_library(omacustos-core STATIC
     src/backupmanifest.cpp
     src/incrementalmanifest.cpp
     src/incrementalplanner.cpp
+    src/incrementalrepository.cpp
     src/backupcatalog.cpp
     src/payloadmetadatapolicy.h
     src/remotemetadatacache.h
@@ -76,6 +77,10 @@ target_link_libraries(omacustos PRIVATE
 
 qt_add_executable(omacustos-worker src/worker_main.cpp)
 target_link_libraries(omacustos-worker PRIVATE omacustos-core)
+
+# Explicit advanced-user seam; normal worker/default rollout is unchanged.
+qt_add_executable(omacustos-incremental src/incremental_main.cpp)
+target_link_libraries(omacustos-incremental PRIVATE omacustos-core)
 
 qt_add_executable(omacustos-install src/install_main.cpp)
 target_link_libraries(omacustos-install PRIVATE omacustos-core)
@@ -173,6 +178,7 @@ omacustos_add_test(backupmanifest-test tests/backupmanifest_test.cpp omacustos-c
 omacustos_add_test(incrementalmanifest-test tests/incrementalmanifest_test.cpp omacustos-core)
 target_compile_definitions(incrementalmanifest-test PRIVATE OMACUSTOS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 omacustos_add_test(incrementalplanner-test tests/incrementalplanner_test.cpp omacustos-core)
+omacustos_add_test(incrementalrepository-test tests/incrementalrepository_test.cpp omacustos-core)
 omacustos_add_test(backuprestorecontroller-test tests/backuprestorecontroller_test.cpp omacustos-controllers)
 target_link_libraries(backuprestorecontroller-test PRIVATE Qt6::Qml)
 omacustos_add_test(retention-discovery-test tests/retention_discovery_test.cpp omacustos-controllers)

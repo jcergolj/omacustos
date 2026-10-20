@@ -19,6 +19,8 @@ struct RemoteItem {
     QDateTime modified;
 };
 
+enum class RemoteLookup { Found, Missing, Unknown };
+
 class BackupProvider
 {
 public:
@@ -29,6 +31,11 @@ public:
     virtual void endBackupOperation() {}
 
     virtual bool upload(const QString &localPath, const QString &remotePath, QString *error = nullptr) = 0;
+    // Incremental storage requires conflict-failing writes and explicit absence.
+    // Defaults fail closed; legacy providers/callers keep their existing behavior.
+    virtual bool uploadImmutable(const QString &, const QString &, QString * = nullptr) { return false; }
+    virtual RemoteLookup lookup(const QString &, QString * = nullptr) { return RemoteLookup::Unknown; }
+    virtual bool trustworthyContentChecksums() const { return false; }
     // Optional recursive upload of a prepared tree into a fresh copy namespace.
     // The local directory basename must match the remote directory basename.
     virtual bool supportsDirectoryUpload() const { return false; }

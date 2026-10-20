@@ -130,6 +130,13 @@ local files and compares one validated v4 snapshot, exposing deterministic logic
 changes, content reuse, and separate check/saved-change timestamps. It does not
 enable v4 execution or change the full-backup worker/UI.
 
+The [incremental executor](docs/incremental-execution.md) implements shared-object
+uploads, remote protection/verification records and manifest-last recovery, with
+an explicit `build/omacustos-incremental` Proton CLI entry point. It uses the
+user-approved operational single-writer/manual-offline-handoff model (no remote
+fencing guarantee). It never calls retention/deletion. Normal workers and v1-v3
+restore remain unchanged pending the remaining rollout dependencies.
+
 Each copy is stored independently below:
 
 ```text

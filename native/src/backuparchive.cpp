@@ -146,8 +146,8 @@ bool pack(const QString &tree, const QString &remoteRoot, const QString &output,
     return true;
 }
 
-bool extract(const QString &input, const QVector<BackupEntry> &selected,
-    const QString &workspace, QVector<BackupEntry> *payloads, QString *error)
+static bool readArchive(const QString &input, const QVector<BackupEntry> &selected,
+    const QString &workspace, QVector<BackupEntry> *payloads, QString *error, bool materialize)
 {
     struct archive *reader = archive_read_new();
     const auto release = qScopeGuard([&] { archive_read_free(reader); });
@@ -184,7 +184,8 @@ bool extract(const QString &input, const QVector<BackupEntry> &selected,
         seen.insert(member);
         const bool keep = wanted.contains(member);
         QFile output(QDir(workspace).filePath(QString::number(payloads->size())));
-        if (keep && (!output.open(QIODevice::WriteOnly) || archive_entry_size(header) != wanted.value(member).size)) return fail();
+        if (keep && ((materialize && !output.open(QIODevice::WriteOnly))
+            || archive_entry_size(header) != wanted.value(member).size)) return fail();
         QCryptographicHash hash(QCryptographicHash::Sha256);
         qint64 size = 0;
         char buffer[64 * 1024];
@@ -193,14 +194,14 @@ bool extract(const QString &input, const QVector<BackupEntry> &selected,
         while ((count = archive_read_data(reader, buffer, sizeof(buffer))) > 0) {
             size += count;
             if (keep) {
-                if (size > wanted.value(member).size || output.write(buffer, count) != count) return fail();
+                if (size > wanted.value(member).size || (materialize && output.write(buffer, count) != count)) return fail();
                 hash.addData(QByteArrayView(buffer, count));
             }
         }
         if (count < 0 || size != archive_entry_size(header)) return fail();
         if (keep) {
             BackupEntry entry = wanted.value(member);
-            if (size != entry.size || hash.result() != entry.checksum || !output.flush()) return fail();
+            if (size != entry.size || hash.result() != entry.checksum || (materialize && !output.flush())) return fail();
             entry.remotePath = output.fileName();
             entry.archive = {};
             entry.memberPath.clear();
@@ -210,5 +211,17 @@ bool extract(const QString &input, const QVector<BackupEntry> &selected,
     if (status != ARCHIVE_EOF || archive_filter_code(reader, 0) != ARCHIVE_FILTER_GZIP
         || seen != allowed || payloads->size() != selected.size() || archive_read_close(reader) != ARCHIVE_OK) return fail();
     return true;
+}
+
+bool extract(const QString &input, const QVector<BackupEntry> &selected,
+    const QString &workspace, QVector<BackupEntry> *payloads, QString *error)
+{
+    return readArchive(input, selected, workspace, payloads, error, true);
+}
+
+bool verifyInventory(const QString &input, const QVector<BackupEntry> &inventory, QString *error)
+{
+    QVector<BackupEntry> observations;
+    return readArchive(input, inventory, {}, &observations, error, false);
 }
 }

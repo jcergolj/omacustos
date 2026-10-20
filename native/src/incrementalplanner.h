@@ -57,4 +57,8 @@ class IncrementalPlanner
 {
 public:
     static IncrementalPlan plan(const IncrementalPlanRequest &request);
+    // Recapture into an already private workspace. Exact planned bytes and restore
+    // metadata must match; a failed/partial output is removed, never uploaded.
+    static bool stage(const IncrementalPlannedFile &expected, const QString &outputPath,
+        QString *error, const std::function<bool()> &stopped = {});
 };

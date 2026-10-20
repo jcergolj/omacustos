@@ -5,6 +5,8 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QUuid>
+#include <QScopeGuard>
+#include <unistd.h>
 
 LocalProvider::LocalProvider(QString rootPath)
     : rootPath(std::move(rootPath))
@@ -63,6 +65,35 @@ static bool sha256File(QFile &file, QByteArray *checksum)
 static QString trashPath(const QString &rootPath, const QString &remotePath)
 {
     return QDir(rootPath).filePath(QDir(QStringLiteral(".trash")).filePath(remotePath));
+}
+
+RemoteLookup LocalProvider::lookup(const QString &remotePath, QString *error)
+{
+    if (!validRemotePath(remotePath) || !safeLocalPath(rootPath, remotePath)) {
+        if (error) *error = "Unsafe local provider path.";
+        return RemoteLookup::Unknown;
+    }
+    const QString path = QDir(rootPath).filePath(remotePath);
+    const QFileInfo parent(QFileInfo(path).absolutePath());
+    if (!parent.isDir() || !parent.isReadable()) {
+        if (error) *error = "Cannot establish absence in an unreadable provider folder.";
+        return RemoteLookup::Unknown;
+    }
+    return QFileInfo::exists(path) ? RemoteLookup::Found : RemoteLookup::Missing;
+}
+
+bool LocalProvider::uploadImmutable(const QString &localPath, const QString &remotePath, QString *error)
+{
+    if (!validRemotePath(remotePath) || !safeLocalPath(rootPath, remotePath)) return false;
+    // Publish a complete file with link(2)'s no-replace semantics. The temporary
+    // file is in the destination filesystem, never a partially visible final name.
+    const QString destination = QDir(rootPath).filePath(remotePath);
+    const QString temporary = destination + "." + QUuid::createUuid().toString(QUuid::WithoutBraces) + ".tmp";
+    const auto cleanup = qScopeGuard([&] { QFile::remove(temporary); });
+    if (QFile::copy(localPath, temporary)
+        && ::link(QFile::encodeName(temporary).constData(), QFile::encodeName(destination).constData()) == 0) return true;
+    if (error) *error = "Immutable provider write failed or the destination already exists.";
+    return false;
 }
 
 bool LocalProvider::upload(const QString &localPath, const QString &remotePath, QString *error)

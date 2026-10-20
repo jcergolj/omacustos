@@ -128,6 +128,47 @@ bool ProtonProvider::uploadDirectory(const QString &localPath, const QString &re
     return uploaded;
 }
 
+bool ProtonProvider::uploadImmutable(const QString &localPath, const QString &remotePath, QString *error)
+{
+    if (!remotePath.startsWith('/') || remotePath != QDir::cleanPath(remotePath)
+        || remotePath.split('/').contains("..") || remotePath.contains(QChar::Null) || remotePath.contains('\\')
+        || QFileInfo(localPath).fileName() != QFileInfo(remotePath).fileName()) {
+        if (error) *error = "Immutable uploads require an exact staged basename.";
+        return false;
+    }
+    // In JSON mode unresolved conflicts fail, rather than prompting. Do not use
+    // replace, rename or create-new-revision. An identical-content skip is safe
+    // only after the caller's mandatory full readback verification.
+    return run({"filesystem", "upload", "-j", "-t", localPath, QFileInfo(remotePath).path()}, error);
+}
+
+RemoteLookup ProtonProvider::lookup(const QString &remotePath, QString *error)
+{
+    if (!remotePath.startsWith('/') || remotePath != QDir::cleanPath(remotePath)
+        || remotePath.split('/').contains("..") || remotePath.contains(QChar::Null) || remotePath.contains('\\')) {
+        if (error) *error = "Unsafe provider lookup path.";
+        return RemoteLookup::Unknown;
+    }
+    const QString parent = QFileInfo(remotePath).path();
+    QJsonArray values;
+    if (!listing(parent, &values, error)) return RemoteLookup::Unknown;
+    QSet<QString> seen;
+    bool found = false;
+    for (const auto &value : values) {
+        const auto object = value.toObject();
+        const QString name = itemName(object);
+        const QString path = object.value("path").toString(QDir(parent).filePath(name));
+        if (!value.isObject() || name.isEmpty() || name == "." || name == ".." || name.contains('/')
+            || name.contains(QChar::Null) || path != QDir(parent).filePath(name) || seen.contains(name)) {
+            if (error) *error = "Ambiguous or malformed Proton Drive listing; absence is unknown.";
+            return RemoteLookup::Unknown;
+        }
+        seen.insert(name);
+        found = found || path == remotePath;
+    }
+    return found ? RemoteLookup::Found : RemoteLookup::Missing;
+}
+
 bool ProtonProvider::ensureDirectory(const QString &remotePath, QString *error)
 {
     if (remotePath.isEmpty() || !remotePath.startsWith('/')) {
@@ -313,12 +354,17 @@ bool ProtonProvider::listing(const QString &remotePath, QJsonArray *values, QStr
 
     if (document.isArray()) {
         *values = document.array();
-    } else if (document.isObject()) {
+    } else if (document.isObject() && (document.object().value("items").isArray()
+            != document.object().value("entries").isArray())
+        && !(document.object().contains("items") && document.object().contains("entries"))) {
         const QJsonObject object = document.object();
         *values = object.value(QStringLiteral("items")).toArray();
-        if (values->isEmpty()) {
+        if (!object.value("items").isArray()) {
             *values = object.value(QStringLiteral("entries")).toArray();
         }
+    } else {
+        if (error) *error = "Proton Drive returned an unsupported folder listing.";
+        return false;
     }
     return true;
 }

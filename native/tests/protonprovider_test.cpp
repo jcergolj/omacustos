@@ -36,6 +36,8 @@ class ProtonProviderTest final : public QObject
 
 private slots:
     void uploadUsesJsonCliArguments();
+    void immutableUploadsNeverSelectReplacement();
+    void lookupDoesNotInventAbsence();
     void folderUploadPreservesSelectionSnapshotsAndCleansStaging_data();
     void folderUploadPreservesSelectionSnapshotsAndCleansStaging();
     void folderUploadFailuresCleanStagingAndKeepVerifiedFiles_data();
@@ -72,6 +74,40 @@ private slots:
     void rejectsNullMetadataOutput();
     void listsRemoteItemsAndUsesExactCleanupCommands();
 };
+
+void ProtonProviderTest::immutableUploadsNeverSelectReplacement()
+{
+    FakeRunner runner;
+    runner.response = {0, {}, {}};
+    ProtonProvider provider(runner);
+    QString error;
+    QVERIFY(provider.uploadImmutable("/staging/object.tar.gz", "/my-files/objects/object.tar.gz", &error));
+    QCOMPARE(runner.arguments, (QStringList{"filesystem", "upload", "-j", "-t", "/staging/object.tar.gz", "/my-files/objects"}));
+    QVERIFY(!provider.trustworthyContentChecksums());
+    QVERIFY(!provider.uploadImmutable("/staging/wrong-name", "/my-files/objects/object.tar.gz", &error));
+}
+
+void ProtonProviderTest::lookupDoesNotInventAbsence()
+{
+    FakeRunner runner;
+    ProtonProvider provider(runner);
+    QString error;
+    runner.response = {0, "[]", {}};
+    QCOMPARE(provider.lookup("/my-files/object", &error), RemoteLookup::Missing);
+    runner.response = {0, R"([{"name":"object","type":"file"}])", {}};
+    QCOMPARE(provider.lookup("/my-files/object", &error), RemoteLookup::Found);
+    for (const auto &malformed : {QString("{}"), QString("null"), QString("[null]"),
+            QString(R"({"items":[],"entries":[{"name":"object"}]})"),
+            QString(R"({"items":"invalid","entries":[]})"),
+            QString(R"([{"name":"object"},{"name":"object"}])"),
+            QString(R"([{"name":"object","path":"/other/object"}])"),
+            QString(R"([{"name":"../object"}])")}) {
+        runner.response = {0, malformed, {}};
+        QCOMPARE(provider.lookup("/my-files/object", &error), RemoteLookup::Unknown);
+    }
+    runner.response = {1, {}, "authentication/network failure"};
+    QCOMPARE(provider.lookup("/my-files/object", &error), RemoteLookup::Unknown);
+}
 
 void ProtonProviderTest::folderUploadPreservesSelectionSnapshotsAndCleansStaging_data()
 {

@@ -12,4 +12,6 @@ bool pack(const QString &tree, const QString &remoteRoot, const QString &output,
 bool extract(const QString &input, const QVector<BackupEntry> &selected,
     const QString &workspace, QVector<BackupEntry> *payloads, QString *error);
 bool verify(const QString &path, qint64 size, const QByteArray &checksum);
+// Complete physical inventory verification without materializing any payloads.
+bool verifyInventory(const QString &input, const QVector<BackupEntry> &inventory, QString *error);
 }

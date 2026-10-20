@@ -62,10 +62,10 @@ public:
             }
             const bool upload = command == "upload";
             const QStringList files = upload
-                ? QStringList {"create-new-revision", "rename", "replace", "skip"}
+                ? QStringList {"", "create-new-revision", "rename", "replace", "skip"}
                 : QStringList {"rename", "remove", "skip"};
             const QStringList folders = upload
-                ? QStringList {"merge", "rename", "replace", "skip"}
+                ? QStringList {"", "merge", "rename", "replace", "skip"}
                 : QStringList {"merge", "rename", "remove", "skip"};
             if (paths.size() < 2 || !files.contains(fileStrategy) || !folders.contains(folderStrategy)) {
                 return failure("Unsupported transfer arguments");
@@ -160,6 +160,7 @@ private:
                     && original.readAll() == existing.readAll()) return {0, {}, {}};
             }
             const QString strategy = input.isDir() ? folderStrategy : fileStrategy;
+            if (strategy.isEmpty()) return failure("Unresolved conflict in noninteractive JSON mode");
             if (strategy == "skip") return {0, {}, {}};
             if (strategy == "rename") {
                 const QString base = destination;
