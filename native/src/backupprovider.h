@@ -9,6 +9,8 @@ struct RemoteFile {
     QString path;
     qint64 size = 0;
     QByteArray checksum;
+    // Optional immutable content revision, not a node ID or display timestamp.
+    QString revision;
 };
 
 struct RemoteItem {

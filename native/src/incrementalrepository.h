@@ -22,6 +22,8 @@ struct IncrementalWriteRequest {
     int retention = 0; // Zero disables cleanup; positive values keep newest N saved states.
     QString legacyRoot; // Optional exact legacy set folder; never a shared repository.
     QString cleanupConfirmation; // SHA-256 of the exact presented proposal bytes.
+    qint64 integrityByteBudget = 10LL * 1024 * 1024 * 1024;
+    qint64 integrityTimeBudgetMs = 60LL * 60 * 1000;
     // Called at durable boundaries; capture/packing also poll the current control.
     std::function<IncrementalControl(const QString &)> checkpoint;
 };
@@ -39,6 +41,7 @@ struct IncrementalWriteResult {
     bool cleanupNeedsAttention = false;
     QJsonObject cleanupProposal;
     QString cleanupConfirmation;
+    QJsonObject integrity;
     bool success() const { return state == State::Saved || state == State::Unchanged; }
 };
 
@@ -50,6 +53,9 @@ public:
     static bool initialize(const IncrementalWriteRequest &request, BackupProvider &provider,
         bool singleWriterConfirmed, QString *error);
     static IncrementalWriteResult execute(const IncrementalWriteRequest &request, BackupProvider &provider);
+    // Advances a due cycle, or starts one explicitly. No archive/history mutation.
+    static QJsonObject checkIntegrity(const IncrementalWriteRequest &request, BackupProvider &provider,
+        bool force = false);
     // Also supports retry after a saved backup, without re-running the writer.
     static bool cleanup(const IncrementalWriteRequest &request, BackupProvider &provider,
         QJsonObject *proposal, QString *confirmation, QString *error);

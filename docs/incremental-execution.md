@@ -140,6 +140,10 @@ reused archives. **Size-only checks can miss same-sized corruption until full
 integrity maintenance or restore.** An unchanged successful check creates only a
 terminal operation/check record, not another snapshot or retention slot.
 
+The executor now runs [scheduled full integrity slices](incremental-integrity.md)
+before backups and cleanup; `--check-integrity` explicitly starts/resumes a cycle.
+The JSON `integrity` report distinguishes coverage and corruption from daily checks.
+
 For confirmed missing/corrupt reused data, current local files are repacked into
 fresh objects. Report all saved snapshot IDs referencing each damaged object and
 preserve their manifests; no historical repair is claimed. Network/authentication,

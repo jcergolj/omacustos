@@ -37,6 +37,10 @@ public:
     LocalProvider local;
     QStringList uploads, downloads;
     QString failUpload, failLookup;
+    QString failDownload;
+    bool unknownRevision = false;
+    std::function<void(const QString &)> afterDownload;
+    std::function<void(const QString &)> afterInspect;
     bool lostUploadResponse = false;
     bool sizeOnly = false;
     bool corruptUpload = false;
@@ -77,12 +81,20 @@ public:
     bool download(const QString &remote, const QString &destination, QString *error) override
     {
         downloads.append(remote);
-        return local.download(remote, destination, error);
+        if (!failDownload.isEmpty() && remote.contains(failDownload)) {
+            if (error) *error = "Network/authentication download failure";
+            return false;
+        }
+        const bool success = local.download(remote, destination, error);
+        if (success && afterDownload) afterDownload(remote);
+        return success;
     }
     bool inspect(const QString &remote, RemoteFile *file, QString *error) override
     {
         const bool success = local.inspect(remote, file, error);
         if (sizeOnly) file->checksum.clear();
+        if (unknownRevision) file->revision.clear();
+        if (success && afterInspect) afterInspect(remote);
         return success;
     }
     bool list(const QString &remote, QVector<RemoteItem> *items, QString *error) override { return local.list(remote, items, error); }
@@ -175,6 +187,396 @@ QString errors(const IncrementalWriteResult &result)
 class IncrementalRepositoryTest : public QObject {
     Q_OBJECT
 private slots:
+    void fullIntegrityDetectsHistoricalSameSizeDamage_data()
+    {
+        QTest::addColumn<bool>("checksums");
+        QTest::newRow("size-only provider") << false;
+        QTest::newRow("trustworthy SHA-256 provider") << true;
+    }
+
+    void fullIntegrityDetectsHistoricalSameSizeDamage()
+    {
+        QFETCH(bool, checksums);
+        Fixture f;
+        f.provider.sizeOnly = !checksums;
+        QString error;
+        QVERIFY(f.source("a", "original bytes"));
+        QVERIFY(f.initialize(&error));
+        QVERIFY(IncrementalRepository::execute(f.request, f.provider).success());
+        const QString first = f.request.snapshotId;
+        const QString object = f.objectNames().first();
+        f.next();
+        QVERIFY(f.source("b", "new data"));
+        QVERIFY(IncrementalRepository::execute(f.request, f.provider).success());
+        const QString second = f.request.snapshotId;
+        const QString path = f.cloud("objects/" + object);
+        const auto size = QFileInfo(path).size();
+        QVERIFY(damage(path, QByteArray(size, 'x')));
+        f.next();
+        if (!checksums) {
+            const auto daily = IncrementalRepository::execute(f.request, f.provider);
+            QVERIFY2(daily.success(), qPrintable(errors(daily)));
+            QVERIFY(daily.damagedObjects.isEmpty());
+            QVERIFY(daily.integrity.value("daily_check").toString().contains("do not detect same-size"));
+        }
+        const auto report = IncrementalRepository::checkIntegrity(f.request, f.provider, true);
+        QVERIFY2(!report.contains("error"), QJsonDocument(report).toJson().constData());
+        QCOMPARE(report.value("status"), "damaged");
+        QVERIFY(report.value("cleanup_blocked").toBool());
+        QCOMPARE(report.value("damaged_objects").toArray().size(), 1);
+        const auto affected = report.value("affected_snapshots").toArray();
+        QVERIFY(affected.contains(first));
+        QVERIFY(affected.contains(second));
+        QCOMPARE(f.snapshotNames().size(), 2);
+        QCOMPARE(QFileInfo(path).size(), size);
+        QCOMPARE(f.provider.destructiveCalls, 0);
+        f.request.retention = 1;
+        QJsonObject proposal;
+        QString confirmation;
+        QVERIFY(!f.cleanup(&proposal, &confirmation, &error));
+        QCOMPARE(f.provider.destructiveCalls, 0);
+    }
+
+    void integrityBudgetResumeAndCoverage()
+    {
+        Fixture f;
+        QString error;
+        f.request.batchFileLimit = 1;
+        QVERIFY(f.source("a", "alpha"));
+        QVERIFY(f.source("b", "beta"));
+        QVERIFY(f.initialize(&error));
+        QVERIFY(IncrementalRepository::execute(f.request, f.provider).success());
+        f.request.integrityByteBudget = 1; // A whole archive may exceed a soft slice.
+        f.provider.sizeOnly = true;
+        f.provider.downloads.clear();
+        auto report = IncrementalRepository::checkIntegrity(f.request, f.provider, true);
+        QCOMPARE(report.value("status"), "in_progress");
+        QCOMPARE(report.value("checked_objects").toInt(), 1);
+        QCOMPARE(report.value("total_objects").toInt(), 2);
+        QCOMPARE(report.value("remaining_objects").toInt(), 1);
+        QCOMPARE(f.provider.objectDownloads(), 1);
+        const QString cycle = report.value("cycle_id").toString();
+        // Losing local cursor state cannot discard the remote checkpoint.
+        f.request.stateDirectory = f.directory.filePath("replacement-state");
+        f.next();
+        report = IncrementalRepository::checkIntegrity(f.request, f.provider);
+        QCOMPARE(report.value("status"), "complete");
+        QCOMPARE(report.value("cycle_id").toString(), cycle);
+        QCOMPARE(report.value("checked_objects").toInt(), 2);
+        QCOMPARE(report.value("checked_bytes"), report.value("total_bytes"));
+        QCOMPARE(f.provider.objectDownloads(), 2);
+        QVERIFY(!report.value("cleanup_blocked").toBool());
+        report = IncrementalRepository::checkIntegrity(f.request, f.provider);
+        QCOMPARE(report.value("status"), "not_due");
+        QCOMPARE(f.provider.objectDownloads(), 2);
+        f.request.scan.checkedAt = f.request.scan.checkedAt.addDays(30);
+        report = IncrementalRepository::checkIntegrity(f.request, f.provider);
+        QCOMPARE(report.value("status"), "in_progress");
+        QVERIFY(report.value("overdue").toBool());
+        QVERIFY(report.value("cycle_id").toString() != cycle);
+    }
+
+    void integrityPauseCancelAndUnknownRevision()
+    {
+        Fixture f;
+        QString error;
+        QVERIFY(f.source("a", "alpha"));
+        QVERIFY(f.initialize(&error));
+        QVERIFY(IncrementalRepository::execute(f.request, f.provider).success());
+        f.provider.sizeOnly = true;
+        f.provider.unknownRevision = true;
+        f.request.checkpoint = [](const QString &) { return IncrementalControl::Pause; };
+        auto report = IncrementalRepository::checkIntegrity(f.request, f.provider, true);
+        QCOMPARE(report.value("status"), "paused");
+        const QString cycle = report.value("cycle_id").toString();
+        QVERIFY(!IncrementalRepository::takeover(f.request, f.provider, uuid(), true, &error));
+        f.request.checkpoint = [](const QString &) { return IncrementalControl::Cancel; };
+        report = IncrementalRepository::checkIntegrity(f.request, f.provider);
+        QCOMPARE(report.value("status"), "cancelled");
+        f.next();
+        report = IncrementalRepository::checkIntegrity(f.request, f.provider);
+        QCOMPARE(report.value("status"), "complete");
+        QVERIFY(report.value("cycle_id").toString() != cycle);
+        QCOMPARE(report.value("checked_objects").toInt(), 1);
+    }
+
+    void integrityLostCheckpointResponse_data()
+    {
+        QTest::addColumn<bool>("lostResponse");
+        QTest::newRow("upload failed") << false;
+        QTest::newRow("uploaded but response lost") << true;
+    }
+
+    void integrityLostCheckpointResponse()
+    {
+        QFETCH(bool, lostResponse);
+        Fixture f;
+        QString error;
+        QVERIFY(f.source("a", "alpha"));
+        QVERIFY(f.initialize(&error));
+        QVERIFY(IncrementalRepository::execute(f.request, f.provider).success());
+        f.provider.sizeOnly = true;
+        f.provider.downloads.clear();
+        f.provider.failUpload = "/checks/";
+        f.provider.lostUploadResponse = lostResponse;
+        auto report = IncrementalRepository::checkIntegrity(f.request, f.provider, true);
+        QCOMPARE(report.value("status"), "retrying");
+        QVERIFY(report.value("cleanup_blocked").toBool());
+        f.provider.failUpload.clear();
+        f.next();
+        report = IncrementalRepository::checkIntegrity(f.request, f.provider);
+        QCOMPARE(report.value("status"), "complete");
+        QCOMPARE(f.provider.objectDownloads(), lostResponse ? 1 : 2);
+    }
+
+    void integrityNetworkFailureAndRevisionChange()
+    {
+        Fixture f;
+        QString error;
+        QVERIFY(f.source("a", "alpha"));
+        QVERIFY(f.initialize(&error));
+        const auto saved = IncrementalRepository::execute(f.request, f.provider);
+        QVERIFY(saved.success());
+        f.provider.sizeOnly = true;
+        f.provider.failDownload = ".tar.gz";
+        auto report = IncrementalRepository::checkIntegrity(f.request, f.provider, true);
+        QCOMPARE(report.value("status"), "retrying");
+        QVERIFY(report.value("damaged_objects").toArray().isEmpty());
+        f.provider.failDownload.clear();
+        f.provider.afterDownload = [&](const QString &path) {
+            if (path.endsWith(".tar.gz")) QVERIFY(damage(QDir(f.provider.root).filePath(path), QByteArray(QFileInfo(QDir(f.provider.root).filePath(path)).size(), 'x')));
+        };
+        report = IncrementalRepository::checkIntegrity(f.request, f.provider);
+        QCOMPARE(report.value("status"), "retrying");
+        QVERIFY(report.value("error").toString().contains("revision changed"));
+        f.provider.afterDownload = {};
+        report = IncrementalRepository::checkIntegrity(f.request, f.provider);
+        QCOMPARE(report.value("status"), "damaged");
+        f.next();
+        const auto replacement = IncrementalRepository::execute(f.request, f.provider);
+        QVERIFY(replacement.success());
+        QVERIFY(replacement.lastSuccessfulCheck > saved.lastSuccessfulCheck);
+        QVERIFY(replacement.lastSavedChange > saved.lastSavedChange);
+        QVERIFY(replacement.cleanupNeedsAttention);
+        QCOMPARE(replacement.integrity.value("status"), "damaged");
+        QVERIFY(!replacement.affectedSnapshots.isEmpty());
+        QCOMPARE(f.provider.destructiveCalls, 0);
+    }
+
+    void integrityReconcilesNewReachabilityAndProtectedUploads()
+    {
+        Fixture f;
+        QString error;
+        f.request.batchFileLimit = 1;
+        QVERIFY(f.source("a", "alpha"));
+        QVERIFY(f.initialize(&error));
+        QVERIFY(IncrementalRepository::execute(f.request, f.provider).success());
+        f.next();
+        QVERIFY(f.source("b", "beta"));
+        f.request.checkpoint = [](const QString &phase) { return phase == "uploaded" ? IncrementalControl::Pause : IncrementalControl::Continue; };
+        QCOMPARE(IncrementalRepository::execute(f.request, f.provider).state, IncrementalWriteResult::State::Paused);
+        f.request.checkpoint = {};
+        auto report = IncrementalRepository::checkIntegrity(f.request, f.provider, true);
+        QCOMPARE(report.value("status"), "complete");
+        QCOMPARE(report.value("checked_objects").toInt(), 2); // Includes the unpublished prepared upload.
+        QVERIFY(IncrementalRepository::execute(f.request, f.provider).success());
+        f.request.checkpoint = [](const QString &) { return IncrementalControl::Pause; };
+        report = IncrementalRepository::checkIntegrity(f.request, f.provider, true);
+        QCOMPARE(report.value("status"), "paused");
+        f.next();
+        QVERIFY(f.source("c", "gamma"));
+        f.request.checkpoint = [](const QString &phase) { return phase == "integrity-object" ? IncrementalControl::Pause : IncrementalControl::Continue; };
+        QVERIFY(IncrementalRepository::execute(f.request, f.provider).success());
+        f.request.checkpoint = {};
+        report = IncrementalRepository::checkIntegrity(f.request, f.provider);
+        QCOMPARE(report.value("status"), "complete");
+        QCOMPARE(report.value("checked_objects").toInt(), 3);
+    }
+
+    void integrityTimeBudgetLedgerLossAndStagingWait()
+    {
+        Fixture f;
+        QString error;
+        f.request.batchFileLimit = 1;
+        QVERIFY(f.source("a", "alpha"));
+        QVERIFY(f.source("b", "beta"));
+        QVERIFY(f.initialize(&error));
+        QVERIFY(IncrementalRepository::execute(f.request, f.provider).success());
+        f.request.integrityTimeBudgetMs = 1;
+        f.provider.afterDownload = [](const QString &path) { if (path.endsWith(".tar.gz")) QTest::qSleep(2); };
+        auto report = IncrementalRepository::checkIntegrity(f.request, f.provider, true);
+        QCOMPARE(report.value("status"), "in_progress");
+        QVERIFY(report.value("checked_objects").toInt() < 2);
+        f.request.integrityTimeBudgetMs = 3600000;
+        f.provider.afterDownload = {};
+        report = IncrementalRepository::checkIntegrity(f.request, f.provider);
+        QCOMPARE(report.value("status"), "complete");
+        QVERIFY(QDir(f.cloud("integrity")).removeRecursively()); // Only this fixture's coverage ledger.
+        report = IncrementalRepository::checkIntegrity(f.request, f.provider);
+        QCOMPARE(report.value("status"), "complete");
+        QCOMPARE(report.value("checked_objects").toInt(), 2);
+        QVERIFY(!report.value("last_completed_at").toString().isEmpty());
+
+        Fixture grouped;
+        QVERIFY(grouped.source("a", "alpha"));
+        QVERIFY(grouped.source("b", "beta"));
+        QVERIFY(grouped.initialize(&error));
+        QVERIFY(IncrementalRepository::execute(grouped.request, grouped.provider).success());
+        grouped.request.stagingBudget = 1;
+        report = IncrementalRepository::checkIntegrity(grouped.request, grouped.provider, true);
+        QCOMPARE(report.value("status"), "waiting");
+        QVERIFY(report.value("cleanup_blocked").toBool());
+        grouped.request.stagingBudget = 256 * 1024;
+        report = IncrementalRepository::checkIntegrity(grouped.request, grouped.provider);
+        QCOMPARE(report.value("status"), "complete");
+    }
+
+    void integrityRejectsIncompleteOrUnboundCompletion_data()
+    {
+        QTest::addColumn<bool>("omitCoverage");
+        QTest::newRow("omitted live worklist") << true;
+        QTest::newRow("forged receipt binding") << false;
+    }
+
+    void integrityRejectsIncompleteOrUnboundCompletion()
+    {
+        QFETCH(bool, omitCoverage);
+        Fixture f;
+        QString error;
+        QVERIFY(f.source("a", "alpha"));
+        QVERIFY(f.initialize(&error));
+        QVERIFY(IncrementalRepository::execute(f.request, f.provider).success());
+        const auto report = IncrementalRepository::checkIntegrity(f.request, f.provider, true);
+        QCOMPARE(report.value("status"), "complete");
+        const QString path = f.cloud("integrity/" + report.value("cycle_id").toString() + "/complete.json");
+        auto completion = read(path);
+        if (omitCoverage) {
+            completion["objects"] = QJsonArray{};
+            completion["checked_objects"] = 0;
+            completion["checked_bytes"] = 0;
+        } else {
+            auto objects = completion.value("objects").toArray();
+            auto receipt = objects.first().toObject();
+            receipt["binding"] = QString(64, '0');
+            objects[0] = receipt;
+            completion["objects"] = objects;
+        }
+        QVERIFY(damage(path, QJsonDocument(completion).toJson()));
+        const auto retry = IncrementalRepository::checkIntegrity(f.request, f.provider);
+        QCOMPARE(retry.value("status"), "retrying");
+        QVERIFY(retry.value("cleanup_blocked").toBool());
+        QCOMPARE(f.provider.destructiveCalls, 0);
+    }
+
+    void integrityRejectsConflictingOriginalReceipts()
+    {
+        Fixture f;
+        QString error;
+        QVERIFY(f.source("a", "alpha"));
+        QVERIFY(f.initialize(&error));
+        QVERIFY(IncrementalRepository::execute(f.request, f.provider).success());
+        f.next();
+        QVERIFY(f.source("b", "beta"));
+        QVERIFY(IncrementalRepository::execute(f.request, f.provider).success());
+        auto manifest = f.snapshot(f.request.snapshotId);
+        auto archives = manifest.value("archives").toArray();
+        for (int index = 0; index < archives.size(); ++index) {
+            auto archive = archives[index].toObject();
+            auto original = archive.value("original_verification").toObject();
+            original["verified_at"] = f.request.scan.checkedAt.addMSecs(1).toUTC().toString(Qt::ISODateWithMs);
+            archive["original_verification"] = original;
+            archives[index] = archive;
+        }
+        manifest["archives"] = archives;
+        QVERIFY(IncrementalManifest::validate(QJsonDocument(manifest).toJson(), f.request.scan.setId, f.request.snapshotId, &error));
+        QVERIFY(damage(f.cloud("snapshots/" + f.request.snapshotId + "/manifest.json"), QJsonDocument(manifest).toJson()));
+        const auto report = IncrementalRepository::checkIntegrity(f.request, f.provider, true);
+        QCOMPARE(report.value("status"), "retrying");
+        QVERIFY(report.value("error").toString().contains("original verification receipts"));
+        QVERIFY(report.value("cleanup_blocked").toBool());
+    }
+
+    void knownDamageSurvivesCoverageCancellation_data()
+    {
+        QTest::addColumn<bool>("failedDamageUpload");
+        QTest::newRow("cancel and pause new coverage") << false;
+        QTest::newRow("damage checkpoint upload failure") << true;
+    }
+
+    void knownDamageSurvivesCoverageCancellation()
+    {
+        QFETCH(bool, failedDamageUpload);
+        Fixture f;
+        QString error;
+        QVERIFY(f.source("a", "alpha"));
+        QVERIFY(f.initialize(&error));
+        QVERIFY(IncrementalRepository::execute(f.request, f.provider).success());
+        const QString oldSnapshot = f.request.snapshotId;
+        const QString object = f.objectNames().first();
+        const QString path = f.cloud("objects/" + object);
+        QVERIFY(damage(path, QByteArray(QFileInfo(path).size(), 'x')));
+        f.provider.sizeOnly = true;
+        if (failedDamageUpload) f.provider.failUpload = "integrity-damage/";
+        auto report = IncrementalRepository::checkIntegrity(f.request, f.provider, true);
+        QCOMPARE(report.value("status"), failedDamageUpload ? "retrying" : "damaged");
+        QVERIFY(!report.value("damaged_objects").toArray().isEmpty());
+        f.provider.failUpload.clear();
+        f.request.checkpoint = [](const QString &) { return IncrementalControl::Cancel; };
+        report = IncrementalRepository::checkIntegrity(f.request, f.provider);
+        QCOMPARE(report.value("status"), "cancelled");
+        f.next();
+        f.request.integrityByteBudget = 1;
+        f.request.checkpoint = [](const QString &phase) { return phase.startsWith("integrity-") ? IncrementalControl::Pause : IncrementalControl::Continue; };
+        const auto replacement = IncrementalRepository::execute(f.request, f.provider);
+        QVERIFY2(replacement.success(), qPrintable(errors(replacement)));
+        QCOMPARE(replacement.state, IncrementalWriteResult::State::Saved);
+        QVERIFY(replacement.affectedSnapshots.contains(oldSnapshot));
+        QVERIFY(replacement.cleanupNeedsAttention);
+        QCOMPARE(f.objectNames().size(), 2);
+        f.provider.failLookup = "integrity-damage";
+        f.next();
+        QVERIFY(!IncrementalRepository::execute(f.request, f.provider).success());
+        QCOMPARE(f.provider.destructiveCalls, 0);
+    }
+
+    void dailyCorruptionKnowledgeSurvivesFailedReplacement_data()
+    {
+        QTest::addColumn<bool>("ownerReadFailure");
+        QTest::newRow("replacement upload failure") << false;
+        QTest::newRow("owner read fails at corruption checkpoint") << true;
+    }
+
+    void dailyCorruptionKnowledgeSurvivesFailedReplacement()
+    {
+        QFETCH(bool, ownerReadFailure);
+        Fixture f;
+        QString error;
+        QVERIFY(f.source("a", "alpha"));
+        QVERIFY(f.initialize(&error));
+        QVERIFY(IncrementalRepository::execute(f.request, f.provider).success());
+        const QString oldSnapshot = f.request.snapshotId;
+        const QString path = f.cloud("objects/" + f.objectNames().first());
+        QVERIFY(damage(path, QByteArray(QFileInfo(path).size(), 'x')));
+        f.next();
+        if (ownerReadFailure) f.provider.afterInspect = [&](const QString &remote) {
+            if (remote.endsWith(".tar.gz")) f.provider.failDownload = "repository.json";
+        };
+        else f.provider.failUpload = ".tar.gz";
+        const auto failed = IncrementalRepository::execute(f.request, f.provider);
+        QVERIFY(!failed.success());
+        QVERIFY(!failed.damagedObjects.isEmpty());
+        f.provider.failUpload.clear();
+        f.provider.failDownload.clear();
+        f.provider.afterInspect = {};
+        f.provider.sizeOnly = true;
+        f.request.checkpoint = [](const QString &phase) { return phase.startsWith("integrity-") ? IncrementalControl::Pause : IncrementalControl::Continue; };
+        const auto resumed = IncrementalRepository::execute(f.request, f.provider);
+        QVERIFY2(resumed.success(), qPrintable(errors(resumed)));
+        QCOMPARE(resumed.state, IncrementalWriteResult::State::Saved);
+        QVERIFY(resumed.affectedSnapshots.contains(oldSnapshot));
+        QCOMPARE(f.objectNames().size(), 2);
+    }
+
     void protonDeletionRequiresActualAncestry_data()
     {
         QTest::addColumn<QString>("fault");

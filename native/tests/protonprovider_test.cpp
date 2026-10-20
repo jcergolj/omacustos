@@ -899,19 +899,21 @@ void ProtonProviderTest::inspectParsesVerifiedMetadata()
     QCOMPARE(file.path, QStringLiteral("/backups/file.txt"));
     QCOMPARE(file.size, qint64(17));
     QCOMPARE(file.checksum, QByteArray::fromHex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"));
+    QVERIFY(file.revision.isEmpty());
 }
 
 void ProtonProviderTest::inspectParsesCliMetadataWithoutSha256()
 {
     FakeRunner runner;
     runner.response.exitCode = 0;
-    runner.response.standardOutput = QStringLiteral(R"({"type":"file","totalStorageSize":17,"activeRevision":{"claimedSize":17}})");
+    runner.response.standardOutput = QStringLiteral(R"({"uid":"node-id","type":"file","totalStorageSize":17,"activeRevision":{"uid":"content-revision-id","claimedSize":17}})");
     ProtonProvider provider(runner);
     RemoteFile file;
 
     QVERIFY(provider.inspect(QStringLiteral("/backups/file.txt"), &file));
     QCOMPARE(file.size, qint64(17));
     QVERIFY(file.checksum.isEmpty());
+    QCOMPARE(file.revision, QStringLiteral("content-revision-id"));
 }
 
 void ProtonProviderTest::inspectUsesContentSizeInsteadOfEncryptedStorageSize()

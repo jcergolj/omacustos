@@ -212,6 +212,7 @@ bool LocalProvider::inspect(const QString &remotePath, RemoteFile *file, QString
         }
         return false;
     }
+    file->revision = QString::fromLatin1(file->checksum.toHex());
 
     return true;
 }

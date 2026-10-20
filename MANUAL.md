@@ -414,6 +414,13 @@ See [shared-archive recovery](docs/incremental-restore.md) for the read-only CLI
 commands and explicit offline ownership handoff. These commands do not recreate
 schedules or grant writes automatically; default UI backups remain unchanged.
 
+Advanced v4 runs also advance full integrity checks every 30 days. Use
+`--check-integrity` with the existing request and single-writer acknowledgement to
+check now or resume; see [integrity and health reporting](docs/incremental-integrity.md)
+for budgets, coverage and recovery. Daily existence/size-only checks can miss
+same-sized corruption. Corruption reports name affected historical snapshots;
+new replacement uploads do not repair those snapshots.
+
 ## Manage copies
 
 - **⋯ → Open latest copy in Proton Drive** opens the latest recorded copy in your browser.

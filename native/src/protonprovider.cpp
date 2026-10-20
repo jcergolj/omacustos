@@ -34,6 +34,7 @@ bool contentMetadata(const QJsonObject &object, const QString &path, RemoteFile 
         return false;
     }
     *file = {path, static_cast<qint64>(size.toDouble()), checksum};
+    file->revision = object.value(QStringLiteral("activeRevision")).toObject().value(QStringLiteral("uid")).toString();
     return true;
 }
 

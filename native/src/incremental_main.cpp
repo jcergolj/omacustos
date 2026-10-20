@@ -43,6 +43,8 @@ int main(int argc, char **argv)
     parser.addOption({"acknowledge-single-writer", "Confirm no other computer/configuration writes this set; handoff requires disabling the old writer offline."});
     parser.addOption({"cancel", "Durably cancel the named unfinished operation; never deletes objects or an already published snapshot."});
     parser.addOption({"cleanup", "Plan or retry reference-aware retention only. Set retention, optional legacy_root and cleanup_confirmation in the request. Review proposal before confirming."});
+    parser.addOption({"check-integrity", "Start or resume a full remote integrity cycle (one hour/10 GiB per invocation by default)."});
+    parser.addOption({"cancel-integrity", "Cancel the integrity cycle without certifying coverage; the next invocation restarts it."});
     parser.addOption({"discover", "Read-only discovery below the chosen remote root; no local request or ownership needed.", "remote-root"});
     parser.addOption({"snapshot", "Read-only restore of this exact sets/<id>/snapshots/<id> directory.", "remote-path"});
     parser.addOption({"destination", "Restore destination. Regular files, POSIX modes and nanosecond mtimes only; no ACLs, owners, links or empty directories.", "path"});
@@ -51,7 +53,7 @@ int main(int argc, char **argv)
     parser.addOption({"confirm-old-writer-disabled", "Confirm old schedules, retries and processes have stopped and old installation access/configuration is disabled permanently."});
     parser.process(application);
     if (int(parser.isSet("discover")) + int(parser.isSet("snapshot")) + int(parser.isSet("takeover"))
-            + int(parser.isSet("initialize")) + int(parser.isSet("cancel")) + int(parser.isSet("cleanup")) > 1) {
+             + int(parser.isSet("initialize")) + int(parser.isSet("cancel")) + int(parser.isSet("cleanup")) + int(parser.isSet("check-integrity")) + int(parser.isSet("cancel-integrity")) > 1) {
         std::fprintf(stderr, "Choose one operation.\n"); return 2;
     }
     if (parser.isSet("discover") || parser.isSet("snapshot")) {
@@ -118,11 +120,13 @@ int main(int argc, char **argv)
     request.retention = object.value("retention").toInt(0);
     request.legacyRoot = object.value("legacy_root").toString();
     request.cleanupConfirmation = object.value("cleanup_confirmation").toString();
+    request.integrityByteBudget = object.value("integrity_byte_budget").toInteger(10LL * 1024 * 1024 * 1024);
+    request.integrityTimeBudgetMs = object.value("integrity_time_budget_ms").toInteger(60LL * 60 * 1000);
     request.scan.checkedAt = QDateTime::currentDateTimeUtc();
     if (!document.isObject() || (!parser.isSet("takeover") && !object.value("sources").isArray())) {
         std::fprintf(stderr, "Malformed request: an explicit sources array is required.\n"); return 2;
     }
-    for (const QString &key : {QString("ownership_epoch"), QString("staging_budget_bytes"), QString("archive_target_bytes"), QString("batch_file_limit"), QString("retention")}) {
+    for (const QString &key : {QString("ownership_epoch"), QString("staging_budget_bytes"), QString("archive_target_bytes"), QString("batch_file_limit"), QString("retention"), QString("integrity_byte_budget"), QString("integrity_time_budget_ms")}) {
         if (object.contains(key) && (!object.value(key).isDouble() || object.value(key).toInteger(-1) < 1
             || object.value(key).toDouble() != double(object.value(key).toInteger(-1)))) {
             std::fprintf(stderr, "Invalid positive integer setting: %s\n", qPrintable(key)); return 2;
@@ -137,13 +141,19 @@ int main(int argc, char **argv)
     }
     std::signal(SIGINT, interrupt);
     std::signal(SIGTERM, interrupt);
-    request.checkpoint = [&](const QString &) {
+    request.checkpoint = [&](const QString &phase) {
         if (interrupted) return IncrementalControl::Pause;
+        if (parser.isSet("cancel-integrity") && phase.startsWith("integrity-")) return IncrementalControl::Cancel;
         return parser.isSet("cancel") ? IncrementalControl::Cancel : IncrementalControl::Continue;
     };
     QProcessRunner runner(parser.value("proton-binary"));
     runner.setStopRequested([] { return interrupted != 0; });
     ProtonProvider provider(runner);
+    if (parser.isSet("check-integrity") || parser.isSet("cancel-integrity")) {
+        const auto result = IncrementalRepository::checkIntegrity(request, provider, parser.isSet("check-integrity"));
+        std::puts(QJsonDocument(result).toJson(QJsonDocument::Compact).constData());
+        return result.value("status") == "cancelled" || !result.value("cleanup_blocked").toBool(true) ? 0 : 1;
+    }
     if (parser.isSet("cleanup")) {
         QJsonObject proposal;
         QString confirmation, error;
@@ -180,6 +190,8 @@ int main(int argc, char **argv)
         {"affected_snapshots", QJsonArray::fromStringList(result.affectedSnapshots)}, {"issues", issues},
         {"cleanup_needs_attention", result.cleanupNeedsAttention}, {"cleanup_proposal", result.cleanupProposal},
         {"cleanup_confirmation", result.cleanupConfirmation}};
-    std::puts(QJsonDocument(output).toJson(QJsonDocument::Compact).constData());
+    auto health = output;
+    health["integrity"] = result.integrity;
+    std::puts(QJsonDocument(health).toJson(QJsonDocument::Compact).constData());
     return result.success() || result.state == IncrementalWriteResult::State::Cancelled ? 0 : 1;
 }

@@ -6,6 +6,7 @@
 
 #include <QCryptographicHash>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -84,7 +85,8 @@ bool validRequest(const IncrementalWriteRequest &request, QString *error)
         || (request.remoteSetRoot != "sets/" + request.scan.setId
             && !request.remoteSetRoot.endsWith("/sets/" + request.scan.setId))
         || request.stagingBudget <= 0 || request.stagingBudget > 9007199254740991LL
-        || request.archiveTargetBytes <= 0 || request.archiveTargetBytes > 9007199254740991LL || request.batchFileLimit <= 0 || request.retention < 0) {
+         || request.archiveTargetBytes <= 0 || request.archiveTargetBytes > 9007199254740991LL || request.batchFileLimit <= 0 || request.retention < 0
+         || request.integrityByteBudget <= 0 || request.integrityTimeBudgetMs <= 0) {
         *error = "Invalid incremental repository identity, path, time or staging limits.";
         return false;
     }
@@ -100,6 +102,7 @@ public:
     QString error;
     BackupStaging staging;
     QString journal;
+    QString repositoryJournal;
     std::unique_ptr<QLockFile> lock;
     bool completeListings = false;
     bool verificationSpace(const QJsonObject &archive)
@@ -124,6 +127,7 @@ public:
         lock->setStaleLockTime(0);
         if (!lock->tryLock(0)) { error = "Another writer or cleanup operation holds this set's local mutation lock."; return false; }
         const QString setJournal = QDir(state).filePath(key);
+        repositoryJournal = setJournal;
         journal = QDir(setJournal).filePath(request.operationId);
         if (QFileInfo(setJournal).isSymLink() || QFileInfo(journal).isSymLink() || !QDir().mkpath(journal)
             || !QFile::setPermissions(journal, QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner)) {
@@ -248,6 +252,28 @@ bool validArchive(const QJsonObject &archive, bool verified, const IncrementalWr
 }
 
 enum class Health { Good, Damaged, Unknown };
+bool persistDamage(Store &store, QJsonObject archive, const QDateTime &detectedAt)
+{
+    archive.remove("original_verification");
+    const QString id = archive.value("id").toString();
+    const QString relative = "integrity-damage/" + id + ".json";
+    QJsonObject record{{"version", 1}, {"archive", archive}, {"detected_at", detectedAt.toUTC().toString(Qt::ISODateWithMs)}};
+    // A local checkpoint comes first so a failed remote publication can be
+    // recovered independently of the writer operation/cycle ID.
+    const QString path = QDir(store.repositoryJournal).filePath("integrity-damage-" + id + ".json");
+    QFile existing(path);
+    if (existing.exists()) {
+        if (QFileInfo(existing).isSymLink() || !existing.open(QIODevice::ReadOnly)) return false;
+        const auto document = QJsonDocument::fromJson(existing.readAll());
+        const auto previous = document.object();
+        if (existing.error() != QFileDevice::NoError || !document.isObject() || previous.size() != 3
+            || previous.value("version") != QJsonValue(1) || previous.value("archive") != archive
+            || !QDateTime::fromString(previous.value("detected_at").toString(), Qt::ISODateWithMs).isValid()) return false;
+        record = previous;
+    }
+    return save(path, record, &store.error) && store.put(relative, record);
+}
+
 Health health(Store &store, BackupProvider &provider, const QJsonObject &archive, bool full)
 {
     const QString relative = archive.value("remote").toString();
@@ -506,11 +532,463 @@ bool IncrementalRepository::initialize(const IncrementalWriteRequest &request, B
     return true;
 }
 
-static IncrementalWriteResult executeWrite(const IncrementalWriteRequest &request, BackupProvider &provider)
+namespace {
+struct IntegrityInventory {
+    QMap<QString, QJsonObject> archives;
+    QMap<QString, QJsonObject> originalEvidence;
+    QMap<QString, QStringList> snapshots;
+};
+
+bool integrityInventory(Store &store, const IncrementalWriteRequest &request, IntegrityInventory *inventory)
+{
+    const auto add = [&](QJsonObject archive, bool verified, const QString &snapshot = QString()) {
+        if (!validArchive(archive, verified, request, &store.error)) return false;
+        const QString id = archive.value("id").toString();
+        if (verified) {
+            const auto original = archive.value("original_verification").toObject();
+            if (inventory->originalEvidence.contains(id) && inventory->originalEvidence.value(id) != original) {
+                store.error = "Conflicting immutable original verification receipts."; return false;
+            }
+            inventory->originalEvidence.insert(id, original);
+        }
+        archive.remove("original_verification");
+        if (inventory->archives.contains(id) && inventory->archives.value(id) != archive) {
+            store.error = "Conflicting immutable integrity descriptors."; return false;
+        }
+        inventory->archives.insert(id, archive);
+        if (!snapshot.isEmpty() && !inventory->snapshots[id].contains(snapshot)) inventory->snapshots[id].append(snapshot);
+        return true;
+    };
+    QStringList snapshots;
+    if (!store.children("snapshots", &snapshots)) return false;
+    for (const auto &id : snapshots) {
+        if (!IncrementalManifest::validId(id)) { store.error = "Unknown integrity snapshot identity."; return false; }
+        const QString path = "snapshots/" + id + "/manifest.json";
+        const auto found = store.lookup(path);
+        if (found == RemoteLookup::Unknown) return false;
+        if (found == RemoteLookup::Missing) continue;
+        QJsonObject manifest;
+        if (!store.get(path, &manifest) || !IncrementalManifest::validate(json(manifest), request.scan.setId, id, &store.error)
+            || manifest.value("origin_computer_id") != request.originComputerId) return false;
+        for (const auto &archive : manifest.value("archives").toArray()) if (!add(archive.toObject(), true, id)) return false;
+    }
+    QStringList operations;
+    if (!store.children("operations", &operations)) return false;
+    for (const auto &id : operations) {
+        if (!IncrementalManifest::validId(id)) { store.error = "Unknown protected operation identity."; return false; }
+        const QString root = "operations/" + id;
+        QJsonObject identity;
+        if (!store.get(root + "/identity.json", &identity) || !validPriorIdentity(identity, id, request)) {
+            store.error = "Invalid protected operation identity."; return false;
+        }
+        const auto completed = store.lookup(root + "/complete.json"), cancelled = store.lookup(root + "/cancelled.json");
+        if (completed == RemoteLookup::Unknown || cancelled == RemoteLookup::Unknown) return false;
+        if (completed == RemoteLookup::Found && cancelled == RemoteLookup::Found) { store.error = "Conflicting operation terminal records."; return false; }
+        if (completed == RemoteLookup::Found || cancelled == RemoteLookup::Found) {
+            QJsonObject terminal;
+            if (!store.get(root + (completed == RemoteLookup::Found ? "/complete.json" : "/cancelled.json"), &terminal)) return false;
+            if (completed == RemoteLookup::Found
+                ? !validCompletion(terminal, id, identity.value("snapshot_id").toString(), &store.error)
+                : terminal != QJsonObject{{"version", 1}, {"operation_id", id}, {"state", "cancelled"}}) return false;
+            continue; // Only unfinished operations protect otherwise unreferenced objects.
+        }
+        QStringList records;
+        if (!store.children(root, &records)) return false;
+        for (const auto &name : records) {
+            if (name == "identity.json") continue;
+            QJsonObject record;
+            if (!store.get(root + '/' + name, &record)) return false;
+            if (name == "publication.json") {
+                if (!IncrementalManifest::validate(json(record), request.scan.setId, identity.value("snapshot_id").toString(), &store.error)) return false;
+                for (const auto &archive : record.value("archives").toArray()) if (!add(archive.toObject(), true)) return false;
+                continue;
+            }
+            const QString prefix = name.startsWith("prepared-") ? "prepared-" : name.startsWith("verified-") ? "verified-" : name.startsWith("reuse-") ? "reuse-" : QString();
+            const QString objectId = name.mid(prefix.size(), name.size() - prefix.size() - 5);
+            if (prefix.isEmpty() || !IncrementalManifest::validId(objectId) || name != prefix + objectId + ".json"
+                || record.size() != 2 || record.value("version") != QJsonValue(1)) { store.error = "Unknown integrity protection record."; return false; }
+            if (prefix == "reuse-") {
+                if (!record.value("archives").isArray()) return false;
+                for (const auto &archive : record.value("archives").toArray()) if (!add(archive.toObject(), true)) return false;
+            } else {
+                const auto archive = record.value("archive").toObject();
+                if (archive.value("id") != objectId) return false;
+                // An upload may not yet exist. Its preparation still belongs in
+                // coverage; missing data is never certified or deleted here.
+                if (!add(archive, prefix == "verified-")) return false;
+            }
+        }
+    }
+    return true;
+}
+
+QJsonArray integrityWorklist(const IntegrityInventory &inventory)
+{
+    QJsonArray objects;
+    for (const auto &archive : inventory.archives) objects.append(archive);
+    return objects;
+}
+
+QString integrityBinding(const QJsonObject &archive, const QString &revision, qint64 size, const QString &run)
+{
+    return digest(json(QJsonObject{{"archive", archive}, {"revision", revision}, {"size", size}, {"run", run}}));
+}
+
+bool validIntegrityReceipt(const QJsonObject &receipt, const QJsonObject &plan,
+    const IncrementalWriteRequest &request, QString *error)
+{
+    const auto archive = receipt.value("archive").toObject();
+    const QString revision = receipt.value("revision").toString(), run = receipt.value("run").toString();
+    const qint64 size = receipt.value("observed_size").toInteger(-1);
+    return receipt.size() == 9 && receipt.value("cycle") == plan.value("id")
+        && receipt.value("method") == "download-sha256-inventory" && receipt.value("revision").isString()
+        && receipt.value("run").isString() && (revision.isEmpty() ? IncrementalManifest::validId(run) : run.isEmpty())
+        && size >= 0 && receipt.value("observed_size") == QJsonValue(size)
+        && (receipt.value("state") == "good" || receipt.value("state") == "damaged")
+        && (receipt.value("state") != "good" || size == archive.value("size").toInteger())
+        && canonicalTime(receipt.value("checked_at")) && receipt.value("checked_at").toString() >= plan.value("started_at").toString()
+        && receipt.value("binding") == integrityBinding(archive, revision, size, run)
+        && validArchive(archive, false, request, error);
+}
+}
+
+QJsonObject IncrementalRepository::checkIntegrity(const IncrementalWriteRequest &request, BackupProvider &provider, bool force)
+{
+    QJsonObject report{{"status", "unknown"}, {"daily_check", "Original verification evidence plus existence/size and trustworthy SHA-256 when available; size-only checks do not detect same-size corruption."},
+        {"checked_objects", 0}, {"checked_bytes", 0}, {"total_objects", 0}, {"total_bytes", 0},
+        {"damaged_objects", QJsonArray{}}, {"affected_snapshots", QJsonArray{}}, {"cleanup_blocked", true}, {"reuse_blocked", true}};
+    Store store(request, provider);
+    store.completeListings = true;
+    const auto failed = [&] {
+        report["status"] = store.error.contains("staging", Qt::CaseInsensitive) || store.error.contains("storage", Qt::CaseInsensitive)
+            ? "waiting" : "retrying";
+        report["error"] = store.error.isEmpty() ? "Integrity evidence is unreadable or inconsistent; retry without deleting history." : store.error;
+        return report;
+    };
+    if (!store.open()) return failed();
+    provider.beginBackupOperation();
+    const auto end = qScopeGuard([&] { provider.endBackupOperation(); });
+    if (!store.owner()) return failed();
+    // Corruption knowledge is independent of cancellable/sliced coverage. An
+    // immutable object ID never becomes reusable by losing its cycle cursor.
+    QSet<QString> knownDamage;
+    QMap<QString, QJsonObject> damageRecords;
+    const auto validDamage = [&](const QJsonObject &damage, const QString &id) {
+        return damage.size() == 3 && damage.value("version") == QJsonValue(1) && canonicalTime(damage.value("detected_at"))
+            && damage.value("archive").toObject().value("id") == id
+            && validArchive(damage.value("archive").toObject(), false, request, &store.error);
+    };
+    const auto damageLedger = store.lookup("integrity-damage");
+    if (damageLedger == RemoteLookup::Unknown) return failed();
+    if (damageLedger == RemoteLookup::Found) {
+        QStringList records;
+        if (!store.children("integrity-damage", &records)) return failed();
+        for (const auto &name : records) {
+            const QString id = name.left(name.size() - 5);
+            QJsonObject damage;
+            if (!IncrementalManifest::validId(id) || name != id + ".json"
+                || !store.get("integrity-damage/" + name, &damage) || !validDamage(damage, id)) return failed();
+            knownDamage.insert(id);
+            damageRecords.insert(id, damage);
+            if (!save(QDir(store.repositoryJournal).filePath("integrity-damage-" + id + ".json"), damage, &store.error)) return failed();
+        }
+    }
+    const auto localDamage = QDir(store.repositoryJournal).entryList({"integrity-damage-*.json"}, QDir::Files | QDir::Hidden);
+    for (const auto &name : localDamage) {
+        const QString id = name.mid(17, name.size() - 22);
+        QFile file(QDir(store.repositoryJournal).filePath(name));
+        if (!IncrementalManifest::validId(id) || QFileInfo(file).isSymLink() || !file.open(QIODevice::ReadOnly)) return failed();
+        const auto document = QJsonDocument::fromJson(file.readAll());
+        const auto damage = document.object();
+        if (file.error() != QFileDevice::NoError || !document.isObject() || !validDamage(damage, id)
+            || (damageRecords.contains(id) && damageRecords.value(id).value("archive") != damage.value("archive"))) return failed();
+        if (!damageRecords.contains(id)) {
+            if (!store.put("integrity-damage/" + id + ".json", damage)) return failed();
+            damageRecords.insert(id, damage);
+        }
+        knownDamage.insert(id);
+    }
+    report["known_damaged_objects"] = QJsonArray::fromStringList(knownDamage.values());
+    report["reuse_blocked"] = false;
+    QMap<QString, QJsonObject> retired;
+    QString activeCleanup;
+    if (!cleanupRecords(store, request, &retired, &activeCleanup)) return failed();
+    if (!activeCleanup.isEmpty()) {
+        report["blocked_reason"] = "pending_cleanup";
+        store.error = "Finish the pending exact-scope cleanup before integrity maintenance."; return failed();
+    }
+    IntegrityInventory inventory;
+    if (!integrityInventory(store, request, &inventory)) return failed();
+    QJsonArray damaged;
+    QSet<QString> affected;
+    for (const auto &id : knownDamage) if (inventory.archives.contains(id)) {
+        damaged.append(id);
+        for (const auto &snapshot : inventory.snapshots.value(id)) affected.insert(snapshot);
+    }
+    report["damaged_objects"] = damaged;
+    report["affected_snapshots"] = QJsonArray::fromStringList(affected.values());
+    qint64 totalBytes = 0;
+    for (const auto &archive : inventory.archives) totalBytes += archive.value("size").toInteger();
+    report["total_objects"] = inventory.archives.size();
+    report["total_bytes"] = totalBytes;
+    const auto ledger = store.lookup("integrity");
+    if (ledger == RemoteLookup::Unknown) return failed();
+    QStringList cycles;
+    if (ledger == RemoteLookup::Found && !store.children("integrity", &cycles)) return failed();
+    report["ledger_cycles"] = QJsonArray::fromStringList(cycles);
+    QString active;
+    QJsonObject plan;
+    QDateTime lastComplete;
+    QDateTime lastCancelled;
+    QJsonObject lastCoverage;
+    for (const auto &id : cycles) {
+        if (!IncrementalManifest::validId(id)) { store.error = "Unknown integrity ledger entry."; return failed(); }
+        const QString root = "integrity/" + id;
+        const auto published = store.lookup(root + "/plan.json");
+        if (published == RemoteLookup::Unknown) return failed();
+        if (published == RemoteLookup::Missing) {
+            QStringList files;
+            if (!store.children(root, &files)) return failed();
+            if (files.isEmpty()) continue;
+            store.error = "Unpublished integrity ledger contains unknown evidence."; return failed();
+        }
+        QJsonObject candidate;
+        if (!store.get(root + "/plan.json", &candidate)) return failed();
+        auto previous = request;
+        const auto owner = candidate.value("anchor").toObject();
+        previous.computerId = owner.value("owner_computer_id").toString();
+        previous.ownershipEpoch = owner.value("ownership_epoch").toInteger(0);
+        if (candidate.size() != 5 || candidate.value("version") != QJsonValue(1) || candidate.value("id") != id
+            || !canonicalTime(candidate.value("started_at")) || !candidate.value("objects").isArray()
+            || !IncrementalManifest::validId(previous.computerId) || previous.ownershipEpoch < 1
+            || previous.ownershipEpoch > request.ownershipEpoch || owner != anchor(previous)) return failed();
+        QString previousId;
+        for (const auto &value : candidate.value("objects").toArray()) {
+            const auto archive = value.toObject();
+            const QString objectId = archive.value("id").toString();
+            if (objectId <= previousId || !validArchive(archive, false, request, &store.error)) return failed();
+            previousId = objectId;
+        }
+        const auto done = store.lookup(root + "/complete.json");
+        const auto cancelled = store.lookup(root + "/cancelled.json");
+        if (done == RemoteLookup::Unknown || cancelled == RemoteLookup::Unknown) return failed();
+        if (done == RemoteLookup::Found && cancelled == RemoteLookup::Found) return failed();
+        if (cancelled == RemoteLookup::Found) {
+            QJsonObject marker;
+            if (!store.get(root + "/cancelled.json", &marker) || marker.size() != 2
+                || marker.value("plan") != digest(json(candidate)) || !canonicalTime(marker.value("cancelled_at"))
+                || marker.value("cancelled_at").toString() < candidate.value("started_at").toString()) return failed();
+            const auto time = QDateTime::fromString(marker.value("cancelled_at").toString(), Qt::ISODateWithMs);
+            if (!lastCancelled.isValid() || time > lastCancelled) lastCancelled = time;
+            continue;
+        }
+        if (done == RemoteLookup::Found) {
+            QJsonObject completion;
+            if (!store.get(root + "/complete.json", &completion) || completion.size() != 6
+                || completion.value("plan") != digest(json(candidate)) || !canonicalTime(completion.value("completed_at"))
+                || completion.value("completed_at").toString() < candidate.value("started_at").toString()
+                || !completion.value("objects").isArray() || !completion.value("unreachable_objects").isArray()
+                || completion.value("checked_objects").toInteger(-1) != completion.value("objects").toArray().size()
+                || completion.value("checked_bytes").toInteger(-1) < 0) return failed();
+            qint64 bytes = 0;
+            QString previousObject;
+            QMap<QString, QJsonObject> planned;
+            QSet<QString> reconciled;
+            for (const auto &value : candidate.value("objects").toArray()) planned.insert(value.toObject().value("id").toString(), value.toObject());
+            for (const auto &value : completion.value("objects").toArray()) {
+                const auto receipt = value.toObject();
+                const auto archive = receipt.value("archive").toObject();
+                const QString object = archive.value("id").toString();
+                if (!validIntegrityReceipt(receipt, candidate, request, &store.error) || receipt.value("state") != "good"
+                    || receipt.value("checked_at").toString() > completion.value("completed_at").toString()
+                    || object <= previousObject || !validArchive(archive, false, request, &store.error)) return failed();
+                previousObject = object;
+                if (planned.contains(object)) {
+                    if (planned.value(object) != archive) return failed();
+                    reconciled.insert(object);
+                }
+                bytes += archive.value("size").toInteger();
+            }
+            previousObject.clear();
+            for (const auto &value : completion.value("unreachable_objects").toArray()) {
+                const auto archive = value.toObject();
+                const QString object = archive.value("id").toString();
+                if (object <= previousObject || !planned.contains(object) || planned.value(object) != archive
+                    || reconciled.contains(object) || inventory.archives.contains(object)) return failed();
+                previousObject = object;
+                reconciled.insert(object);
+            }
+            if (reconciled.size() != planned.size()) return failed();
+            if (completion.value("checked_bytes").toInteger(-1) != bytes) return failed();
+            const auto time = QDateTime::fromString(completion.value("completed_at").toString(), Qt::ISODateWithMs);
+            if (!lastComplete.isValid() || time > lastComplete) { lastComplete = time; lastCoverage = completion; }
+        } else {
+            if (!active.isEmpty()) { store.error = "Multiple unfinished integrity cycles require reconciliation."; return failed(); }
+            active = id;
+            plan = candidate;
+        }
+    }
+    report["last_completed_at"] = lastComplete.toString(Qt::ISODateWithMs);
+    report["next_due_at"] = lastComplete.isValid() ? lastComplete.addDays(30).toString(Qt::ISODateWithMs) : QString();
+    const bool due = !lastComplete.isValid() || request.scan.checkedAt >= lastComplete.addDays(30)
+        || (lastCancelled.isValid() && lastCancelled >= lastComplete);
+    report["overdue"] = due;
+    if (active.isEmpty() && !force && !due && damaged.isEmpty()) {
+        report["status"] = "not_due";
+        report["cleanup_blocked"] = false;
+        report["last_coverage"] = lastCoverage;
+        return report;
+    }
+    if (active.isEmpty()) {
+        active = uuid();
+        plan = {{"version", 1}, {"id", active}, {"anchor", anchor(request)},
+            {"started_at", request.scan.checkedAt.toUTC().toString(Qt::ISODateWithMs)}, {"objects", integrityWorklist(inventory)}};
+        if (!store.put("integrity/" + active + "/plan.json", plan)) return failed();
+        cycles.append(active);
+        cycles.sort();
+        report["ledger_cycles"] = QJsonArray::fromStringList(cycles);
+    }
+    if (plan.value("anchor") != anchor(request)) { store.error = "Unfinished integrity cycle belongs to an old owner/epoch; do not resume a stale continuation."; return failed(); }
+    report["cycle_id"] = active;
+    report["started_at"] = plan.value("started_at");
+    report["status"] = "in_progress";
+    const QString root = "integrity/" + active;
+    const auto initialControl = request.checkpoint ? request.checkpoint("integrity-started") : IncrementalControl::Continue;
+    if (initialControl != IncrementalControl::Continue || (request.scan.stopped && request.scan.stopped())) {
+        report["status"] = initialControl == IncrementalControl::Cancel ? "cancelled" : "paused";
+        if (initialControl == IncrementalControl::Cancel && !store.put(root + "/cancelled.json", QJsonObject{
+            {"plan", digest(json(plan))}, {"cancelled_at", request.scan.checkedAt.toUTC().toString(Qt::ISODateWithMs)}})) return failed();
+        return report;
+    }
+    const QString run = uuid();
+    QElapsedTimer timer;
+    timer.start();
+    qint64 downloaded = 0, checkedBytes = 0;
+    int checked = 0;
+    QJsonArray evidence;
+    bool stopped = false;
+    QJsonArray oversized;
+    for (auto it = inventory.archives.cbegin(); it != inventory.archives.cend(); ++it) {
+        const auto archive = it.value();
+        if (archive.value("size").toInteger() > request.stagingBudget && archive.value("members").toArray().size() == 1) {
+            oversized.append(it.key());
+            report["oversized_single_file_objects"] = oversized;
+        }
+        const QString relative = archive.value("remote").toString();
+        const auto found = store.lookup(relative);
+        if (found == RemoteLookup::Unknown) return failed();
+        RemoteFile metadata;
+        if (found == RemoteLookup::Found && (!provider.inspect(store.remote(relative), &metadata, &store.error)
+            || metadata.path != store.remote(relative) || metadata.size < 0)) return failed();
+        // A trustworthy content hash is itself a content revision. An unknown
+        // revision can only reuse evidence within this invocation, never after a crash.
+        const QString revision = provider.trustworthyContentChecksums() && !metadata.checksum.isEmpty()
+            ? "sha256:" + QString::fromLatin1(metadata.checksum.toHex()) : metadata.revision;
+        if (revision.isEmpty()) report["resume_warning"] = "Provider supplied no content revision or trustworthy checksum. Previously checked objects must be downloaded again after interruption; increase the slice budget if needed to complete safely in one invocation.";
+        const QString binding = integrityBinding(archive, revision, metadata.size, revision.isEmpty() ? run : QString());
+        const QString receiptPath = root + "/checks/" + it.key() + '/' + binding + ".json";
+        if (!store.owner() || !provider.ensureDirectory(QFileInfo(store.remote(receiptPath)).path(), &store.error)) return failed();
+        const auto receiptFound = store.lookup(receiptPath);
+        if (receiptFound == RemoteLookup::Unknown) return failed();
+        QJsonObject receipt;
+        if (receiptFound == RemoteLookup::Found) {
+            if (!store.get(receiptPath, &receipt) || !validIntegrityReceipt(receipt, plan, request, &store.error) || receipt.value("binding") != binding
+                || receipt.value("archive") != archive || receipt.value("revision") != revision
+                || receipt.value("observed_size") != QJsonValue(metadata.size) || receipt.value("run") != (revision.isEmpty() ? run : QString())
+                || !canonicalTime(receipt.value("checked_at")) || receipt.value("checked_at").toString() < plan.value("started_at").toString()
+                || receipt.value("method") != "download-sha256-inventory"
+                || (receipt.value("state") != "good" && receipt.value("state") != "damaged") || receipt.value("cycle") != active) return failed();
+        } else {
+            if (downloaded >= request.integrityByteBudget || timer.elapsed() >= request.integrityTimeBudgetMs) { stopped = true; break; }
+            const auto control = request.checkpoint ? request.checkpoint("integrity-object") : IncrementalControl::Continue;
+            if (control != IncrementalControl::Continue || (request.scan.stopped && request.scan.stopped())) {
+                report["status"] = control == IncrementalControl::Cancel ? "cancelled" : "paused";
+                if (control == IncrementalControl::Cancel && !store.put(root + "/cancelled.json", QJsonObject{
+                    {"plan", digest(json(plan))}, {"cancelled_at", request.scan.checkedAt.toUTC().toString(Qt::ISODateWithMs)}})) return failed();
+                stopped = true; break;
+            }
+            const auto state = health(store, provider, archive, true);
+            if (state == Health::Unknown) return failed();
+            if (found == RemoteLookup::Found && metadata.size == archive.value("size").toInteger()
+                && (!provider.trustworthyContentChecksums() || metadata.checksum.isEmpty()
+                    || metadata.checksum == QByteArray::fromHex(archive.value("sha256").toString().toLatin1()))) downloaded += metadata.size;
+            RemoteFile after;
+            if (found == RemoteLookup::Found && (!provider.inspect(store.remote(relative), &after, &store.error)
+                || after.path != metadata.path || after.size != metadata.size || after.revision != metadata.revision || after.checksum != metadata.checksum)) {
+                store.error = "Remote revision changed during integrity verification; retry."; return failed();
+            }
+            receipt = {{"binding", binding}, {"archive", archive}, {"revision", revision}, {"cycle", active},
+                {"observed_size", metadata.size}, {"run", revision.isEmpty() ? run : QString()},
+                {"checked_at", request.scan.checkedAt.toUTC().toString(Qt::ISODateWithMs)},
+                {"method", "download-sha256-inventory"}, {"state", state == Health::Good ? "good" : "damaged"}};
+        }
+        if (receipt.value("state") == "damaged" || knownDamage.contains(it.key())) {
+            if (!damaged.contains(it.key())) damaged.append(it.key());
+            for (const auto &snapshot : inventory.snapshots.value(it.key())) affected.insert(snapshot);
+            report["damaged_objects"] = damaged;
+            report["affected_snapshots"] = QJsonArray::fromStringList(affected.values());
+            if (!knownDamage.contains(it.key())) {
+                knownDamage.insert(it.key());
+                report["known_damaged_objects"] = QJsonArray::fromStringList(knownDamage.values());
+                if (!persistDamage(store, archive, request.scan.checkedAt)) return failed();
+            }
+        } else { ++checked; checkedBytes += archive.value("size").toInteger(); }
+        if (!store.put(receiptPath, receipt) || !store.local("integrity-cursor.json", QJsonObject{{"cycle", active}, {"receipt", receiptPath}})) return failed();
+        evidence.append(receipt);
+        report["checked_objects"] = checked;
+        report["checked_bytes"] = checkedBytes;
+        report["damaged_objects"] = damaged;
+        report["affected_snapshots"] = QJsonArray::fromStringList(affected.values());
+    }
+    report["checked_objects"] = checked;
+    report["checked_bytes"] = checkedBytes;
+    report["remaining_objects"] = inventory.archives.size() - checked;
+    report["downloaded_bytes"] = downloaded;
+    report["damaged_objects"] = damaged;
+    QStringList affectedList = affected.values();
+    affectedList.sort();
+    report["affected_snapshots"] = QJsonArray::fromStringList(affectedList);
+    if (!damaged.isEmpty()) report["status"] = "damaged";
+    if (!stopped && damaged.isEmpty()) {
+        IntegrityInventory fresh;
+        if (!store.owner() || !integrityInventory(store, request, &fresh)) return failed();
+        if (integrityWorklist(fresh) != integrityWorklist(inventory)) { store.error = "Reachability changed; resume to reconcile coverage."; return failed(); }
+        for (const auto &value : evidence) {
+            const auto receipt = value.toObject();
+            if (receipt.value("revision").toString().isEmpty()) continue; // Downloaded during this invocation.
+            RemoteFile current;
+            if (!provider.inspect(store.remote(receipt.value("archive").toObject().value("remote").toString()), &current, &store.error)) return failed();
+            const QString revision = provider.trustworthyContentChecksums() && !current.checksum.isEmpty()
+                ? "sha256:" + QString::fromLatin1(current.checksum.toHex()) : current.revision;
+            if (revision != receipt.value("revision").toString()
+                || current.size != receipt.value("archive").toObject().value("size").toInteger()) {
+                store.error = "Covered remote revision changed before completion; resume to recheck."; return failed();
+            }
+        }
+        QJsonArray unreachable;
+        for (const auto &value : plan.value("objects").toArray())
+            if (!inventory.archives.contains(value.toObject().value("id").toString())) unreachable.append(value);
+        const QJsonObject completion{{"plan", digest(json(plan))}, {"completed_at", request.scan.checkedAt.toUTC().toString(Qt::ISODateWithMs)},
+            {"objects", evidence}, {"unreachable_objects", unreachable}, {"checked_objects", checked}, {"checked_bytes", checkedBytes}};
+        if (!store.put(root + "/complete.json", completion) || !store.local("integrity-complete.json", completion)) return failed();
+        report["status"] = "complete";
+        report["last_completed_at"] = completion.value("completed_at");
+        report["next_due_at"] = request.scan.checkedAt.addDays(30).toUTC().toString(Qt::ISODateWithMs);
+        report["overdue"] = false;
+        report["cleanup_blocked"] = false;
+    }
+    return report;
+}
+
+static IncrementalWriteResult executeWrite(const IncrementalWriteRequest &request, BackupProvider &provider,
+    const QSet<QString> &knownDamage)
 {
     IncrementalWriteResult result;
     result.lastSuccessfulCheck = request.scan.lastSuccessfulCheck;
     Store store(request, provider);
+    const auto checkArchive = [&](const QJsonObject &archive, bool full) {
+        return knownDamage.contains(archive.value("id").toString()) ? Health::Damaged : health(store, provider, archive, full);
+    };
     const auto fail = [&](const QString &phase, bool permanent = false) {
         result.state = permanent ? IncrementalWriteResult::State::Failed
             : store.error.contains("staging", Qt::CaseInsensitive) || store.error.contains("storage", Qt::CaseInsensitive)
@@ -693,6 +1171,7 @@ static IncrementalWriteResult executeWrite(const IncrementalWriteRequest &reques
                     result.affectedSnapshots.append(snapshot.key());
         result.damagedObjects.sort();
         result.affectedSnapshots.sort();
+        return persistDamage(store, archive, request.scan.checkedAt);
     };
     const auto finish = [&](const QJsonObject &manifest, bool unchanged) {
         result.manifestCommitted = !unchanged;
@@ -742,9 +1221,9 @@ static IncrementalWriteResult executeWrite(const IncrementalWriteRequest &reques
         }
         if (!checkpoint("publication-resume")) return result;
         for (const auto &value : publication.value("archives").toArray()) {
-            const auto state = health(store, provider, value.toObject(), false);
+            const auto state = checkArchive(value.toObject(), false);
             if (state == Health::Unknown) return fail("publication-recovery");
-            if (state == Health::Damaged) { noteDamage(value.toObject()); store.error = "Publication references damaged data; start a new operation, never rewrite its immutable intent."; return fail("publication-recovery", true); }
+            if (state == Health::Damaged) { if (!noteDamage(value.toObject())) return fail("damage-checkpoint"); store.error = "Publication references damaged data; start a new operation, never rewrite its immutable intent."; return fail("publication-recovery", true); }
         }
         if (!store.put(snapshot, publication)) return fail("publication-recovery");
         result.manifestCommitted = true;
@@ -842,9 +1321,9 @@ static IncrementalWriteResult executeWrite(const IncrementalWriteRequest &reques
         const auto objectFound = store.lookup(archive.value("remote").toString());
         if (objectFound == RemoteLookup::Unknown) return fail("continuation-verification");
         if (objectFound == RemoteLookup::Missing) continue; // Prepared does not mean it was ever uploaded.
-        const auto state = health(store, provider, archive, !verified);
+        const auto state = checkArchive(archive, !verified);
         if (state == Health::Unknown) return fail("continuation-verification");
-        if (state == Health::Damaged) { noteDamage(archive); continue; }
+        if (state == Health::Damaged) { if (!noteDamage(archive)) return fail("damage-checkpoint"); continue; }
         if (!verified) {
             archive["original_verification"] = QJsonObject{{"method", "download-sha256"},
                 {"verified_at", request.scan.checkedAt.toUTC().toString(Qt::ISODateWithMs)}, {"sha256", archive.value("sha256")}};
@@ -856,11 +1335,12 @@ static IncrementalWriteResult executeWrite(const IncrementalWriteRequest &reques
         recoveredObjects.insert(id);
     }
     for (auto item = available.begin(); item != available.end();) {
-        const auto state = health(store, provider, item.value(), false);
+        const auto state = checkArchive(item.value(), false);
         if (state == Health::Unknown) return fail("reuse-check");
         if (state == Health::Damaged) {
             repairRequired = repairRequired || originallyRequired.contains(item.key());
-            noteDamage(item.value()); item = available.erase(item);
+            if (!noteDamage(item.value())) return fail("damage-checkpoint");
+            item = available.erase(item);
         }
         else ++item;
     }
@@ -971,7 +1451,7 @@ static IncrementalWriteResult executeWrite(const IncrementalWriteRequest &reques
         // durable verified checkpoint. Budget includes a second compressed download.
         const auto verified = health(store, provider, archive, true);
         if (verified == Health::Unknown) return fail("verification");
-        if (verified == Health::Damaged) { noteDamage(archive); store.error = "New upload failed full verification; immutable data will not be overwritten."; return fail("verification"); }
+        if (verified == Health::Damaged) { if (!noteDamage(archive)) return fail("damage-checkpoint"); store.error = "New upload failed full verification; immutable data will not be overwritten."; return fail("verification"); }
         if (!checkpoint("object-verified")) return result;
         archive["original_verification"] = QJsonObject{{"method", "download-sha256"},
             {"verified_at", request.scan.checkedAt.toUTC().toString(Qt::ISODateWithMs)}, {"sha256", archive.value("sha256")}};
@@ -992,9 +1472,9 @@ static IncrementalWriteResult executeWrite(const IncrementalWriteRequest &reques
     for (const auto &archive : available) if (used.contains(archive.value("id").toString())) archives.append(archive);
     // Recheck all reused references immediately before final publication.
     for (const auto &value : archives) {
-        const auto state = health(store, provider, value.toObject(), false);
+        const auto state = checkArchive(value.toObject(), false);
         if (state == Health::Unknown) return fail("final-reuse-check");
-        if (state == Health::Damaged) { noteDamage(value.toObject()); store.error = "Remote object changed before publication; retry with replacement content."; return fail("final-reuse-check"); }
+        if (state == Health::Damaged) { if (!noteDamage(value.toObject())) return fail("damage-checkpoint"); store.error = "Remote object changed before publication; retry with replacement content."; return fail("final-reuse-check"); }
     }
     publication = manifestBase(request, QDateTime::fromString(identity.value("created_at").toString(), Qt::ISODateWithMs));
     publication["archives"] = archives;
@@ -1199,6 +1679,14 @@ bool IncrementalRepository::cleanup(const IncrementalWriteRequest &request, Back
 {
     QString reason;
     if (!error) error = &reason;
+    // Advance due maintenance before acquiring the deletion lock. A previously
+    // published deletion transaction is reconciled below, never broadened.
+    const auto integrity = checkIntegrity(request, provider);
+    if (integrity.value("cleanup_blocked").toBool(true)
+        && integrity.value("blocked_reason") != "pending_cleanup") {
+        *error = "Integrity maintenance blocks cleanup: " + integrity.value("status").toString() + ". " + integrity.value("error").toString();
+        return false;
+    }
     Store store(request, provider);
     store.completeListings = true;
     const auto failed = [&] { *error = store.error.isEmpty() ? "Cleanup validation failed; nothing further was deleted." : store.error; return false; };
@@ -1209,6 +1697,14 @@ bool IncrementalRepository::cleanup(const IncrementalWriteRequest &request, Back
     QMap<QString, QJsonObject> retired;
     QString active;
     if (!cleanupRecords(store, request, &retired, &active)) return failed();
+    if (active.isEmpty()) {
+        QStringList cycles;
+        const auto ledger = store.lookup("integrity");
+        if (ledger == RemoteLookup::Unknown || (ledger == RemoteLookup::Found && !store.children("integrity", &cycles))) return failed();
+        if (QJsonArray::fromStringList(cycles) != integrity.value("ledger_cycles").toArray()) {
+            store.error = "Integrity ledger changed before acquiring the cleanup lock; retry maintenance first."; return failed();
+        }
+    }
     CleanupInventory inventory;
     if (!cleanupInventory(store, provider, request, &inventory)) return failed();
     auto history = retired;
@@ -1405,7 +1901,25 @@ bool IncrementalRepository::cleanup(const IncrementalWriteRequest &request, Back
 
 IncrementalWriteResult IncrementalRepository::execute(const IncrementalWriteRequest &request, BackupProvider &provider)
 {
-    auto result = executeWrite(request, provider);
+    const auto integrity = checkIntegrity(request, provider);
+    QSet<QString> knownDamage;
+    for (const auto &value : integrity.value("known_damaged_objects").toArray()) knownDamage.insert(value.toString());
+    for (const auto &value : integrity.value("damaged_objects").toArray()) knownDamage.insert(value.toString());
+    IncrementalWriteResult result;
+    if (integrity.value("reuse_blocked").toBool(true)) {
+        result.state = IncrementalWriteResult::State::Retrying;
+        result.lastSuccessfulCheck = request.scan.lastSuccessfulCheck;
+        result.issues.append({request.remoteSetRoot, "integrity", "Unable to recover durable corruption knowledge; backup reuse is forbidden."});
+    } else result = executeWrite(request, provider, knownDamage);
+    result.integrity = integrity;
+    for (const auto &value : integrity.value("damaged_objects").toArray())
+        if (!result.damagedObjects.contains(value.toString())) result.damagedObjects.append(value.toString());
+    for (const auto &value : integrity.value("affected_snapshots").toArray())
+        if (!result.affectedSnapshots.contains(value.toString())) result.affectedSnapshots.append(value.toString());
+    if (integrity.value("cleanup_blocked").toBool(true)) {
+        result.cleanupNeedsAttention = true;
+        result.issues.append({request.remoteSetRoot, "integrity", "Full integrity maintenance is incomplete; cleanup is blocked. " + integrity.value("error").toString()});
+    }
     if (result.state == IncrementalWriteResult::State::Saved && request.retention > 0) {
         QString error;
         if (!cleanup(request, provider, &result.cleanupProposal, &result.cleanupConfirmation, &error)) {
@@ -1436,6 +1950,22 @@ bool IncrementalRepository::takeover(const IncrementalWriteRequest &current, Bac
     QString activeCleanup;
     if (!cleanupRecords(store, current, &retired, &activeCleanup)) return failed();
     if (!activeCleanup.isEmpty()) { *error = "Finish the exact pending cleanup before offline handoff."; return false; }
+    const auto integrity = store.lookup("integrity");
+    if (integrity == RemoteLookup::Unknown) return failed();
+    if (integrity == RemoteLookup::Found) {
+        QStringList cycles;
+        store.completeListings = true;
+        if (!store.children("integrity", &cycles)) return failed();
+        for (const auto &id : cycles) {
+            if (!IncrementalManifest::validId(id)) { *error = "Unknown integrity ledger blocks handoff."; return false; }
+            const auto complete = store.lookup("integrity/" + id + "/complete.json");
+            const auto cancelled = store.lookup("integrity/" + id + "/cancelled.json");
+            if (complete == RemoteLookup::Unknown || cancelled == RemoteLookup::Unknown) return failed();
+            if ((complete == RemoteLookup::Found) == (cancelled == RemoteLookup::Found)) {
+                *error = "Finish or cancel integrity maintenance before offline handoff."; return false;
+            }
+        }
+    }
     QStringList operations;
     if (!store.children("operations", &operations)) return failed();
     for (const auto &id : operations) {
