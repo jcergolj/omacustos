@@ -9,6 +9,7 @@
 #include "protonprovider.h"
 #include "protonfolderbrowser.h"
 #include "recentbackupcopies.h"
+#include "incrementalmaintenance.h"
 #include "qprocessrunner.h"
 #include "protonauthcontroller.h"
 #include "themecolors.h"
@@ -43,6 +44,7 @@ int main(int argc, char *argv[])
     ProtonProvider browserProvider(browserRunner);
     ProtonFolderBrowser protonFolderBrowser(browserRunner, ProtonFolderLink::cachePath(configPath));
     RecentBackupCopies recentBackupCopies(browserProvider, configPath, QSysInfo::machineHostName());
+    IncrementalMaintenance incrementalMaintenance(configPath);
     QProcessRunner restoreRunner(protonBinary);
     ProtonProvider restoreProvider(restoreRunner);
     BackupRestoreController restoreController(backupEngine, &restoreProvider);
@@ -91,6 +93,7 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty(QStringLiteral("restoreController"), &restoreController);
     engine.rootContext()->setContextProperty(QStringLiteral("protonFolderBrowser"), &protonFolderBrowser);
     engine.rootContext()->setContextProperty(QStringLiteral("recentBackupCopies"), &recentBackupCopies);
+    engine.rootContext()->setContextProperty(QStringLiteral("incrementalMaintenance"), &incrementalMaintenance);
     engine.rootContext()->setContextProperty(QStringLiteral("protonAuth"), &protonAuth);
     engine.rootContext()->setContextProperty(QStringLiteral("themeColors"), &themeColors);
     engine.rootContext()->setContextProperty(QStringLiteral("resourceUsage"), &resourceUsage);

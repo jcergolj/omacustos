@@ -37,8 +37,9 @@ void warning(QString *error, const QString &message)
 }
 
 bool visit(BackupProvider &provider, const QString &path, const QString &rootPath,
-    QVector<RemoteCopy> *copies, QSet<QString> *visited, QString *error)
+    QVector<RemoteCopy> *copies, QSet<QString> *visited, QString *error, const std::function<bool()> &cancelled)
 {
+    if (cancelled && cancelled()) return false;
     const QString cleanPath = QDir::cleanPath(path);
     if (visited->contains(cleanPath)) {
         return true;
@@ -50,29 +51,29 @@ bool visit(BackupProvider &provider, const QString &path, const QString &rootPat
         return false;
     }
 
+    // A validated copy's payload tree is not another repository. In particular,
+    // old individual-file copies may contain ordinary source manifest.json files.
+    for (const auto &item : items) if (!item.directory && item.name == "manifest.json" && item.path == path + "/manifest.json") {
+        RemoteCopy copy;
+        QString copyError;
+        if (BackupCatalog::verifyCopy(provider, path, {}, &copy, &copyError, cancelled)) copies->append(copy);
+        warning(error, copyError);
+        return !(cancelled && cancelled());
+    }
     for (const RemoteItem &item : items) {
+        if (cancelled && cancelled()) return false;
         if (!inside(item.path, rootPath)) {
             warning(error, QStringLiteral("The provider returned a path outside the discovery root: %1").arg(item.path));
             continue;
         }
         if (item.directory) {
-            if (!visit(provider, item.path, rootPath, copies, visited, error)) {
+            if (!visit(provider, item.path, rootPath, copies, visited, error, cancelled)) {
                 return false;
             }
             continue;
         }
-        if (item.name != QStringLiteral("manifest.json")) {
-            continue;
-        }
-
-        RemoteCopy copy;
-        QString copyError;
-        if (!BackupCatalog::verifyCopy(provider, QFileInfo(item.path).path(), {}, &copy, &copyError)) {
-            warning(error, copyError);
-            continue;
-        }
-        warning(error, copyError);
-        copies->append(copy);
+        if (item.name == QStringLiteral("manifest.json"))
+            warning(error, QStringLiteral("The provider returned an ambiguous manifest path: %1").arg(item.path));
     }
     return true;
 }
@@ -148,6 +149,7 @@ bool BackupCatalog::verifyCopy(BackupProvider &provider, const QString &copyFold
     }
     *copy = {root, remoteManifest, info.computerName, info.setId, info.setName, info.copyId,
         info.status, info.createdAt, {}, {}, info.failedItems};
+    copy->manifestVersion = info.version;
     RemoteMetadataCache directoryMetadata(provider);
     QHash<QString, bool> verifiedArchives;
     for (const BackupEntry &entry : entries) {
@@ -202,7 +204,8 @@ bool BackupCatalog::discoverCopies(BackupProvider &provider, const QString &back
     return true;
 }
 
-bool BackupCatalog::discover(BackupProvider &provider, const QString &remoteRoot, QVector<RemoteCopy> *copies, QString *error)
+bool BackupCatalog::discover(BackupProvider &provider, const QString &remoteRoot, QVector<RemoteCopy> *copies, QString *error,
+    const std::function<bool()> &cancelled)
 {
     if (copies == nullptr) {
         if (error != nullptr) {
@@ -220,7 +223,7 @@ bool BackupCatalog::discover(BackupProvider &provider, const QString &remoteRoot
 
     const QString normalizedRoot = QDir::cleanPath(remoteRoot);
     QSet<QString> visited;
-    if (!visit(provider, normalizedRoot, normalizedRoot, copies, &visited, error)) {
+    if (!visit(provider, normalizedRoot, normalizedRoot, copies, &visited, error, cancelled)) {
         copies->clear();
         return false;
     }

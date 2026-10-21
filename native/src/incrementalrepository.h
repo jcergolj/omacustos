@@ -21,11 +21,16 @@ struct IncrementalWriteRequest {
     int batchFileLimit = 1000;
     int retention = 0; // Zero disables cleanup; positive values keep newest N saved states.
     QString legacyRoot; // Optional exact legacy set folder; never a shared repository.
+    QString legacySetId; // Historical non-UUID config ID; exact manifests still enter the proposal.
+    QStringList legacyRoots; // Additional exact private-copy namespaces discovered before provisioning.
     QString cleanupConfirmation; // SHA-256 of the exact presented proposal bytes.
+    QString cleanupDismissal; // Invalidate an unapproved proposal; never grants deletion authority.
     qint64 integrityByteBudget = 10LL * 1024 * 1024 * 1024;
     qint64 integrityTimeBudgetMs = 60LL * 60 * 1000;
     // Called at durable boundaries; capture/packing also poll the current control.
     std::function<IncrementalControl(const QString &)> checkpoint;
+    // Optional diagnostic observation only; never grants control or authority.
+    std::function<void(const QString &, qint64)> phaseMeasured;
 };
 
 struct IncrementalWriteResult {
@@ -33,6 +38,10 @@ struct IncrementalWriteResult {
     State state = State::Failed;
     bool manifestCommitted = false;
     QString manifestPath;
+    QString latestSnapshotPath;
+    int savedFiles = 0;
+    qint64 savedBytes = 0;
+    QString capacityWarning;
     QDateTime lastSuccessfulCheck;
     QDateTime lastSavedChange;
     QStringList affectedSnapshots;
@@ -59,6 +68,9 @@ public:
     // Also supports retry after a saved backup, without re-running the writer.
     static bool cleanup(const IncrementalWriteRequest &request, BackupProvider &provider,
         QJsonObject *proposal, QString *confirmation, QString *error);
+    // Restart recovery: invalidate unapproved previews without deleting anything;
+    // resume only transactions with durable exact-scope authorization.
+    static bool recoverCleanup(const IncrementalWriteRequest &request, BackupProvider &provider, QString *error);
     // Request identifies the exact CURRENT anchor. Only a secured offline writer
     // handoff is supported; never an online lease steal or server-fencing claim.
     static bool takeover(const IncrementalWriteRequest &current, BackupProvider &provider,

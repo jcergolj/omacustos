@@ -3,6 +3,8 @@
 #include "incrementalmanifest.h"
 #include <sys/stat.h>
 #include <unistd.h>
+#include <dirent.h>
+#include <cerrno>
 #include "backuparchive.h"
 #include "localprovider.h"
 #include "payloadmetadatapolicy.h"
@@ -281,6 +283,12 @@ BackupPreview BackupEngine::preview(const QStringList &sourceDirectories, const 
     return scan(sourceDirectories, exclusions, true, cancelled, inclusions);
 }
 
+BackupPreview BackupEngine::selectSources(const QStringList &sourceDirectories, const QStringList &exclusions,
+    const std::function<bool()> &cancelled, const QStringList &inclusions) const
+{
+    return scan(sourceDirectories, exclusions, false, cancelled, inclusions);
+}
+
 BackupPreview BackupEngine::scan(const QStringList &sourceDirectories, const QStringList &exclusions, bool reportExcluded, const std::function<bool()> &cancelled, const QStringList &inclusions) const
 {
     const ExclusionRules rules(exclusions);
@@ -311,6 +319,7 @@ BackupPreview BackupEngine::scan(const QStringList &sourceDirectories, const QSt
         }
         if (source.isSymLink() || !source.isReadable()) {
             skipped.append(source.absoluteFilePath());
+            if (!source.isSymLink() && source.isDir()) result.scanErrors.append(source.absoluteFilePath());
             continue;
         }
         if (source.isFile()) {
@@ -325,11 +334,29 @@ BackupPreview BackupEngine::scan(const QStringList &sourceDirectories, const QSt
         QStringList pending {source.absoluteFilePath()};
         while (!pending.isEmpty()) {
             if (cancelled && cancelled()) return {};
-            QDirIterator iterator(pending.takeLast(), QDir::AllEntries | QDir::Hidden | QDir::NoDotAndDotDot);
-            while (iterator.hasNext()) {
+            const QString directory = pending.takeLast();
+            const bool selectedDirectory = !isExcluded(QFileInfo(directory), rules);
+            if (selectedDirectory && ::access(QFile::encodeName(directory).constData(), R_OK | X_OK) != 0) {
+                result.scanErrors.append(directory);
+                continue;
+            }
+            DIR *handle = ::opendir(QFile::encodeName(directory).constData());
+            if (!handle) {
+                if (selectedDirectory) result.scanErrors.append(directory);
+                continue;
+            }
+            const auto closeDirectory = qScopeGuard([&] { ::closedir(handle); });
+            while (true) {
                 if (cancelled && cancelled()) return {};
-                iterator.next();
-                const QFileInfo file = iterator.fileInfo();
+                errno = 0;
+                const auto *entry = ::readdir(handle);
+                if (!entry) {
+                    if (errno != 0 && selectedDirectory) result.scanErrors.append(directory);
+                    break;
+                }
+                const QString name = QFile::decodeName(entry->d_name);
+                if (name == "." || name == "..") continue;
+                const QFileInfo file(QDir(directory).filePath(name));
                 const QString path = file.absoluteFilePath();
 
                 if (isExcluded(file, rules)) {
@@ -343,12 +370,15 @@ BackupPreview BackupEngine::scan(const QStringList &sourceDirectories, const QSt
                     skipped.append(path);
                 } else if (file.isDir() && !file.isReadable()) {
                     skipped.append(path);
+                    result.scanErrors.append(path);
                 } else if (file.isDir()) {
                     pending.append(path);
                 } else if (file.isFile() && !file.isReadable()) {
                     skipped.append(path);
                 } else if (file.isFile()) {
                     includeFile(file);
+                } else {
+                    skipped.append(path);
                 }
             }
         }
@@ -370,6 +400,8 @@ BackupPreview BackupEngine::scan(const QStringList &sourceDirectories, const QSt
     result.excludedFiles = excluded;
     result.skippedPaths = skipped;
     result.missingPaths = missing;
+    result.scanErrors.removeDuplicates();
+    result.scanErrors.sort();
 
     return result;
 }
@@ -420,6 +452,12 @@ bool BackupEngine::backup(const QStringList &sourceDirectories, const QString &r
     }
 
     const BackupPreview selection = scan(sourceDirectories, exclusions, false, {}, options.inclusions);
+    if (!selection.scanErrors.isEmpty()) {
+        for (const auto &path : selection.scanErrors)
+            outcome.issues.append({path, "selection", "Unable to enumerate the source directory completely."});
+        if (error) *error = QStringLiteral("Source enumeration failed; no backup was published.");
+        return false;
+    }
     for (const QString &path : selection.missingPaths) {
         outcome.issues.append({path, QStringLiteral("selection"), QStringLiteral("The source path does not exist.")});
     }

@@ -124,8 +124,11 @@ public:
     Q_INVOKABLE void applyCurrentDraft(const QVariantMap &draft);
     Q_INVOKABLE void preview();
     Q_INVOKABLE QString recentBackupFolderPath(const QString &setId) const;
+    Q_INVOKABLE QString historyFolderPath(const QString &setId) const;
+    Q_INVOKABLE QString historyLegacyName(const QString &setId) const;
     Q_INVOKABLE QVariantMap backupDetails(const QString &setId) const;
     Q_INVOKABLE void refreshRunState();
+    Q_INVOKABLE void refreshWriteAuthority();
     Q_INVOKABLE bool save();
     Q_INVOKABLE bool exportSets(const QString &filePath);
     Q_INVOKABLE bool saveTemplate(const QString &filePath);

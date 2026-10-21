@@ -1,5 +1,10 @@
 # Incremental repository contract (v4)
 
+> Rollout-status statements below record this component's original delivery
+> point. Current default-worker integration and validation are documented in
+> [the #62 delivery report](incremental-default-rollout.md). The protocol's
+> integrity, ownership, restore, and deletion requirements remain in force.
+
 Status: normative design for #56, not enabled in the default worker. Changed-file
 incremental backups replace full uploads only after the release gates below pass.
 The pure `IncrementalManifest::validate` boundary implements the manifest schema;

@@ -356,6 +356,15 @@ bool validPriorIdentity(const QJsonObject &record, const QString &operationId, c
 
 // Deletion proposals are immutable, self-contained authorization scopes. Archived
 // manifests remain here for validating old completion records, NOT as live refs.
+QStringList legacyScopes(const IncrementalWriteRequest &request)
+{
+    auto roots = request.legacyRoots;
+    if (!request.legacyRoot.isEmpty()) roots.append(request.legacyRoot);
+    roots.removeDuplicates();
+    roots.sort();
+    return roots;
+}
+
 bool validCleanupProposal(const QJsonObject &proposal, const IncrementalWriteRequest &request, QString *error)
 {
     auto originalOwner = request;
@@ -392,8 +401,8 @@ bool validCleanupProposal(const QJsonObject &proposal, const IncrementalWriteReq
     for (const auto &value : proposal.value("legacy").toArray()) {
         const auto copy = value.toObject();
         const QString path = copy.value("path").toString();
-        const QString root = request.legacyRoot;
-        if (copy.size() != 2 || root.isEmpty() || root != QDir::cleanPath(root) || root == "/" || root == "."
+        const QString root = QFileInfo(path).path();
+        if (copy.size() != 2 || !legacyScopes(request).contains(root) || root.isEmpty() || root != QDir::cleanPath(root) || root == "/" || root == "."
             || root.contains('\\') || root.contains(QChar::Null) || root.split('/').contains("..")
             || path != QDir::cleanPath(path) || QFileInfo(path).path() != root
             || path == request.remoteSetRoot || path.startsWith(request.remoteSetRoot + '/')
@@ -449,7 +458,7 @@ bool cleanupRecords(Store &store, const IncrementalWriteRequest &request,
         const auto done = store.lookup(root + "/done.json");
         if (done == RemoteLookup::Unknown) return false;
         const QJsonObject receipt{{"proposal", digest(json(proposal))}};
-        QSet<QString> expected{"proposal.json", "authorized.json", "done.json"};
+        QSet<QString> expected{"proposal.json", "authorized.json", "done.json", "dismissed.json"};
         QStringList required{"authorized.json"};
         const auto phases = [&](const QString &key) {
             for (const auto &phase : {QString("trashed"), QString("deleted")}) {
@@ -473,9 +482,15 @@ bool cleanupRecords(Store &store, const IncrementalWriteRequest &request,
             if (name.endsWith("-deleted.json") && !files.contains(name.left(name.size() - 13) + "-trashed.json")) {
                 store.error = "Deletion phase is out of order."; return false;
             }
-            if (name != "authorized.json" && !files.contains("authorized.json")) {
+            if (name != "authorized.json" && name != "dismissed.json" && !files.contains("authorized.json")) {
                 store.error = "Cleanup phase lacks authorization."; return false;
             }
+        }
+        if (files.contains("dismissed.json")) {
+            if (files.size() != 2 || files.contains("authorized.json")) {
+                store.error = "A dismissed cleanup proposal has unexpected authorization or mutation records."; return false;
+            }
+            continue; // No deletions occurred and no snapshots were retired.
         }
         if (done == RemoteLookup::Found) for (const auto &name : required) if (!files.contains(name)) {
             store.error = "Cleanup completion lacks durable target phases."; return false;
@@ -987,7 +1002,10 @@ static IncrementalWriteResult executeWrite(const IncrementalWriteRequest &reques
     result.lastSuccessfulCheck = request.scan.lastSuccessfulCheck;
     Store store(request, provider);
     const auto checkArchive = [&](const QJsonObject &archive, bool full) {
-        return knownDamage.contains(archive.value("id").toString()) ? Health::Damaged : health(store, provider, archive, full);
+        QElapsedTimer timer; timer.start();
+        const auto result = knownDamage.contains(archive.value("id").toString()) ? Health::Damaged : health(store, provider, archive, full);
+        if (request.phaseMeasured) request.phaseMeasured(full ? "full-object-verification" : "daily-reuse-check", timer.nsecsElapsed());
+        return result;
     };
     const auto fail = [&](const QString &phase, bool permanent = false) {
         result.state = permanent ? IncrementalWriteResult::State::Failed
@@ -1162,6 +1180,7 @@ static IncrementalWriteResult executeWrite(const IncrementalWriteRequest &reques
         return result; // Never republish an expired snapshot by replaying its old operation.
     }
     result.lastSavedChange = latestTime;
+    if (!latestId.isEmpty()) result.latestSnapshotPath = store.remote("snapshots/" + latestId);
     const auto noteDamage = [&](const QJsonObject &archive) {
         const QString id = archive.value("id").toString();
         if (!result.damagedObjects.contains(id)) result.damagedObjects.append(id);
@@ -1174,6 +1193,10 @@ static IncrementalWriteResult executeWrite(const IncrementalWriteRequest &reques
         return persistDamage(store, archive, request.scan.checkedAt);
     };
     const auto finish = [&](const QJsonObject &manifest, bool unchanged) {
+        result.latestSnapshotPath = store.remote("snapshots/" + (unchanged ? latestId : request.snapshotId));
+        const auto savedState = unchanged ? history.value(latestId) : manifest;
+        result.savedFiles = savedState.value("entries").toArray().size();
+        for (const auto &entry : savedState.value("entries").toArray()) result.savedBytes += entry.toObject().value("size").toInteger();
         result.manifestCommitted = !unchanged;
         result.manifestPath = unchanged ? QString() : store.remote(snapshot);
         const auto saved = unchanged ? latestTime : QDateTime::fromString(manifest.value("created_at").toString(), Qt::ISODateWithMs);
@@ -1257,7 +1280,9 @@ static IncrementalWriteResult executeWrite(const IncrementalWriteRequest &reques
         activeControl = request.checkpoint ? request.checkpoint("capturing") : IncrementalControl::Continue;
         return activeControl != IncrementalControl::Continue;
     };
+    QElapsedTimer planningTimer; planningTimer.start();
     const auto plan = IncrementalPlanner::plan(scan);
+    if (request.phaseMeasured) request.phaseMeasured("local-plan-hash", planningTimer.nsecsElapsed());
     if (!plan.success) {
         if (activeControl != IncrementalControl::Continue) { applyControl(activeControl); return result; }
         result.issues = plan.issues;
@@ -1407,6 +1432,7 @@ static IncrementalWriteResult executeWrite(const IncrementalWriteRequest &reques
             if (request.scan.stopped && request.scan.stopped()) activeControl = IncrementalControl::Pause;
             return activeControl != IncrementalControl::Continue;
         };
+        QElapsedTimer captureTimer; captureTimer.start();
         for (const auto &file : group) {
             const QString member = "file-" + QString::number(index++);
             if (!IncrementalPlanner::stage(file, QDir(tree).filePath(member), &store.error, stopped)) {
@@ -1415,10 +1441,14 @@ static IncrementalWriteResult executeWrite(const IncrementalWriteRequest &reques
             }
             entries.append({file.sourcePath, "payload/" + member, file.size, file.checksum, file.restorePath});
         }
+        if (request.phaseMeasured) request.phaseMeasured("private-source-capture", captureTimer.nsecsElapsed());
         if (!checkpoint("prepared-sources")) return result;
         const QString id = uuid();
         const QString archivePath = QDir(payloads).filePath(id + ".tar.gz");
-        if (!BackupArchiveIO::pack(tree, "payload", archivePath, archiveAllowance, &entries, &store.error, stopped)) {
+        QElapsedTimer compressionTimer; compressionTimer.start();
+        const bool packed = BackupArchiveIO::pack(tree, "payload", archivePath, archiveAllowance, &entries, &store.error, stopped);
+        if (request.phaseMeasured) request.phaseMeasured("compression", compressionTimer.nsecsElapsed());
+        if (!packed) {
             if (activeControl != IncrementalControl::Continue) { applyControl(activeControl); return result; }
             store.error = "Waiting for archive staging storage: " + store.error; return fail("compression");
         }
@@ -1482,7 +1512,10 @@ static IncrementalWriteResult executeWrite(const IncrementalWriteRequest &reques
     if (!IncrementalManifest::validate(json(publication), request.scan.setId, request.snapshotId, &store.error)) return fail("manifest-validation", true);
     if (!store.local("publication.json", publication) || !store.put(operation + "/publication.json", publication)) return fail("publication-intent");
     if (!checkpoint("publication-prepared")) return result;
-    if (!store.put(snapshot, publication)) return fail("publication");
+    QElapsedTimer publicationTimer; publicationTimer.start();
+    const bool published = store.put(snapshot, publication);
+    if (request.phaseMeasured) request.phaseMeasured("manifest-publication", publicationTimer.nsecsElapsed());
+    if (!published) return fail("publication");
     result.manifestCommitted = true;
     if (!checkpoint("published")) return result;
     return finish(publication, false);
@@ -1646,29 +1679,29 @@ bool terminalOperations(Store &store, BackupProvider &provider, const Incrementa
 
 bool legacyInventory(Store &store, BackupProvider &provider, const IncrementalWriteRequest &request, QJsonArray *copies)
 {
-    if (request.legacyRoot.isEmpty()) return true;
-    // Validate containment even when there are no deletion candidates.
-    const QString root = request.legacyRoot;
-    if (root != QDir::cleanPath(root) || root == "/" || root == "." || root.contains('\\')
-        || root.contains(QChar::Null) || root.split('/').contains("..") || root == request.remoteSetRoot
-        || root.startsWith(request.remoteSetRoot + '/') || request.remoteSetRoot.startsWith(root + '/')) {
-        store.error = "Unsafe legacy root."; return false;
-    }
-    QVector<RemoteItem> items;
-    if (!provider.listComplete(root, &items, &store.error)) return false;
-    QSet<QString> seen;
-    for (const auto &item : items) {
-        if (item.name.isEmpty() || item.name == "." || item.name == ".." || item.name.contains('/')
-            || item.name.contains('\\') || item.name.contains(QChar::Null) || item.path != root + '/' + item.name
-            || seen.contains(item.name) || !item.directory) {
-            store.error = "Ambiguous legacy inventory blocks cleanup."; return false;
+    for (const auto &root : legacyScopes(request)) {
+        // Validate containment even when there are no deletion candidates.
+        if (root != QDir::cleanPath(root) || root == "/" || root == "." || root.contains('\\')
+            || root.contains(QChar::Null) || root.split('/').contains("..") || root == request.remoteSetRoot
+            || root.startsWith(request.remoteSetRoot + '/') || request.remoteSetRoot.startsWith(root + '/')) {
+            store.error = "Unsafe legacy root."; return false;
         }
-        seen.insert(item.name);
-        RemoteCopy copy;
-        QJsonObject manifest;
-        if (!BackupCatalog::verifyCopy(provider, item.path, request.scan.setId, &copy, &store.error)
-            || !externalJson(store, provider, item.path + "/manifest.json", &manifest)) return false;
-        if (copy.complete()) copies->append(QJsonObject{{"path", item.path}, {"manifest", manifest}});
+        QVector<RemoteItem> items;
+        if (!provider.listComplete(root, &items, &store.error)) return false;
+        QSet<QString> seen;
+        for (const auto &item : items) {
+            if (item.name.isEmpty() || item.name == "." || item.name == ".." || item.name.contains('/')
+                || item.name.contains('\\') || item.name.contains(QChar::Null) || item.path != root + '/' + item.name
+                || seen.contains(item.name) || !item.directory) {
+                store.error = "Ambiguous legacy inventory blocks cleanup."; return false;
+            }
+            seen.insert(item.name);
+            RemoteCopy copy;
+            QJsonObject manifest;
+            if (!BackupCatalog::verifyCopy(provider, item.path, request.legacySetId.isEmpty() ? request.scan.setId : request.legacySetId, &copy, &store.error)
+                || !externalJson(store, provider, item.path + "/manifest.json", &manifest)) return false;
+            if (copy.complete()) copies->append(QJsonObject{{"path", item.path}, {"manifest", manifest}});
+        }
     }
     return true;
 }
@@ -1745,7 +1778,7 @@ bool IncrementalRepository::cleanup(const IncrementalWriteRequest &request, Back
             const auto copy = value.toObject();
             // Catalog has already validated creation time and legacy identity.
             RemoteCopy verified;
-            if (!BackupCatalog::verifyCopy(provider, copy.value("path").toString(), request.scan.setId, &verified, &store.error)) return failed();
+            if (!BackupCatalog::verifyCopy(provider, copy.value("path").toString(), request.legacySetId.isEmpty() ? request.scan.setId : request.legacySetId, &verified, &store.error)) return failed();
             states.append({verified.copyId, verified.createdAt.toUTC().toString(Qt::ISODateWithMs), {}, copy});
         }
         std::sort(states.begin(), states.end(), [](const SavedState &a, const SavedState &b) {
@@ -1809,6 +1842,14 @@ bool IncrementalRepository::cleanup(const IncrementalWriteRequest &request, Back
     const QJsonObject receipt{{"proposal", hash}};
     const auto authorized = store.lookup(root + "/authorized.json");
     if (authorized == RemoteLookup::Unknown) return failed();
+    if (!request.cleanupDismissal.isEmpty()) {
+        if (request.cleanupDismissal != hash || authorized != RemoteLookup::Missing) {
+            *error = "Only the exact unapproved cleanup proposal may be dismissed."; return false;
+        }
+        if (!store.put(root + "/dismissed.json", receipt)) return failed();
+        error->clear();
+        return true;
+    }
     if (authorized == RemoteLookup::Missing) {
         if (request.cleanupConfirmation != hash) {
             *error = "Review the exact cleanup proposal and confirm its SHA-256 before deletion."; return false;
@@ -1871,7 +1912,7 @@ bool IncrementalRepository::cleanup(const IncrementalWriteRequest &request, Back
             if (found == RemoteLookup::Missing) return true;
             QJsonObject observed;
             RemoteCopy verified;
-            return BackupCatalog::verifyCopy(provider, path, request.scan.setId, &verified, &store.error)
+            return BackupCatalog::verifyCopy(provider, path, request.legacySetId.isEmpty() ? request.scan.setId : request.legacySetId, &verified, &store.error)
                 && verified.complete() && externalJson(store, provider, path + "/manifest.json", &observed)
                 && observed == copy.value("manifest").toObject();
         };
@@ -1897,6 +1938,35 @@ bool IncrementalRepository::cleanup(const IncrementalWriteRequest &request, Back
     if (!store.put(root + "/done.json", receipt) || !checkpoint("cleanup-done")) return failed();
     error->clear();
     return true;
+}
+
+bool IncrementalRepository::recoverCleanup(const IncrementalWriteRequest &request, BackupProvider &provider, QString *error)
+{
+    QString reason;
+    if (!error) error = &reason;
+    auto recovery = request;
+    {
+        Store store(request, provider);
+        if (!store.open()) { *error = store.error; return false; }
+        provider.beginBackupOperation();
+        const auto end = qScopeGuard([&] { provider.endBackupOperation(); });
+        QMap<QString, QJsonObject> retired;
+        QString active;
+        if (!store.owner() || !cleanupRecords(store, request, &retired, &active)) { *error = store.error; return false; }
+        if (active.isEmpty()) return true;
+        QJsonObject proposal;
+        if (!store.get("maintenance/" + active + "/proposal.json", &proposal)) { *error = store.error; return false; }
+        const auto authorization = store.lookup("maintenance/" + active + "/authorized.json");
+        if (authorization == RemoteLookup::Unknown) { *error = store.error; return false; }
+        recovery.cleanupConfirmation.clear();
+        recovery.cleanupDismissal.clear();
+        if (authorization == RemoteLookup::Missing) recovery.cleanupDismissal = digest(json(proposal));
+        // Found means the existing executor must validate and resume the exact
+        // durable authorization; it never substitutes a fresh retention policy.
+    }
+    QJsonObject proposal;
+    QString confirmation;
+    return cleanup(recovery, provider, &proposal, &confirmation, error);
 }
 
 IncrementalWriteResult IncrementalRepository::execute(const IncrementalWriteRequest &request, BackupProvider &provider)

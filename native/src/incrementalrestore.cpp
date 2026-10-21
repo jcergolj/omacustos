@@ -89,6 +89,7 @@ bool IncrementalRestore::verifyCopy(BackupProvider &provider, const QString &roo
         return fail(error, "Snapshot provenance conflicts with its repository.");
     *copy = {root, root + "/manifest.json", control.value("origin_computer_id").toString(), setId, setId,
         snapshotId, "complete", QDateTime::fromString(manifest.value("created_at").toString(), Qt::ISODateWithMs), {}, {}, {}};
+    copy->manifestVersion = 4;
     QHash<QString, BackupArchive> archives;
     QSet<QString> unavailable;
     for (const auto &value : manifest.value("archives").toArray()) {

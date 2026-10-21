@@ -1,5 +1,8 @@
 # Scheduled integrity and backup health (#61)
 
+> Historical component delivery record. Normal workers now advance this protocol
+> too; the UI also offers a full check. See [current integration](incremental-default-rollout.md).
+
 The advanced `omacustos-incremental` executor advances full integrity maintenance
 **before** each backup and before starting cleanup. This does not enable incremental
 backups in the ordinary v3 worker or install a new system schedule. Invoke the

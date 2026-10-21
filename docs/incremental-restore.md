@@ -1,5 +1,8 @@
 # Shared-archive recovery (#59)
 
+> Historical component delivery record. Default workers now use the same v4
+> storage/restore protocol; see [current integration](incremental-default-rollout.md).
+
 The advanced `build/omacustos-incremental` entry point discovers/restores v4
 snapshots with only an authenticated Proton CLI and a selected remote root. No
 local settings, sources, schedules or journals are required. Default worker

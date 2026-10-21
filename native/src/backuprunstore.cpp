@@ -1,4 +1,5 @@
 #include "backuprunstore.h"
+#include "incrementalrestore.h"
 #include "backupschedule.h"
 
 #include <QDir>
@@ -149,6 +150,7 @@ bool BackupRunStore::loadFromBytes(const QByteArray &contents, QString *error)
         record.lastSuccess = readDate(object, QStringLiteral("last_success"));
         record.lastFailure = readDate(object, QStringLiteral("last_failure"));
         record.remoteCopyPath = object.value(QStringLiteral("remote_copy_path")).toString();
+        record.incremental = object.value("incremental").toObject();
         record.unfinished = object.value(QStringLiteral("unfinished")).toBool(false);
         record.controlRequest = object.value(QStringLiteral("control_request")).toString();
         for (const auto &copy : object.value(QStringLiteral("cancelled_copies")).toArray()) record.cancelledCopies.append(copy.toString());
@@ -213,6 +215,7 @@ bool BackupRunStore::save(QString *error) const
             {QStringLiteral("last_error"), record.lastError},
             {QStringLiteral("attempts"), record.attempts},
             {QStringLiteral("remote_copy_path"), record.remoteCopyPath},
+            {QStringLiteral("incremental"), record.incremental},
             {QStringLiteral("unfinished"), record.unfinished},
             {QStringLiteral("control_request"), record.controlRequest},
             {QStringLiteral("cancelled_copies"), QJsonArray::fromStringList(record.cancelledCopies)},
@@ -415,6 +418,7 @@ bool BackupRunStore::publishProgress(const BackupRunRecord &attempt, QString *er
         record->progress = attempt.progress;
         record->progressElapsedMs = attempt.progressElapsedMs;
         record->progressUpdatedAt = attempt.progressUpdatedAt;
+        record->incremental = attempt.incremental;
         return true;
     }, error);
 }
@@ -429,6 +433,33 @@ bool BackupRunStore::rememberStagingRoot(const BackupRunRecord &attempt, const Q
     }, error);
 }
 
+bool BackupRunStore::finishIncrementalCleanup(const QString &setId, const QString &remoteSetRoot, QString *error)
+{
+    return update([&](BackupRunStore &fresh, QString *) {
+        auto *record = fresh.find(setId);
+        if (record && record->incremental.value("snapshot_path").toString().startsWith(remoteSetRoot + "/snapshots/")) {
+            record->incremental["cleanup_needs_attention"] = false;
+            record->incremental.remove("cleanup_proposal");
+            record->incremental.remove("cleanup_confirmation");
+        }
+        return true;
+    }, error);
+}
+
+bool BackupRunStore::finishIntegrityCheck(const QString &setId, const QString &remoteSetRoot, const QJsonObject &report, QString *error)
+{
+    return update([&](BackupRunStore &fresh, QString *) {
+        auto *record = fresh.find(setId);
+        if (record && record->incremental.value("snapshot_path").toString().startsWith(remoteSetRoot + "/snapshots/")) {
+            record->incremental["integrity"] = report;
+            record->incremental["affected_snapshots"] = report.value("affected_snapshots");
+            record->incremental["damaged_objects"] = report.value("damaged_objects");
+            if (report.value("cleanup_blocked").toBool(true)) record->incremental["cleanup_needs_attention"] = true;
+        }
+        return true;
+    }, error);
+}
+
 bool BackupRunStore::completeAttempt(const BackupRunRecord &attempt, bool succeeded,
     const QString &failure, const QDateTime &now, QString *error)
 {
@@ -439,8 +470,15 @@ bool BackupRunStore::completeAttempt(const BackupRunRecord &attempt, bool succee
         record->progressElapsedMs = attempt.progressElapsedMs;
         record->progressUpdatedAt = attempt.progressUpdatedAt;
         record->result = attempt.result;
+        record->incremental = attempt.incremental;
         const QString message = failure.toLower();
-        if (!record->controlRequest.isEmpty()) {
+        if (succeeded && (attempt.incremental.value("outcome") == "saved" || attempt.incremental.value("outcome") == "unchanged") && attempt.result.manifestVerified) {
+            // Publication wins late pause/cancel; the snapshot is durable and
+            // this must not leave a completed operation marked resumable.
+            fresh.markSuccess(*record, now);
+            record->unfinished = false;
+            record->controlRequest.clear();
+        } else if (!record->controlRequest.isEmpty()) {
             fresh.applyControl(*record, record->controlRequest);
         } else if (succeeded) {
             fresh.markSuccess(*record, now);
@@ -459,6 +497,8 @@ bool BackupRunStore::completeAttempt(const BackupRunRecord &attempt, bool succee
             fresh.markFailed(*record, failure, now);
             record->unfinished = false;
         }
+        if (succeeded && !attempt.incremental.value("snapshot_path").toString().isEmpty())
+            record->remoteCopyPath = attempt.incremental.value("snapshot_path").toString();
         return true;
     }, error);
 }
@@ -470,8 +510,11 @@ void BackupRunStore::applyControl(BackupRunRecord &record, const QString &action
     record.status = cancelled ? QStringLiteral("cancelled") : QStringLiteral("paused");
     record.nextAttempt = {};
     if (cancelled) {
+        QString root, setId, snapshot;
+        const bool shared = IncrementalRestore::snapshotLocation(record.remoteCopyPath, &root, &setId, &snapshot);
         record.lastError = ownsCopy
-            ? QStringLiteral("Cancelled partial copy: %1. Delete it explicitly in Proton Drive when no longer needed.").arg(record.remoteCopyPath)
+            ? shared ? QStringLiteral("Cancelled incremental operation: %1. Shared objects require reference-aware cleanup after reconciliation; do not delete them manually.").arg(record.remoteCopyPath)
+                : QStringLiteral("Cancelled partial copy: %1. Delete it explicitly in Proton Drive when no longer needed.").arg(record.remoteCopyPath)
             : QStringLiteral("Cancelled. The next requested or scheduled backup will start a new copy.");
         if (ownsCopy && !record.cancelledCopies.contains(record.remoteCopyPath)) record.cancelledCopies.append(record.remoteCopyPath);
         record.unfinished = false;

@@ -20,6 +20,7 @@ struct RemoteCopy {
     QVector<BackupEntry> entries;
     QStringList unavailableItems;
     QStringList failedItems;
+    int manifestVersion = 0;
 
     bool complete() const
     {
@@ -30,7 +31,8 @@ struct RemoteCopy {
 class BackupCatalog final
 {
 public:
-    static bool discover(BackupProvider &provider, const QString &remoteRoot, QVector<RemoteCopy> *copies, QString *error = nullptr);
+    static bool discover(BackupProvider &provider, const QString &remoteRoot, QVector<RemoteCopy> *copies, QString *error = nullptr,
+        const std::function<bool()> &cancelled = {});
     static bool listCopies(BackupProvider &provider, const QString &backupFolder, QVector<RemoteCopy> *copies, QString *error = nullptr);
     static bool discoverCopies(BackupProvider &provider, const QString &backupFolder, const QString &expectedSetId,
         QVector<RemoteCopy> *copies, QString *error = nullptr);

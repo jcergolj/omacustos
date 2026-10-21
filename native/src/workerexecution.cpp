@@ -10,6 +10,8 @@
 #include "protonfolderlink.h"
 #include "qprocessrunner.h"
 #include "workerexecution.h"
+#include "incrementalworker.h"
+#include "incrementalrestore.h"
 
 #include <QDebug>
 #include <QCryptographicHash>
@@ -194,13 +196,18 @@ int runBackupWorker(const QString &configuredPath, BackupPrerequisiteProbe &prer
         QString manifestPath;
         const QString computerName = QSysInfo::machineHostName();
         const QString copy = copyId();
-        const QString proposedRoot = QDir(setIterator->remoteFolder(computerName)).filePath(copy);
+        const bool newDefault = qEnvironmentVariable("OMACUSTOS_INTERNAL_LEGACY_WORKER") != "1";
+        const QString proposedRoot = newDefault
+            ? IncrementalWorker::root(*setIterator) + "/snapshots/" + QUuid::createUuid().toString(QUuid::WithoutBraces)
+            : QDir(setIterator->remoteFolder(computerName)).filePath(copy);
         BackupRunRecord record;
         if (!runStore.beginAttempt(setId, proposedRoot, &record, &error)) {
             qCritical().noquote() << error;
             return 1;
         }
         const QString copyRoot = record.remoteCopyPath;
+        QString sharedRoot, sharedSetId, snapshotId;
+        const bool incremental = IncrementalRestore::snapshotLocation(copyRoot, &sharedRoot, &sharedSetId, &snapshotId);
         error.clear();
         const BackupCopyMetadata metadata {
             computerName,
@@ -257,7 +264,97 @@ int runBackupWorker(const QString &configuredPath, BackupPrerequisiteProbe &prer
         options.retainLocalManifest = false;
         options.stagingReady = [&](const QString &root, QString *error) { return runStore.rememberStagingRoot(record, root, error); };
         bool succeeded;
-        {
+        if (!incremental && setIterator->readOnly) {
+            succeeded = false;
+            record.result.reported = record.result.interrupted = true;
+            error = QStringLiteral("This copied, imported or unbound configuration is read-only. Explicit offline writer enrollment/takeover is required before resuming historical work.");
+        } else if (incremental) {
+            IncrementalWriteRequest request;
+            succeeded = false;
+            record.result.reported = true;
+            if (sharedRoot != IncrementalWorker::root(*setIterator)) {
+                error = QStringLiteral("The unfinished incremental run belongs to another remote set. Resume it with its original configuration.");
+                record.result.interrupted = true;
+            } else if (!IncrementalWorker::request(*setIterator, stateDirectory, snapshotId, provider, &request, &error, true,
+                [&](const QString &root, QString *error) { return runStore.rememberStagingRoot(record, root, error); })) {
+                record.result.interrupted = true;
+            } else {
+                request.checkpoint = [&](const QString &) { return stopped() ? IncrementalControl::Pause : IncrementalControl::Continue; };
+                if (!IncrementalRepository::recoverCleanup(request, provider, &error)) record.result.interrupted = true;
+                request.checkpoint = {};
+                // Reconcile cancellations made while the worker was stopped,
+                // before beginning any replacement operation. No object deletion.
+                for (const auto &cancelled : record.cancelledCopies) {
+                    if (!error.isEmpty()) break;
+                    QString oldRoot, oldSet, oldSnapshot;
+                    if (!IncrementalRestore::snapshotLocation(cancelled, &oldRoot, &oldSet, &oldSnapshot) || oldRoot != sharedRoot) continue;
+                    auto old = request;
+                    old.operationId = old.snapshotId = oldSnapshot;
+                    old.retention = 0;
+                    runner.setStopRequested({});
+                    const auto reconciled = IncrementalWorker::run(*setIterator, old, provider,
+                        [](const QString &) { return IncrementalControl::Cancel; });
+                    if (!reconciled.success() && reconciled.state != IncrementalWriteResult::State::Cancelled) {
+                        error = QStringLiteral("Unable to reconcile the cancelled protected operation: ") + oldSnapshot;
+                        break;
+                    }
+                }
+                if (error.isEmpty()) {
+                    ProgressWriter progressWriter(runStore.filePath(), progressClock);
+                    IncrementalControl requested = IncrementalControl::Continue;
+                    const auto control = [&](const QString &phase) {
+                        if (requested == IncrementalControl::Continue && stopped()) {
+                            BackupRunStore controls(runStore.filePath());
+                            QString controlError;
+                            if (controls.load(&controlError)) {
+                                const auto *current = controls.find(setId);
+                                requested = current && current->controlRequest == "cancel"
+                                    ? IncrementalControl::Cancel : IncrementalControl::Pause;
+                            } else requested = IncrementalControl::Pause;
+                            // Once stopping, allow the repository to persist its
+                            // cancellation/reconciliation records after a killed transfer.
+                            runner.setStopRequested({});
+                        }
+                        record.progress.phase = phase;
+                        record.progressElapsedMs = progressClock.elapsed();
+                        record.progressUpdatedAt = QDateTime::currentDateTimeUtc();
+                        progressWriter.update(record, record.progress);
+                        return requested;
+                    };
+                    runner.setStopRequested(stopped);
+                    const auto capacityWarning = [&](const QString &message) {
+                        record.incremental["capacity_warning"] = message;
+                        qInfo().noquote() << setIterator->name << message;
+                        progressWriter.update(record, record.progress);
+                    };
+                    auto outcome = IncrementalWorker::run(*setIterator, request, provider, control, capacityWarning, configPath);
+                    if (requested == IncrementalControl::Cancel && !outcome.success()
+                        && outcome.state != IncrementalWriteResult::State::Cancelled)
+                        outcome = IncrementalWorker::run(*setIterator, request, provider, control, capacityWarning, configPath);
+                    if (!outcome.capacityWarning.isEmpty()) record.incremental["capacity_warning"] = outcome.capacityWarning;
+                    succeeded = outcome.success();
+                    record.result.manifestVerified = succeeded;
+                    record.result.verifiedFiles = outcome.savedFiles;
+                    record.result.verifiedBytes = outcome.savedBytes;
+                    record.result.issues = outcome.issues;
+                    record.result.waitingForSpace = outcome.state == IncrementalWriteResult::State::Waiting;
+                    record.result.interrupted = !succeeded && outcome.state != IncrementalWriteResult::State::Cancelled;
+                    record.incremental["outcome"] = outcome.state == IncrementalWriteResult::State::Saved ? "saved"
+                        : outcome.state == IncrementalWriteResult::State::Unchanged ? "unchanged" : "unfinished";
+                    if (!outcome.latestSnapshotPath.isEmpty()) record.incremental["snapshot_path"] = outcome.latestSnapshotPath;
+                    if (outcome.lastSuccessfulCheck.isValid()) record.incremental["last_successful_check"] = outcome.lastSuccessfulCheck.toString(Qt::ISODateWithMs);
+                    if (outcome.lastSavedChange.isValid()) record.incremental["last_saved_change"] = outcome.lastSavedChange.toString(Qt::ISODateWithMs);
+                    record.incremental["cleanup_needs_attention"] = outcome.cleanupNeedsAttention;
+                    record.incremental["integrity"] = outcome.integrity;
+                    record.incremental["affected_snapshots"] = QJsonArray::fromStringList(outcome.affectedSnapshots);
+                    record.incremental["damaged_objects"] = QJsonArray::fromStringList(outcome.damagedObjects);
+                    record.incremental["cleanup_proposal"] = outcome.cleanupProposal;
+                    record.incremental["cleanup_confirmation"] = outcome.cleanupConfirmation;
+                    manifestPath = outcome.manifestPath;
+                    if (!succeeded) for (const auto &issue : outcome.issues) error += issue.reason + ' ';
+                }
+            }
+        } else {
             ProgressWriter progressWriter(runStore.filePath(), progressClock);
             const auto reportProgress = [&](const BackupProgress &progress) {
                 record.progress = progress;
@@ -269,7 +366,14 @@ int runBackupWorker(const QString &configuredPath, BackupPrerequisiteProbe &prer
                 metadata, provider, &manifestPath, &error, reportProgress, &record.result, options);
         }
         runner.setStopRequested({});
-        if (stopped()) succeeded = false;
+        if (!incremental && stopped()) succeeded = false;
+        if (!incremental && succeeded) {
+            record.incremental = {{"outcome", "legacy-saved"}, {"snapshot_path", copyRoot},
+                {"cleanup_needs_attention", true}};
+            // Resume the durable format, not its old deletion authorization.
+            // Retention is deferred until a fresh baseline permits an exact
+            // mixed-format proposal; no legacy history is deleted here.
+        }
         if (succeeded) {
             record.progressElapsedMs = progressClock.elapsed();
             qInfo().noquote() << setIterator->name << manifestPath;
@@ -277,7 +381,7 @@ int runBackupWorker(const QString &configuredPath, BackupPrerequisiteProbe &prer
             qCritical().noquote() << setIterator->name << error << manifestPath;
         }
 
-        if (record.result.manifestVerified) {
+        if (!incremental && record.result.manifestVerified) {
             // Prepare navigation while this copy is being finalized. Link
             // lookup/cache failures must not change the backup's result.
             ProtonFolderLink::resolve(runner, copyRoot, ProtonFolderLink::cachePath(configPath));
@@ -292,20 +396,8 @@ int runBackupWorker(const QString &configuredPath, BackupPrerequisiteProbe &prer
         // A final manifest is the durable outcome; checkpoints for terminal work
         // are no longer needed. Interrupted/paused work keeps its journal.
         const auto *completed = runStore.find(setId);
-        if (completed && completed->status == QStringLiteral("success") && completed->result.manifestVerified) {
-            // Commit success under the same lock as control decisions before
-            // retention. A late pause/cancel can never authorize old-copy deletion.
-            QVector<RemoteCopy> copies;
-            QString catalogError;
-            const QString copyParent = QFileInfo(copyRoot).path();
-            if (BackupCatalog::discoverCopies(provider, copyParent, setIterator->id, &copies, &catalogError)) {
-                const QStringList targets = BackupCleanup::eligibleTargets(copies, setIterator->retention, computerName, setIterator->id);
-                if (!BackupCleanup::run(provider, cleanupStore, setIterator->id, targets, copyParent, &catalogError))
-                    qCritical().noquote() << setIterator->name << QStringLiteral("Cleanup failed:") << catalogError;
-            } else qCritical().noquote() << setIterator->name << QStringLiteral("Cleanup preview unavailable:") << catalogError;
-        }
-        if (completed && !completed->unfinished) QDir(options.continuationDirectory).removeRecursively();
-        if (!manifestPath.isEmpty()) QDir(QFileInfo(manifestPath).absolutePath()).removeRecursively();
+        if (!incremental && completed && !completed->unfinished) QDir(options.continuationDirectory).removeRecursively();
+        if (!incremental && !manifestPath.isEmpty()) QDir(QFileInfo(manifestPath).absolutePath()).removeRecursively();
     }
 
     return 0;

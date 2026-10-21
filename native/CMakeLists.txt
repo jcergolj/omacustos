@@ -23,6 +23,7 @@ add_library(omacustos-core STATIC
     src/incrementalmanifest.cpp
     src/incrementalplanner.cpp
     src/incrementalrepository.cpp
+    src/incrementalworker.cpp
     src/incrementalrestore.cpp
     src/backupcatalog.cpp
     src/payloadmetadatapolicy.h
@@ -53,6 +54,7 @@ add_library(omacustos-controllers STATIC
     src/backupscheduler.cpp
     src/protonfolderbrowser.cpp
     src/recentbackupcopies.cpp
+    src/incrementalmaintenance.cpp
     src/protonauthcontroller.cpp
     src/resourceusage.cpp
 )
@@ -79,7 +81,7 @@ target_link_libraries(omacustos PRIVATE
 qt_add_executable(omacustos-worker src/worker_main.cpp)
 target_link_libraries(omacustos-worker PRIVATE omacustos-core)
 
-# Explicit advanced-user seam; normal worker/default rollout is unchanged.
+# Advanced direct-request interface; the normal worker uses the same executor.
 qt_add_executable(omacustos-incremental src/incremental_main.cpp)
 target_link_libraries(omacustos-incremental PRIVATE omacustos-core)
 
@@ -150,6 +152,8 @@ set_tests_properties(dashboard-test PROPERTIES
 )
 
 omacustos_add_test(backupengine-test tests/backupengine_test.cpp omacustos-core)
+omacustos_add_test(scanerrors-test tests/scanerrors_test.cpp omacustos-core)
+target_link_libraries(scanerrors-test PRIVATE dl)
 omacustos_add_test(protonprovider-test tests/protonprovider_test.cpp omacustos-core)
 
 omacustos_add_test(protonclifixture-test tests/protonclifixture_test.cpp omacustos-core)
@@ -164,15 +168,35 @@ omacustos_add_test(localstate-store-test tests/localstate_store_test.cpp omacust
 target_compile_definitions(reliability-test PRIVATE OMACUSTOS_WORKER_BINARY="$<TARGET_FILE:omacustos-worker>")
 add_dependencies(reliability-test omacustos-worker)
 
-omacustos_add_test(workerrecovery-test tests/workerrecovery_test.cpp omacustos-controllers)
+qt_add_executable(workerrecovery-test tests/workerrecovery_test.cpp)
+target_link_libraries(workerrecovery-test PRIVATE omacustos-controllers Qt6::Test)
+# Split the existing data-heavy suite instead of increasing its hang timeout or
+# dropping cases. Every test function remains registered exactly once.
+add_test(NAME workerrecovery-test COMMAND workerrecovery-test
+    workerAppliesIncludeOnlyRules archiveRolloutDefaults recoveryPreservesTheLogicalRun
+    terminatedWorkerRecovers boundedBatches rescanReusesUnchangedAndReconcilesEdits
+    controlsStopTransfersAndSurviveScheduler storageWaitingPreservesCheckpoint
+    stagingRecoveryProtectsActiveAndUnrelatedData stagingRejectsUnsafeLocations
+    uncheckpointedUploadsAndRemoteDamageAreReconciled namespaceChangesRemainRestorable
+    prerequisiteWaitingCanBeCancelledWithoutTouchingHistoricalCopies
+    sourceFailuresFinalizeIncompleteAndProtectSuccessfulCopies archiveSourceFailuresWithoutSurvivors)
+add_test(NAME workerarchive-test COMMAND workerrecovery-test
+    singleArchiveRoundTrip singleArchiveRejectsDamage singleArchivePreparationRace
+    singleArchiveStorageFailure singleArchiveVerificationFailure boundedArchivesRoundTrip
+    boundedArchivesStorageWaiting archiveInterruptionRecovery archiveReuseStorageWaiting archiveReconciliation)
 add_library(staging-quota-fixture SHARED tests/staging_quota_fixture.cpp)
 target_link_libraries(staging-quota-fixture PRIVATE dl)
+add_library(staging-observer SHARED tests/staging_observer.cpp)
+target_link_libraries(staging-observer PRIVATE dl)
+omacustos_add_test(stagingobserver-test tests/stagingobserver_test.cpp omacustos-core)
+target_link_libraries(stagingobserver-test PRIVATE staging-observer)
+set_tests_properties(stagingobserver-test PROPERTIES TIMEOUT 30 ENVIRONMENT "LD_PRELOAD=$<TARGET_FILE:staging-observer>")
 target_compile_definitions(workerrecovery-test PRIVATE
     OMACUSTOS_WORKER_BINARY="$<TARGET_FILE:omacustos-worker>"
     OMACUSTOS_CONTINUATION_CLI="${CMAKE_CURRENT_SOURCE_DIR}/tests/continuation_cli.py"
     OMACUSTOS_QUOTA_FIXTURE="$<TARGET_FILE:staging-quota-fixture>")
 add_dependencies(workerrecovery-test omacustos-worker staging-quota-fixture)
-set_tests_properties(workerrecovery-test PROPERTIES TIMEOUT 180)
+set_tests_properties(workerrecovery-test workerarchive-test PROPERTIES TIMEOUT 180)
 
 omacustos_add_test(backupconfig-test tests/backupconfig_test.cpp omacustos-core)
 omacustos_add_test(backupmanifest-test tests/backupmanifest_test.cpp omacustos-core)
@@ -181,6 +205,34 @@ omacustos_add_test(incrementalrestore-test tests/incrementalrestore_test.cpp oma
 target_compile_definitions(incrementalmanifest-test PRIVATE OMACUSTOS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 omacustos_add_test(incrementalplanner-test tests/incrementalplanner_test.cpp omacustos-core)
 omacustos_add_test(incrementalrepository-test tests/incrementalrepository_test.cpp omacustos-core)
+qt_add_executable(incrementalworker-test tests/incrementalworker_test.cpp)
+target_link_libraries(incrementalworker-test PRIVATE omacustos-controllers Qt6::Test)
+add_test(NAME incrementalworker-test COMMAND incrementalworker-test
+    baselineUnchangedEditAndRestore incompleteScanDoesNotPublish
+    skippedLinksAndSpecialNodesDoNotInvalidateRegularFiles copiedImportedAndLostStateRequireTakeover
+    copiedAndUnboundConfigurationIsReadOnly explicitEnrollmentOfVerifiedEmptySet
+    configurationSourcesDoNotCaptureTheirOwnCoordinationState
+    deferredCleanupDoesNotBlockScheduledWrites authorizedCleanupRecoversWithoutExpandingScope
+    mixedFormatUpgradeAndExactRetention)
+add_test(NAME incrementalworker-process-test COMMAND incrementalworker-test
+    normalWorkerUsesIncrementalByDefault workerPauseCancelAndResume
+    publishedManifestSurvivesLostResponseAndChangedSources defaultWorkerResumesLegacyBeforeFreshBaseline)
+add_test(NAME incrementalworker-failures-test COMMAND incrementalworker-test
+    workerUploadFailureCannotPublish workerRejectsUnreadableRetainedManifest sourceMutationDuringCaptureCannotPublish)
+add_test(NAME incrementalworker-integrity-test COMMAND incrementalworker-test
+    missingAndSameSizeCorruptionThroughWorker)
+add_test(NAME incrementalownership-test COMMAND incrementalworker-test
+    settingsLossAndCopiedConfigurationNeedControllerTakeover)
+add_test(NAME incrementalmaintenance-test COMMAND incrementalworker-test
+    cleanupControllerRequiresConfirmationAndRestoresRetainedState)
+add_test(NAME incrementalcleanup-recovery-test COMMAND incrementalworker-test
+    protectedWriterAndInterruptedAuthorizedControllerCleanupRecover)
+target_compile_definitions(incrementalworker-test PRIVATE
+    OMACUSTOS_WORKER_BINARY="$<TARGET_FILE:omacustos-worker>"
+    OMACUSTOS_QUOTA_FIXTURE="$<TARGET_FILE:staging-quota-fixture>"
+    OMACUSTOS_CONTINUATION_CLI="${CMAKE_CURRENT_SOURCE_DIR}/tests/continuation_cli.py")
+add_dependencies(incrementalworker-test omacustos-worker staging-quota-fixture)
+set_tests_properties(incrementalworker-test incrementalworker-process-test incrementalworker-failures-test incrementalworker-integrity-test incrementalownership-test incrementalmaintenance-test incrementalcleanup-recovery-test PROPERTIES TIMEOUT 180)
 omacustos_add_test(backuprestorecontroller-test tests/backuprestorecontroller_test.cpp omacustos-controllers)
 target_link_libraries(backuprestorecontroller-test PRIVATE Qt6::Qml)
 omacustos_add_test(retention-discovery-test tests/retention_discovery_test.cpp omacustos-controllers)
@@ -192,6 +244,20 @@ target_compile_definitions(responsiveness-benchmark PRIVATE OMACUSTOS_SOURCE_DIR
 
 qt_add_executable(manifest-benchmark tests/manifest_benchmark.cpp)
 target_link_libraries(manifest-benchmark PRIVATE omacustos-core)
+
+# Local-only sizing evidence; a tiny correctness smoke run is not a timing gate.
+qt_add_executable(incremental-benchmark tests/incremental_benchmark.cpp)
+target_link_libraries(incremental-benchmark PRIVATE omacustos-core dl)
+target_compile_definitions(incremental-benchmark PRIVATE OMACUSTOS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/..")
+add_test(NAME incremental-benchmark-smoke COMMAND incremental-benchmark 262144 8 65536 documents-code)
+add_test(NAME incremental-benchmark-mixed-smoke COMMAND incremental-benchmark 262144 8 65536 mixed)
+add_test(NAME incremental-benchmark-observer-smoke COMMAND incremental-benchmark 262144 8 65536 production-mixed)
+set_tests_properties(incremental-benchmark-observer-smoke PROPERTIES
+    TIMEOUT 60 WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    ENVIRONMENT "LD_PRELOAD=$<TARGET_FILE:staging-observer>;OMACUSTOS_REQUIRE_STAGING_OBSERVER=1")
+set_tests_properties(incremental-benchmark-smoke incremental-benchmark-mixed-smoke PROPERTIES
+    TIMEOUT 60
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 
 qt_add_executable(largebackup-benchmark tests/largebackup_benchmark.cpp tests/archivebenchmark.cpp)
 target_link_libraries(largebackup-benchmark PRIVATE omacustos-core)

@@ -30,12 +30,12 @@ QString stateName(IncrementalWriteResult::State state)
 }
 }
 
-// Explicit development/advanced-user entry point, not the default backup worker.
+// Advanced direct-request entry point; normal workers use the same v4 executor.
 int main(int argc, char **argv)
 {
     QCoreApplication application(argc, argv);
     QCommandLineParser parser;
-    parser.setApplicationDescription("Incremental shared-archive executor. Requires one writer and manual offline ownership handoff. Exact-scope retention is opt-in; default-worker rollout is not enabled.");
+    parser.setApplicationDescription("Advanced incremental shared-archive executor. Normal workers also use incremental storage. Requires one writer and manual offline ownership handoff; deletion requires exact-proposal confirmation.");
     parser.addHelpOption();
     parser.addOption({"request", "JSON request containing stable identities, selected file mappings and staging limits.", "path"});
     parser.addOption({"proton-binary", "Proton Drive CLI executable.", "path", "proton-drive"});

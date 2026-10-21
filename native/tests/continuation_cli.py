@@ -30,6 +30,15 @@ def metadata(path):
     return result
 
 
+def exact_metadata(path):
+    result = {"type": "folder"} if path.is_dir() else metadata(path)
+    result.update({"uid": f"node-{path.stat().st_ino}",
+                   "parentUid": f"node-{path.parent.stat().st_ino}",
+                   "name": path.name,
+                   "path": "/" + str(path.relative_to(root))})
+    return result
+
+
 def block_archive(path, phase):
     if (path.name.endswith(".tar.gz")
             and os.environ.get("FIXTURE_BLOCK_ARCHIVE_PHASE") == phase
@@ -82,14 +91,19 @@ try:
             Path(deleted_source).unlink(missing_ok=True)
         values = []
         for path in folder.iterdir():
-            values.append({"name": path.name, **({"type": "folder"} if path.is_dir() else metadata(path))})
+            values.append(exact_metadata(path) if os.environ.get("FIXTURE_EXACT_IDENTITY")
+                          else {"name": path.name, **({"type": "folder"} if path.is_dir() else metadata(path))})
         print(json.dumps(values))
     elif command == "info":
         path = remote(args[-1])
-        if not path.is_file():
+        if os.environ.get("FIXTURE_EXACT_IDENTITY") and path.exists():
+            block_archive(path, "verification")
+            print(json.dumps(exact_metadata(path)))
+        elif not path.is_file():
             raise RuntimeError("Node not found")
-        block_archive(path, "verification")
-        print(json.dumps(metadata(path)))
+        else:
+            block_archive(path, "verification")
+            print(json.dumps(metadata(path)))
     elif command == "upload":
         source = Path(args[-2])
         if source.is_dir():
@@ -106,7 +120,22 @@ try:
                 destination.write(chunk)
         print("{}")
     elif command in ("trash", "delete"):
-        raise RuntimeError("Cleanup must not be invoked by these integration fixtures")
+        if not os.environ.get("FIXTURE_EXACT_IDENTITY"):
+            raise RuntimeError("Cleanup must not be invoked by historical integration fixtures")
+        path = remote(args[-1])
+        uid = exact_metadata(path)["uid"]
+        if command == "trash":
+            trash = root / "trash"
+            trash.mkdir(exist_ok=True)
+            destination = trash / path.name
+            if destination.exists():
+                raise RuntimeError("Ambiguous trash name")
+            path.rename(destination)
+        elif path.is_dir():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+        print(json.dumps([{"uid": uid, "ok": True}]))
     else:
         raise RuntimeError("Unsupported fixture command")
 except Exception as error:

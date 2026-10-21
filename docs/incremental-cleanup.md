@@ -1,5 +1,8 @@
 # Reference-aware retention (#60)
 
+> Historical component delivery record. Normal worker/UI integration now requires
+> individual exact-proposal confirmation; see [the #62 report](incremental-default-rollout.md).
+
 The advanced incremental executor supports opt-in cleanup. The normal worker is
 still not switched to v4. All operations use the approved manual-offline,
 single-owning-computer model, the shared state directory's non-expiring set UUID

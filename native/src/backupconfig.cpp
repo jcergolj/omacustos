@@ -7,6 +7,8 @@
 #include <QJsonObject>
 #include <QSaveFile>
 #include <QSet>
+#include <QCryptographicHash>
+#include <QSysInfo>
 
 #include <algorithm>
 #include <cmath>
@@ -157,6 +159,14 @@ BackupConfigStore::BackupConfigStore(QString path)
 {
 }
 
+QString BackupConfigStore::installationBinding(const QString &stateDirectory)
+{
+    const auto machine = QSysInfo::machineUniqueId();
+    if (machine.isEmpty()) return {};
+    return QString::fromLatin1(QCryptographicHash::hash(machine + '\0'
+        + QDir::cleanPath(QFileInfo(stateDirectory).absoluteFilePath()).toUtf8(), QCryptographicHash::Sha256).toHex());
+}
+
 QString BackupConfigStore::filePath() const
 {
     return path;
@@ -269,6 +279,13 @@ bool BackupConfigStore::loadFile(BackupConfig *config, bool setsOnly, QString *e
             set.schedule.dayOfMonth = schedule.value(QStringLiteral("day_of_month")).toInt(1);
             set.retention = qMax(1, setObject.value(QStringLiteral("retention")).toInt(3));
             set.onlyOnAcPower = setObject.value(QStringLiteral("only_on_ac_power")).toBool(false);
+            const auto binding = installationBinding(QFileInfo(path).absolutePath());
+            if (setObject.contains("read_only") && !setObject.value("read_only").isBool()) {
+                if (error) *error = QStringLiteral("The writer read-only setting must be a boolean.");
+                return false;
+            }
+            set.readOnly = setsOnly || binding.isEmpty() || object.value("installation_binding") != binding
+                || setObject.value("read_only").toBool(false);
             set.stagingDirectory = setObject.value(QStringLiteral("staging_directory")).toString();
             const auto budget = setObject.value(QStringLiteral("staging_budget_bytes"));
             set.stagingBudget = budget.isUndefined() ? 1000 * 1000 * 1000 : budget.toInteger(-1);
@@ -318,6 +335,7 @@ bool BackupConfigStore::loadFile(BackupConfig *config, bool setsOnly, QString *e
             {},
         },
     };
+    config->sets[0].readOnly = true; // Unbound legacy settings need explicit owner enrollment, not silent adoption.
 
     return true;
 }
@@ -348,6 +366,7 @@ bool BackupConfigStore::saveFile(const BackupConfig &config, bool setsOnly, QStr
         object.insert(QStringLiteral("version"), 1);
     } else {
         object.insert(QStringLiteral("proton_binary"), config.protonBinary);
+        object.insert(QStringLiteral("installation_binding"), installationBinding(QFileInfo(path).absolutePath()));
     }
 
     QJsonArray sets;
@@ -401,6 +420,7 @@ bool BackupConfigStore::saveFile(const BackupConfig &config, bool setsOnly, QStr
             {QStringLiteral("only_on_ac_power"), set.onlyOnAcPower},
             {QStringLiteral("staging_directory"), set.stagingDirectory},
             {QStringLiteral("staging_budget_bytes"), set.stagingBudget},
+            {QStringLiteral("read_only"), setsOnly || set.readOnly},
         });
     }
     object.insert(QStringLiteral("sets"), sets);

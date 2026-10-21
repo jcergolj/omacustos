@@ -1,11 +1,14 @@
 #include "backuprestorecontroller.h"
 
 #include "backupmanifest.h"
+#include "incrementalworker.h"
+#include "incrementalrestore.h"
 
 #include <QDir>
 #include <QDateTime>
 #include <QElapsedTimer>
 #include <QtConcurrentRun>
+#include <algorithm>
 
 namespace {
 QVariantMap requiredDownload(const QVector<BackupEntry> &entries)
@@ -78,7 +81,7 @@ BackupRestoreController::BackupRestoreController(BackupEngine &engine, BackupPro
             }
         }
         loading = false;
-        refreshError = result.success ? QString() : result.error;
+        refreshError = result.error;
         emit copiesChanged();
         emit currentCopyIndexChanged();
         publishEntries();
@@ -91,7 +94,8 @@ BackupRestoreController::BackupRestoreController(BackupEngine &engine, BackupPro
             }
             emit failed(result.error);
         } else if (activeBrowse.listing) {
-            emit statusChanged(QStringLiteral("%1 backup copies found. Select one to load and verify its files.").arg(remoteCopies.size()));
+            emit statusChanged(QStringLiteral("%1 backup copies found. Select one to load and verify its files.").arg(remoteCopies.size())
+                + (result.error.isEmpty() ? QString() : " " + result.error));
         } else {
             const QString status = QStringLiteral("%1 verified files available; %2 unavailable or failed.")
                 .arg(manifestEntries.size()).arg(unavailableEntries().size());
@@ -311,7 +315,7 @@ void BackupRestoreController::loadManifest(const QString &path)
     emit statusChanged(QStringLiteral("%1 files available for restore.").arg(manifestEntries.size()));
 }
 
-void BackupRestoreController::discover(const QString &backupFolder, const QString &setId)
+void BackupRestoreController::discover(const QString &backupFolder, const QString &setId, bool history, const QString &legacyName)
 {
     if (restoring) return;
     if (provider == nullptr) {
@@ -321,6 +325,8 @@ void BackupRestoreController::discover(const QString &backupFolder, const QStrin
 
     if (browseCancelled) browseCancelled->store(true);
     const bool sameContext = activeBackupFolder == backupFolder && expectedSetId == setId;
+    historyContext = history || (sameContext && historyContext);
+    historyLegacyName = legacyName.isEmpty() && sameContext ? historyLegacyName : legacyName;
     if (!sameContext) {
         if (!activeBackupFolder.isEmpty()) {
             snapshots.insert(activeBackupFolder + QChar(0) + expectedSetId,
@@ -343,6 +349,8 @@ void BackupRestoreController::discover(const QString &backupFolder, const QStrin
     loading = true;
     refreshError.clear();
     pendingBrowse = {++browseGeneration, true, backupFolder, setId, {}, currentCopyPath()};
+    pendingBrowse.history = historyContext;
+    pendingBrowse.legacyName = historyLegacyName;
     emit busyChanged();
     emit copiesChanged();
     emit currentCopyIndexChanged();
@@ -399,9 +407,21 @@ void BackupRestoreController::startBrowse()
         BrowseResult result;
         if (cancelled->load()) return result;
         if (request.listing) {
-            result.success = BackupCatalog::listCopies(*workerProvider, request.folder, &result.copies, &result.error);
+            if (request.history) {
+                result.success = BackupCatalog::discover(*workerProvider, request.folder, &result.copies, &result.error, [cancelled] { return cancelled->load(); });
+                BackupSet identity; identity.id = request.setId;
+                const auto sharedId = IncrementalWorker::setId(identity);
+                result.copies.erase(std::remove_if(result.copies.begin(), result.copies.end(), [&](const auto &copy) {
+                    return !request.setId.isEmpty() && copy.setId != request.setId && copy.setId != sharedId
+                        && !(copy.manifestVersion == 1 && !request.legacyName.isEmpty() && copy.setName == request.legacyName);
+                }), result.copies.end());
+            } else result.success = BackupCatalog::listCopies(*workerProvider, request.folder, &result.copies, &result.error);
         } else {
-            result.success = BackupCatalog::verifyCopy(*workerProvider, request.copyPath, request.setId,
+            QString setRoot, setId, snapshot;
+            BackupSet identity; identity.id = request.setId;
+            const auto expectedId = !request.setId.isEmpty() && IncrementalRestore::snapshotLocation(request.copyPath, &setRoot, &setId, &snapshot)
+                ? IncrementalWorker::setId(identity) : request.setId;
+            result.success = BackupCatalog::verifyCopy(*workerProvider, request.copyPath, expectedId,
                 &result.copy, &result.error, [cancelled] { return cancelled->load(); });
         }
         return result;

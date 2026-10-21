@@ -4,6 +4,8 @@
 #include "backupecleanup.h"
 #include "backupmanifest.h"
 #include "backuprunstore.h"
+#include "incrementalworker.h"
+#include "incrementalrestore.h"
 
 #include <QDir>
 #include <QFileInfo>
@@ -18,6 +20,11 @@ RecentCopyTarget inspectCopy(BackupProvider &provider, const BackupSet &set, con
     const QString &path)
 {
     RecentCopyTarget target {set.id, set.name, path, {}, {}, {}};
+    QString sharedRoot, sharedId, snapshot;
+    if (IncrementalRestore::snapshotLocation(path, &sharedRoot, &sharedId, &snapshot)) {
+        target.error = QStringLiteral("Shared snapshots must be removed through Review incremental cleanup, never by whole-copy deletion.");
+        return target;
+    }
     const QString root = QDir::cleanPath(set.remoteFolder(computer));
     if (QDir::cleanPath(path) != path || QFileInfo(path).path() != root) {
         target.error = QStringLiteral("The backup copy is outside its configured folder.");
@@ -121,8 +128,11 @@ RecentCopyTarget resolveCopy(BackupProvider &provider, const QString &configPath
             // checked for deletion and restore, not for opening the web app.
             result.name = set->name;
             result.path = record->remoteCopyPath;
+            QString sharedRoot, sharedId, snapshot;
+            const bool shared = IncrementalRestore::snapshotLocation(result.path, &sharedRoot, &sharedId, &snapshot)
+                && sharedRoot == IncrementalWorker::root(*set);
             if (QDir::cleanPath(result.path) != result.path
-                || QFileInfo(result.path).path() != QDir::cleanPath(set->remoteFolder(computer))) {
+                || (!shared && QFileInfo(result.path).path() != QDir::cleanPath(set->remoteFolder(computer)))) {
                 result.error = QStringLiteral("The backup copy is outside its configured folder.");
             }
             return result;

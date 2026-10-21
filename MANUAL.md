@@ -127,7 +127,13 @@ of copies in Proton Drive. Deleting the latest copy keeps the set's card and acc
 to older copies. **⋯ → Open latest copy in Proton Drive** and **Delete latest copy**
 refer specifically to the most recently recorded copy.
 
-Results distinguish **Successful**, **Incomplete** (some verified files, with
+Incremental results distinguish **New saved state** from **Successful check; no
+saved change**. Run details show the last successful check, last saved change,
+integrity status, capacity warning, and affected damaged history. A successful
+daily reuse check is not a claim that every old archive was downloaded today.
+Shared snapshots use **Review incremental cleanup…**, not whole-copy deletion.
+
+Historical results additionally distinguish **Successful**, **Incomplete** (some verified files, with
 failures), and **Failed** (no verified restorable copy). Completed copies show the
 verified-file count and failed-item count. Press **View issues** or open
 **⋯ → View latest run details** for affected
@@ -156,13 +162,14 @@ may stay at its current step while being transferred.
 to keep, run only on AC power, or choose a **staging directory** and **staging
 budget in bytes**. The default budget is **1 GB (1000000000 bytes)**.
 Every fresh manual or scheduled run, including future runs of existing saved
-backups, creates bounded **tar.gz archives using gzip level 3**. There is no
+backups, uses whole-file incremental storage in immutable, bounded **tar.gz
+archives using gzip level 3**. There is no
 storage-format or compression-level setting. Selected source roots remain
 separate; small directories share archives rather than creating remote objects
 for every directory or file.
 
 The normal grouping target is approximately **1 GB of uncompressed contents**.
-Groups are smaller when necessary to fit immutable snapshots, compressed output,
+Groups are smaller when necessary to fit immutable snapshots, compressed output, a verification download,
 and tar/gzip overhead together within the staging budget. Preparation/compression,
 upload, verification, and saving verified progress finish for one archive before
 the next is prepared. The progress counts describe original source files and
@@ -183,12 +190,31 @@ or your disk quota is insufficient, the copy waits with completed
 work preserved. Free space or choose another staging disk, save the settings,
 then press **Resume**. Files are never silently omitted for being too large.
 
-Fresh daily runs still create **full copies**, including unchanged files.
-Changed-content/incremental backups and cross-copy deduplication are not provided.
-Existing version-1/version-2 individual-file copies remain browsable, restorable,
-deletable, and subject to retention without conversion or re-upload. An unfinished
-older attempt resumes its original format and exact copy namespace; a fresh run
-after success, Incomplete, failure, or cancellation uses archives.
+The first incremental run uploads a fresh baseline, without reusing payloads
+inside old private copy folders. Its capacity warning accounts for existing
+history plus selected uncompressed source bytes; compression and metadata change
+actual usage, so this is not a quota guarantee. History is never deleted to make
+room for an upload.
+
+Later runs reuse unchanged contents, including renames. An unchanged check creates
+no snapshot or retention slot. Edits retransmit the whole file, not changed blocks.
+Capture is file-by-file, not an atomic application/filesystem snapshot. Partly live
+archives retain obsolete members; they are not compacted. Daily existence/size
+checks may miss same-sized remote corruption until a full integrity check or
+restore. New uploads and restores still receive full verification.
+
+Existing v1/v2 individual-file and v3 archive copies remain browsable and
+restorable. An unfinished older attempt resumes its original format and exact
+namespace; its cleanup is deferred to a fresh baseline and exact mixed-format
+review. Settings from before ownership binding, imports, and copied settings are
+read-only until **Offline writer takeover…**. Confirm only after the previous
+writer's processes, schedules, retries and access are permanently disabled.
+This enrolls a verified-empty set or explicitly takes over existing ownership;
+it is not a server lease, and starts no backup itself.
+
+Private operation journals use disk-backed storage outside selected roots.
+Volatile application queues/locks and private coordination state are intentionally
+excluded and shown in Preview; the actual backup settings remain eligible.
 
 ### Pause, Resume, and Cancel
 
@@ -408,13 +434,15 @@ and authenticate `proton-drive` as the new machine's user. The current UI opens
 remote discovery through **Restore copies…** on a recorded backup; it does not yet have
 a standalone remote-root discovery action for a fresh installation.
 
-Advanced v4 shared-archive repositories created by `omacustos-incremental` can
-instead be discovered and restored without any original local configuration.
+Default v4 shared-archive repositories can also be discovered and restored without
+any original local configuration.
 See [shared-archive recovery](docs/incremental-restore.md) for the read-only CLI
 commands and explicit offline ownership handoff. These commands do not recreate
-schedules or grant writes automatically; default UI backups remain unchanged.
+schedules or grant writes automatically. The normal history browser includes
+legacy copies and shared snapshots; imported/copied settings do not grant writes.
 
-Advanced v4 runs also advance full integrity checks every 30 days. Use
+V4 runs also advance full integrity checks every 30 days. Use **⋯ → Run full
+integrity check** to check now or resume, or use
 `--check-integrity` with the existing request and single-writer acknowledgement to
 check now or resume; see [integrity and health reporting](docs/incremental-integrity.md)
 for budgets, coverage and recovery. Daily existence/size-only checks can miss
@@ -425,15 +453,20 @@ new replacement uploads do not repair those snapshots.
 
 - **⋯ → Open latest copy in Proton Drive** opens the latest recorded copy in your browser.
 - **⋯ → Delete latest copy** confirms the exact copy before moving it to Proton Drive Trash.
+- That whole-copy action is for legacy private folders only. Shared snapshots and
+  unreferenced whole archives use **⋯ → Review incremental cleanup…**.
 - **⋯ → Delete backup set** removes its configuration and schedule; remote copies remain.
 
 ## Daily operation
 
 - Use **Preview** before a first backup or after changing sources and exclusions.
-- Retention keeps three verified successful copies by default.
+- The default retention proposal keeps the newest three saved states across
+  supported formats. Unchanged checks do not count as saved states.
 - Failed or incomplete runs do not remove older successful copies.
-- The first cleanup proposal requires confirmation; later cleanups use the saved
-  decision.
+- Every cleanup proposal requires individual exact-scope confirmation. Scheduled
+  runs never authorize their own deletion. A changed scope requires a new review;
+  cancelling or losing a preview does not grant authority. Already-authorized
+  interrupted cleanup resumes only that durable scope.
 - To stop scheduling without uninstalling:
 
 ```bash

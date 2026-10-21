@@ -13,6 +13,13 @@ TestCase {
     Component { id: windowComponent; OmaCustos.Main {} }
 
     function init() {
+        incrementalMaintenance.busy = false
+        incrementalMaintenance.previewSet = ""
+        incrementalMaintenance.takeoverSet = ""
+        incrementalMaintenance.takeoverAcknowledged = false
+        incrementalMaintenance.integritySet = ""
+        incrementalMaintenance.confirmationCount = 0
+        incrementalMaintenance.dismissalCount = 0
         backupScheduler.busy = false
         backupScheduler.ready = true
         backupScheduler.hasSchedules = true
@@ -266,6 +273,65 @@ TestCase {
         return menu
     }
 
+    function test_incrementalCleanupRequiresPresentedProposalAndExplicitConfirmation() {
+        openMenu(0)
+        mouseClick(control("reviewCleanup-0"))
+        compare(incrementalMaintenance.previewSet, "documents-id")
+        compare(incrementalMaintenance.confirmationCount, 0)
+        const dialog = control("incrementalCleanupDialog")
+        verify(!dialog.opened)
+        incrementalMaintenance.cleanupReady("documents-id", '{"snapshots":["exact-id"],"objects":[]}')
+        tryCompare(dialog, "opened", true)
+        verify(dialog.proposal.indexOf("exact-id") >= 0)
+        dialog.reject()
+        compare(incrementalMaintenance.dismissalCount, 1)
+        compare(incrementalMaintenance.confirmationCount, 0)
+        tryCompare(dialog, "opened", false)
+        incrementalMaintenance.cleanupReady("documents-id", '{"snapshots":["fresh-id"],"objects":[]}')
+        tryCompare(dialog, "opened", true)
+        dialog.accept()
+        compare(incrementalMaintenance.confirmationCount, 1)
+    }
+
+    function test_writerTakeoverRequiresOfflineAcknowledgement() {
+        openMenu(0)
+        mouseClick(control("takeoverWriter-0"))
+        const dialog = control("writerTakeoverDialog")
+        tryCompare(dialog, "opened", true)
+        compare(incrementalMaintenance.takeoverSet, "")
+        dialog.reject()
+        tryCompare(dialog, "opened", false)
+        compare(incrementalMaintenance.takeoverSet, "")
+        openMenu(0)
+        mouseClick(control("takeoverWriter-0"))
+        tryCompare(dialog, "opened", true)
+        dialog.accept()
+        compare(incrementalMaintenance.takeoverSet, "documents-id")
+        verify(incrementalMaintenance.takeoverAcknowledged)
+    }
+
+    function test_repositoryMaintenanceSerializesAndOffersFullIntegrityCheck() {
+        incrementalMaintenance.busy = true
+        openMenu(0)
+        verify(!control("reviewCleanup-0").enabled)
+        verify(!control("takeoverWriter-0").enabled)
+        verify(!control("checkIntegrity-0").enabled)
+        control("setMenu-0").close()
+        incrementalMaintenance.busy = false
+        openMenu(0)
+        mouseClick(control("checkIntegrity-0"))
+        compare(incrementalMaintenance.integritySet, "documents-id")
+    }
+
+    function test_sharedSnapshotsCannotUseLegacyWholeCopyDeletion() {
+        backupSetController.runDetails = {
+            "documents-id": {statusCode: "success", status: "Successful", hasLatestCopy: true, sharedSnapshot: true}
+        }
+        openMenu(0)
+        verify(!control("deleteLatestCopy-0").enabled)
+        verify(control("reviewCleanup-0").enabled)
+    }
+
     function createNewSet() {
         mouseClick(control("backupSetsMenuButton"))
         tryCompare(control("backupSetsMenu"), "opened", true)
@@ -334,8 +400,8 @@ TestCase {
 
     function test_deleteRequiresConfirmationAndCancelDoesNotRemove() {
         const menu = openMenu(1)
-        compare(menu.itemAt(5).text, "Delete backup set")
-        mouseClick(menu.itemAt(5))
+        compare(control("removeSet-1").text, "Delete backup set")
+        mouseClick(control("removeSet-1"))
         const dialog = control("removeSetDialog")
         tryCompare(dialog, "opened", true)
         compare(dialog.setName, "Photos")
@@ -347,7 +413,8 @@ TestCase {
         tryCompare(dialog, "visible", false)
         compare(backupSetController.removedIndex, -1)
 
-        mouseClick(openMenu(1).itemAt(5))
+        openMenu(1)
+        mouseClick(control("removeSet-1"))
         tryCompare(dialog, "opened", true)
         mouseClick(dialog.standardButton(Dialog.Ok))
         compare(backupSetController.removedIndex, 1)
@@ -445,7 +512,8 @@ TestCase {
     }
 
     function test_setDeletionUsesIdentityAfterListOrderChanges() {
-        mouseClick(openMenu(1).itemAt(5))
+        openMenu(1)
+        mouseClick(control("removeSet-1"))
         const dialog = control("removeSetDialog")
         tryCompare(dialog, "opened", true)
         backupSetController.setNames = ["Photos", "Documents"]
@@ -455,7 +523,8 @@ TestCase {
     }
 
     function test_escapeCancelsDeleteConfirmation() {
-        mouseClick(openMenu(1).itemAt(5))
+        openMenu(1)
+        mouseClick(control("removeSet-1"))
         const dialog = control("removeSetDialog")
         tryCompare(dialog, "opened", true)
         keyClick(Qt.Key_Escape)

@@ -1,5 +1,7 @@
 #include "backupsetcontroller.h"
 #include "backupstaging.h"
+#include "incrementalworker.h"
+#include <QJsonDocument>
 
 #include <QDir>
 #include <QFile>
@@ -78,6 +80,17 @@ QString resultSummary(const BackupResult &result)
         .arg(result.verifiedFiles).arg(result.issues.size());
 }
 
+QString incrementalSummary(const BackupRunRecord &record)
+{
+    if (record.incremental.isEmpty()) return resultSummary(record.result);
+    const auto outcome = record.incremental.value("outcome").toString();
+    QString summary = outcome == "unchanged" ? QObject::tr("Successful check; no saved change")
+        : outcome == "saved" ? QObject::tr("New saved state")
+        : outcome == "legacy-saved" ? QObject::tr("Historical copy resumed and saved") : QObject::tr("Incremental work unfinished");
+    if (record.incremental.value("cleanup_needs_attention").toBool()) summary += QObject::tr("; cleanup needs attention");
+    return summary;
+}
+
 BackupSet newSet(int number)
 {
     return {
@@ -115,6 +128,7 @@ BackupSetController::BackupSetController(BackupEngine &engine, QString configPat
             return;
         }
         previewResult = previewWatcher.result();
+        IncrementalWorker::excludeCoordinationFiles(&previewResult, store.filePath());
         hasPreview = true;
         previewWorking = false;
         emit previewChanged();
@@ -521,7 +535,7 @@ QVariantMap BackupSetController::backupDetails(const QString &setId) const
     const bool verified = record->result.manifestVerified;
     return {
         {QStringLiteral("status"), statusLabel(record->status)},
-        {QStringLiteral("summary"), record->result.reported && verified ? resultSummary(record->result)
+        {QStringLiteral("summary"), record->result.reported && verified ? incrementalSummary(*record)
             : record->unfinished ? tr("%1 payloads verified · %2 · unfinished copy (manifest pending)")
                 .arg(record->progress.verifiedFiles).arg(QLocale().formattedDataSize(record->progress.verifiedBytes)) : QString()},
         {QStringLiteral("error"), record->lastError},
@@ -530,6 +544,14 @@ QVariantMap BackupSetController::backupDetails(const QString &setId) const
             ? tr("%1: %2 (%3)").arg(phaseLabel(record->progress.phase), record->progress.currentFile,
                 QLocale().formattedDataSize(record->progress.currentFileBytes)) : QString()},
         {QStringLiteral("issues"), issues},
+        {QStringLiteral("incrementalStatus"), record->incremental.isEmpty() ? QString()
+            : record->incremental.value("outcome") == "legacy-saved" ? tr("Historical format resumed. Cleanup awaits a fresh incremental baseline and exact-proposal review.")
+            : tr("Last successful check: %1\nLast saved change: %2\nDaily reuse checks may miss same-sized corruption until full integrity checking or restore.")
+            .arg(record->incremental.value("last_successful_check").toString(), record->incremental.value("last_saved_change").toString())},
+        {QStringLiteral("integrityStatus"), !record->incremental.value("integrity").isObject() ? QString() : QString::fromUtf8(QJsonDocument(record->incremental.value("integrity").toObject()).toJson())},
+        {QStringLiteral("capacityWarning"), record->incremental.value("capacity_warning").toString()},
+        {QStringLiteral("historyDamage"), record->incremental.value("affected_snapshots").toArray().isEmpty() ? QString() : tr("Historical snapshots affected by missing/corrupt objects (a new saved state does not repair them):\n%1")
+            .arg(QString::fromUtf8(QJsonDocument(record->incremental.value("affected_snapshots").toArray()).toJson()))},
         {QStringLiteral("cancelledCopies"), record->cancelledCopies},
         {QStringLiteral("nextAttempt"), record->nextAttempt.isValid()
             ? record->nextAttempt.toLocalTime().toString(QStringLiteral("dd/MM/yyyy HH:mm:ss")) : QString()},
@@ -582,6 +604,18 @@ QString BackupSetController::recentBackupFolderPath(const QString &setId) const
     return {};
 }
 
+QString BackupSetController::historyFolderPath(const QString &setId) const
+{
+    for (const auto &set : config.sets) if (set.id == setId) return set.remoteRoot;
+    return {};
+}
+
+QString BackupSetController::historyLegacyName(const QString &setId) const
+{
+    for (const auto &set : config.sets) if (set.id == setId) return QFileInfo(set.remoteFolder("computer")).fileName();
+    return {};
+}
+
 bool BackupSetController::previewAvailable() const
 {
     return hasPreview;
@@ -604,7 +638,10 @@ QStringList BackupSetController::previewExcluded() const
 
 QStringList BackupSetController::previewSkipped() const
 {
-    return previewResult.skippedPaths;
+    QStringList paths = previewResult.skippedPaths + previewResult.scanErrors;
+    paths.removeDuplicates();
+    paths.sort();
+    return paths;
 }
 
 QStringList BackupSetController::previewMissing() const
@@ -1033,6 +1070,17 @@ void BackupSetController::refreshRunState()
     }
 }
 
+void BackupSetController::refreshWriteAuthority()
+{
+    BackupConfig saved;
+    QString error;
+    if (!store.load(&saved, &error)) { emit failed(error); return; }
+    for (const auto &set : saved.sets) {
+        for (auto &draft : config.sets) if (draft.id == set.id && draft.remoteRoot == set.remoteRoot) draft.readOnly = set.readOnly;
+        for (auto &previous : savedSets) if (previous.id == set.id && previous.remoteRoot == set.remoteRoot) previous.readOnly = set.readOnly;
+    }
+}
+
 void BackupSetController::updateDashboard()
 {
     const auto running = calculateRunningSetIds();
@@ -1071,7 +1119,7 @@ void BackupSetController::updateDashboard()
             {QStringLiteral("status"), statusLabel(record->status)},
             {QStringLiteral("statusCode"), record->status},
             {QStringLiteral("summary"), record->result.reported && record->result.manifestVerified
-                && record->status != QStringLiteral("copy_deleted") ? resultSummary(record->result)
+                && record->status != QStringLiteral("copy_deleted") ? incrementalSummary(*record)
                 : record->unfinished ? tr("%1 payloads verified · %2 · unfinished copy (manifest pending)")
                     .arg(record->progress.verifiedFiles).arg(QLocale().formattedDataSize(record->progress.verifiedBytes)) : QString()},
             {QStringLiteral("lastAttempt"), timestamp(qMax(record->lastSuccess, record->lastFailure))},
@@ -1079,8 +1127,10 @@ void BackupSetController::updateDashboard()
             {QStringLiteral("error"), record->lastError},
             {QStringLiteral("hasActivity"), hasActivity},
             {QStringLiteral("hasLatestCopy"), latestCopy},
+            {QStringLiteral("sharedSnapshot"), record->remoteCopyPath.startsWith(IncrementalWorker::root(set) + "/snapshots/")},
             {QStringLiteral("unfinished"), record->unfinished},
             {QStringLiteral("controlRequest"), record->controlRequest},
+            {QStringLiteral("cleanupNeedsAttention"), record->incremental.value("cleanup_needs_attention").toBool()},
         });
     }
     // Sort once per refresh, and keep expensive issue conversion out of row bindings.

@@ -217,6 +217,7 @@ void BackupLauncherTest::queuesDuringTransfer()
     environment.insert("FAKE_REMOTE", home.filePath("remote"));
     environment.insert("BARRIERS", home.path());
     environment.insert("OMACUSTOS_INTERNAL_BOUNDED_ARCHIVES", "0"); // named per-file transfer barriers
+    environment.insert("OMACUSTOS_INTERNAL_LEGACY_WORKER", "1");
     environment.insert("OUTCOME", outcome);
     QProcess worker;
     worker.setProcessEnvironment(environment);
@@ -308,6 +309,7 @@ void BackupLauncherTest::waitingTransitionsSurviveExit()
     auto environment = QProcessEnvironment::systemEnvironment();
     environment.insert("FAKE_REMOTE", home.filePath("remote"));
     environment.insert("CLI_CALLS", home.filePath("cli-calls"));
+    environment.insert("OMACUSTOS_INTERNAL_LEGACY_WORKER", "1"); // historical CLI fixture, queue/prerequisite seam
     QProcess worker;
     worker.setProcessEnvironment(environment);
     worker.start(QStringLiteral(OMACUSTOS_WAITING_WORKER_BINARY), {"--config", configPath});
@@ -375,6 +377,7 @@ void BackupLauncherTest::queuedWorkerWaitsForCopyManagement()
     auto environment = QProcessEnvironment::systemEnvironment();
     environment.insert("FAKE_REMOTE", home.filePath("remote"));
     environment.insert("CLI_CALLS", home.filePath("cli-calls"));
+    environment.insert("OMACUSTOS_INTERNAL_LEGACY_WORKER", "1"); // historical CLI fixture, management exclusion seam
     QProcess worker;
     worker.setProcessEnvironment(environment);
     worker.start(QStringLiteral(OMACUSTOS_WORKER_BINARY), {"--config", configPath});

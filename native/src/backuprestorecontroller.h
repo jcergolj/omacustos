@@ -85,7 +85,7 @@ public:
     bool showingCachedData() const;
     bool restoreEligible() const;
     int currentCopyIndex() const;
-    Q_INVOKABLE void discover(const QString &backupFolder, const QString &setId = QString());
+    Q_INVOKABLE void discover(const QString &backupFolder, const QString &setId = QString(), bool history = false, const QString &legacyName = {});
     Q_INVOKABLE void selectCopy(int index);
     Q_INVOKABLE void restore(int index, const QString &destinationDirectory);
     Q_INVOKABLE void restoreSelected(const QVariantList &indexes, const QString &destinationDirectory);
@@ -121,6 +121,8 @@ private:
         QString setId;
         QString copyPath;
         QString selectedPath;
+        bool history = false;
+        QString legacyName;
     };
     struct Snapshot {
         QVector<RemoteCopy> copies;
@@ -146,6 +148,8 @@ private:
     bool discovering = false;
     QString expectedSetId;
     QString activeBackupFolder;
+    bool historyContext = false;
+    QString historyLegacyName;
     QString refreshError;
     QString transferBackupFolder;
     QString transferBackupId;

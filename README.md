@@ -46,13 +46,18 @@ If the terminal does not open, see [sign-in instructions](MANUAL.md#authenticate
 4. Use **Preview** to check what will be included.
 5. Press **Save**, then **Back up now** on the dashboard card.
 
-Each run creates a separate copy in Proton Drive. By default, copies are stored
-under `/my-files/backups`, and the latest **three successful copies** are kept.
-Fresh manual and scheduled runs use bounded tar.gz archives (gzip level 3),
-while the restore picker still shows individual files and their required download
-cost. Each fresh run is a full copy, including unchanged files. Older copies
-remain supported. See the [staging and archive details](MANUAL.md#advanced-settings)
-and [local performance measurements](native/tests/archiverollout.md).
+Fresh manual and scheduled runs use whole-file incremental backups with immutable
+tar.gz archives (gzip level 3). The first run saves a fresh baseline; later runs
+reuse unchanged contents. An unchanged check creates no new saved state. The
+restore picker still shows individual files and their download cost.
+
+By default, history lives under `/my-files/backups` and the newest **three saved
+states** are retained. Cleanup needs an individual review of its exact deletion
+proposal: use **⋯ → Review incremental cleanup…** when attention is reported.
+Older formats remain restorable and are included in mixed-format retention.
+Imported, copied, and pre-ownership settings stay read-only until explicit offline
+writer enrollment/takeover. See [upgrade and safety details](docs/incremental-default-rollout.md)
+and the [staging and archive details](MANUAL.md#advanced-settings).
 
 ### 4. Make it automatic
 

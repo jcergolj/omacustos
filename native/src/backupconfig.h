@@ -18,6 +18,7 @@ struct BackupSet {
     QString stagingDirectory;
     qint64 stagingBudget = 1000 * 1000 * 1000;
     QStringList inclusions;
+    bool readOnly = false; // Imports do not grant writer/takeover authority.
 
     QString remoteFolder(const QString &computerName) const;
 };
@@ -37,6 +38,7 @@ public:
     bool exportSets(const BackupConfig &config, QString *error = nullptr) const;
     bool importSets(BackupConfig *config, QString *error = nullptr) const;
     QString filePath() const;
+    static QString installationBinding(const QString &stateDirectory);
 
 private:
     bool loadFile(BackupConfig *config, bool setsOnly, QString *error) const;

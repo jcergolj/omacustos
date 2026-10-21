@@ -125,7 +125,10 @@ ApplicationWindow {
             return
         }
 
-        openRestoreContext(backupSetController.recentBackupFolderPath(setId), setId)
+        openRestoreContext(backupSetController.historyFolderPath
+            ? backupSetController.historyFolderPath(setId) : backupSetController.recentBackupFolderPath(setId), setId,
+            !!backupSetController.historyFolderPath,
+            backupSetController.historyLegacyName ? backupSetController.historyLegacyName(setId) : "")
     }
 
     function setRestoreSelection(indexes) { restorePanel.selection.setIndexes(indexes) }
@@ -137,7 +140,7 @@ ApplicationWindow {
         }
     }
 
-    function openRestoreContext(folder, setId) {
+    function openRestoreContext(folder, setId, history, legacyName) {
         if (restoreController.restoring) return
         showRestoreProgress = false
         rememberRestoreContext()
@@ -145,7 +148,7 @@ ApplicationWindow {
         restorePanel.activateContext(folder, setId)
         showEditor = false
         showRestore = true
-        restoreController.discover(folder, setId)
+        restoreController.discover(folder, setId, !!history, legacyName || "")
         Qt.callLater(function () {
             if (!root || !root.showRestore || root.showEditor
                 || restoreController.backupId !== setId || restoreController.backupFolder !== folder) return
@@ -180,6 +183,62 @@ ApplicationWindow {
     function openDocumentation(url) {
         if (!Qt.openUrlExternally(url)) {
             root.setStatus(qsTr("Unable to open documentation in your browser."))
+        }
+    }
+
+    Connections {
+        target: typeof incrementalMaintenance !== "undefined" ? incrementalMaintenance : null
+        function onCleanupReady(setId, proposal) {
+            incrementalCleanupDialog.proposal = proposal
+            incrementalCleanupDialog.open()
+        }
+        function onCompleted(message) {
+            root.setStatus(message)
+            if (backupSetController.refreshWriteAuthority) backupSetController.refreshWriteAuthority()
+            backupSetController.refreshRunState()
+        }
+        function onFailed(message) { root.setStatus(message) }
+    }
+
+    ActionDialog {
+        id: incrementalCleanupDialog
+        objectName: "incrementalCleanupDialog"
+        property string proposal: ""
+        style: uiStyle
+        anchors.centerIn: parent
+        title: qsTr("Confirm exact cleanup proposal")
+        width: Math.min(root.width - 2 * root.contentPadding, 700)
+        height: Math.min(root.height - 2 * root.contentPadding, 500)
+        modal: true
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        onAccepted: incrementalMaintenance.confirmCleanup()
+        onRejected: incrementalMaintenance.cancelCleanup()
+        ScrollView {
+            anchors.fill: parent
+            TextArea {
+                readOnly: true
+                wrapMode: TextEdit.Wrap
+                text: qsTr("Only the exact listed snapshots, legacy copies, and unreferenced objects may be deleted. A changed proposal requires another review.\n\n") + incrementalCleanupDialog.proposal
+                textFormat: TextEdit.PlainText
+            }
+        }
+    }
+
+    ActionDialog {
+        id: writerTakeoverDialog
+        objectName: "writerTakeoverDialog"
+        property string setId: ""
+        style: uiStyle
+        anchors.centerIn: parent
+        title: qsTr("Offline writer takeover")
+        width: Math.min(root.width - 2 * root.contentPadding, 540)
+        modal: true
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        onAccepted: incrementalMaintenance.takeover(setId, true)
+        Label {
+            width: parent.width
+            wrapMode: Text.WordWrap
+            text: qsTr("Confirm ONLY after permanently disabling every old writer: stop its processes, schedules and retries, and disable its installation/access. A verified-empty set will be enrolled; existing history requires an OFFLINE handoff, not an online lease or server-side fencing. Other computers remain read-only. No backup is started by this action.")
         }
     }
 
@@ -498,6 +557,38 @@ ApplicationWindow {
                     Layout.fillWidth: true
                 }
                 Label {
+                    objectName: "incrementalRunStatus"
+                    text: backupDetailsDialog.details.incrementalStatus || ""
+                    visible: text.length > 0
+                    textFormat: Text.PlainText
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
+                Label {
+                    objectName: "incrementalCapacityWarning"
+                    text: backupDetailsDialog.details.capacityWarning || ""
+                    visible: text.length > 0
+                    textFormat: Text.PlainText
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
+                Label {
+                    objectName: "incrementalHistoryDamage"
+                    text: backupDetailsDialog.details.historyDamage || ""
+                    visible: text.length > 0
+                    textFormat: Text.PlainText
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
+                Label {
+                    objectName: "incrementalIntegrityStatus"
+                    text: backupDetailsDialog.details.integrityStatus || ""
+                    visible: text.length > 0
+                    textFormat: Text.PlainText
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
+                Label {
                     objectName: "backupDetailsError"
                     text: backupDetailsDialog.details.error || ""
                     visible: text.length > 0
@@ -556,7 +647,7 @@ ApplicationWindow {
                 Label {
                     objectName: "cancelledPartialCopies"
                     visible: (backupDetailsDialog.details.cancelledCopies || []).length > 0
-                    text: qsTr("Cancelled partial copies (delete explicitly in Proton Drive when no longer needed):\n%1")
+                    text: qsTr("Cancelled operations (shared archives require reference-aware cleanup; only legacy private copy folders may be deleted independently):\n%1")
                         .arg((backupDetailsDialog.details.cancelledCopies || []).join("\n"))
                     textFormat: Text.PlainText
                     wrapMode: Text.WrapAnywhere
@@ -762,6 +853,16 @@ ApplicationWindow {
                 onDetailsRequested: function(setId) {
                     backupDetailsDialog.setId = setId
                     backupDetailsDialog.open()
+                }
+                onCleanupRequested: function(setId) {
+                    if (typeof incrementalMaintenance !== "undefined") incrementalMaintenance.previewCleanup(setId)
+                }
+                onTakeoverRequested: function(setId) {
+                    writerTakeoverDialog.setId = setId
+                    writerTakeoverDialog.open()
+                }
+                onIntegrityRequested: function(setId) {
+                    if (typeof incrementalMaintenance !== "undefined") incrementalMaintenance.checkIntegrity(setId)
                 }
             }
 

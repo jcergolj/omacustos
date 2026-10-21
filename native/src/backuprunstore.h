@@ -3,6 +3,7 @@
 #include <QDateTime>
 #include <QString>
 #include <QVector>
+#include <QJsonObject>
 #include <functional>
 #include "backupconfig.h"
 #include "backupprogress.h"
@@ -33,6 +34,7 @@ struct BackupRunRecord {
     // Keep cancelled partial namespaces identifiable after the next run begins.
     QStringList cancelledCopies;
     QStringList stagingRoots;
+    QJsonObject incremental;
 
     // -1 means insufficient progress; zero means the estimate has elapsed.
     qint64 estimatedRemainingSeconds(const QDateTime &now) const;
@@ -65,6 +67,8 @@ public:
     bool markCopyDeleted(const QString &setId, const QString &copyPath, QString *error = nullptr);
     bool requestControl(const QString &setId, const QString &action, QString *error = nullptr);
     bool rememberStagingRoot(const BackupRunRecord &attempt, const QString &root, QString *error = nullptr);
+    bool finishIncrementalCleanup(const QString &setId, const QString &remoteSetRoot, QString *error = nullptr);
+    bool finishIntegrityCheck(const QString &setId, const QString &remoteSetRoot, const QJsonObject &report, QString *error = nullptr);
 
     void ensureSet(const QString &setId);
     bool enqueue(const QString &setId, const QString &reason, const QDateTime &scheduledFor);

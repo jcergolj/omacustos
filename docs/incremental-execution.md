@@ -1,5 +1,8 @@
 # Shared uploads and crash-safe publication (#58)
 
+> Historical component delivery record. Its rollout-status statements are
+> superseded by [the default-worker integration](incremental-default-rollout.md).
+
 `IncrementalRepository` executes v4 plans through `BackupProvider`, including the
 Proton CLI adapter. `build/omacustos-incremental` is a real, explicitly invoked
 entry point, not a cloud-test stub. The ordinary worker still makes v3 full copies;

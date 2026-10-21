@@ -92,6 +92,9 @@ struct WorkerFixture {
         // Historical individual-file regressions deliberately create v2 work.
         // Rollout regressions remove this internal override to use real defaults.
         environment.insert("OMACUSTOS_INTERNAL_BOUNDED_ARCHIVES", "0");
+        // These are historical v2/v3 continuation/format regressions. New default
+        // incremental execution has its own unoverridden integration suite.
+        environment.insert("OMACUSTOS_INTERNAL_LEGACY_WORKER", "1");
         return QDir().mkpath(directory.filePath("remote")) && QDir().mkpath(directory.filePath("source"))
             && save() && runs.queueManual({"documents"}, true, &error);
     }
@@ -1951,6 +1954,7 @@ esac
     environment.insert("BLOCK_MARKER", home.filePath("blocked"));
     environment.insert("BLOCK_PHASE", phase);
     environment.insert("OMACUSTOS_INTERNAL_BOUNDED_ARCHIVES", "0"); // legacy worker-death fixture
+    environment.insert("OMACUSTOS_INTERNAL_LEGACY_WORKER", "1");
     environment.insert("FAIL_VERIFICATION", "no");
     QProcess worker;
     worker.setProcessEnvironment(environment);

@@ -50,12 +50,23 @@ omacustos-backup-runs.json
 omacustos-backup-cleanup.json
 omacustos-browser-links.json
 continuations/<sha256-of-exact-copy-path>/
+incremental-writers/<sha256-of-remote-set-root>.json
 ```
 
 The first file contains named backup configurations. Run history and pending
 cleanup decisions are stored separately. Discovered remote backups are not written into
 the local schedule or backup queue, so reinstall discovery never reactivates an
 old schedule.
+
+Configurations carry an installation binding derived from the OS machine ID and
+the fixed absolute configuration directory. Imports, copied bindings, and old
+unbound settings are read-only until explicit offline ownership enrollment or
+takeover. Writer UUID/epoch intent is durable before remote mutation.
+Incremental operation journals live under the validated, disk-backed staging
+base's `incremental-journals/<installation-binding>/`, outside selected roots.
+Application coordination files, locks, and private journals are intentionally
+excluded (and shown excluded in preview), while the actual settings file remains
+eligible for backup. Do not treat live coordination files as user documents.
 Browser links are an optional, bounded cache of private Proton Drive folder URLs,
 keyed by the exact copy path. Losing this cache only requires resolving links again.
 
@@ -119,25 +130,22 @@ when another worker holds exclusion.
 
 ## Remote Layout
 
-The future changed-file incremental format and its required ownership, verification,
-publication, recovery and deletion guarantees are specified in the
-[v4 incremental repository contract](docs/incremental-repository.md). Its isolated
-schema validator and examples do not enable incremental backups; the layout and
-v1/v2/v3 behavior described below remain current.
+Fresh normal-worker runs now use the [v4 repository contract](docs/incremental-repository.md),
+[planner](docs/incremental-planner.md), [executor](docs/incremental-execution.md),
+and [reference-aware cleanup](docs/incremental-cleanup.md). The integration and
+release evidence are documented in [default incremental rollout](docs/incremental-default-rollout.md).
+Each set owns `sets/<set UUID>/repository.json`, immutable `objects/`, complete
+`snapshots/<snapshot UUID>/manifest.json`, and recovery/maintenance records.
+Daily reuse checks are deliberately lighter than scheduled full integrity checks;
+they can miss same-size corruption. Shared-object deletion always requires an
+individually confirmed exact scope. Manual-offline single ownership is not a
+server-side fencing guarantee.
 
-The [read-only incremental planner](docs/incremental-planner.md) hashes selected
-local files and compares one validated v4 snapshot, exposing deterministic logical
-changes, content reuse, and separate check/saved-change timestamps. It does not
-enable v4 execution or change the full-backup worker/UI.
+### Historical v1-v3 copy layout
 
-The [incremental executor](docs/incremental-execution.md) implements shared-object
-uploads, remote protection/verification records and manifest-last recovery, with
-an explicit `build/omacustos-incremental` Proton CLI entry point. It uses the
-user-approved operational single-writer/manual-offline-handoff model (no remote
-fencing guarantee). It never calls retention/deletion. Normal workers and v1-v3
-restore remain unchanged pending the remaining rollout dependencies.
-
-Each copy is stored independently below:
+Old copies remain independently readable. An unfinished old copy resumes its
+durable format and namespace, but retention waits for a fresh incremental baseline
+and exact mixed-format review. The historical layout is:
 
 ```text
 <remote-root>/<computer>/<backup-name>/<copy-id>/
@@ -248,7 +256,7 @@ extracted. Unsafe, duplicate, linked, unindexed, or missing members fail before
 destination placement. Selected sizes/hashes must pass before the existing
 symlink-checked `QSaveFile` atomic replacement path commits bytes. Downloading one
 small file can therefore require the **whole compressed archive**; no permanent
-archive cache or incremental daily-copy behavior is implied. Fresh runs remain full
+archive cache is implied for historical copies. Fresh legacy-format fixture runs remain full
 copies. Completed earlier files retain the existing partial-restore semantics.
 
 The continuation identity records `payload_format`, defaulting to 2 for older
@@ -477,6 +485,14 @@ records selection/checkpoint, execution, and final-manifest RSS separately for
 process, not an invented constant-memory guarantee or a live CLI throughput estimate.
 
 ## Retention And Cleanup
+
+Normal workers use individually confirmed v4 reference-aware proposals across
+legacy and new saved states. They do not invoke the old automatic deletion
+executor, including after legacy continuation. The following describes the
+historical cleanup-store module retained for compatibility and regression tests;
+its saved decisions never authorize shared-object deletion. See
+[current cleanup rules](docs/incremental-cleanup.md) and the
+[integration runbook](docs/incremental-default-rollout.md).
 
 Retention considers only positively identified OmaCustos copies for the
 correct computer and backup. Successful verified copies are retained according to

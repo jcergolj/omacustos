@@ -1,6 +1,24 @@
 import QtQuick
 
 QtObject {
+    property QtObject incrementalMaintenance: QtObject {
+        property bool busy: false
+        property string previewSet: ""
+        property string takeoverSet: ""
+        property bool takeoverAcknowledged: false
+        property string integritySet: ""
+        property int confirmationCount: 0
+        property int dismissalCount: 0
+        signal cleanupReady(string setId, string proposal)
+        signal completed(string message)
+        signal failed(string message)
+        function previewCleanup(setId) { previewSet = setId }
+        function confirmCleanup() { confirmationCount++ }
+        function cancelCleanup() { dismissalCount++ }
+        function takeover(setId, acknowledged) { takeoverSet = setId; takeoverAcknowledged = acknowledged }
+        function checkIntegrity(setId) { integritySet = setId }
+    }
+
     property QtObject backupScheduler: QtObject {
         property bool busy: false
         property bool ready: true

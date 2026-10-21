@@ -18,6 +18,7 @@ struct BackupPreview {
     QStringList skippedPaths;
     QStringList missingPaths;
     qint64 totalBytes = 0;
+    QStringList scanErrors;
 };
 
 struct BackupOptions {
@@ -72,6 +73,10 @@ public:
         const std::function<void(int)> &reportProgress = {}) const;
 
     BackupPreview preview(const QStringList &sourceDirectories, const QStringList &exclusions, const std::function<bool()> &cancelled = {}, const QStringList &inclusions = {}) const;
+    // Execution selection prunes excluded subtrees rather than browsing them for
+    // the preview UI. Both paths retain complete enumeration-error evidence.
+    BackupPreview selectSources(const QStringList &sourceDirectories, const QStringList &exclusions,
+        const std::function<bool()> &cancelled = {}, const QStringList &inclusions = {}) const;
 
 private:
     bool restoreEntry(const BackupEntry &entry, const QString &destinationDirectory, BackupProvider &provider,

@@ -1,5 +1,8 @@
 # Read-only incremental planner (#57)
 
+> Historical component delivery record. Its rollout-status statements are
+> superseded by [the default-worker integration](incremental-default-rollout.md).
+
 `IncrementalPlanner::plan` in `native/src/incrementalplanner.{h,cpp}` implements
 source capture and deterministic comparison against exactly one previous v4
 snapshot. It is deliberately not wired into today's full-backup worker or UI:

@@ -25,8 +25,11 @@ Frame {
     signal detailsRequested()
     signal deleteCopyRequested()
     signal removeRequested()
+    signal cleanupRequested()
+    signal takeoverRequested()
+    signal integrityRequested()
     readonly property bool active: runActive || deleting
-    readonly property bool needsAttention: ["incomplete", "failed", "retrying", "waiting", "authentication_required"].indexOf(run.statusCode) >= 0
+    readonly property bool needsAttention: ["incomplete", "failed", "retrying", "waiting", "authentication_required"].indexOf(run.statusCode) >= 0 || !!run.cleanupNeedsAttention
     readonly property string statusText: deleting ? qsTr("Deleting latest copy…")
         : run.statusCode === "copy_deleted" ? qsTr("Latest copy deleted")
         : !run.statusCode || run.statusCode === "idle" ? qsTr("No backup yet") : run.status
@@ -107,12 +110,32 @@ Frame {
                         onTriggered: card.detailsRequested()
                     }
                     MenuItem {
+                        objectName: "deleteLatestCopy-" + card.cardIndex
                         text: qsTr("Delete latest copy")
-                        enabled: !!card.run.hasLatestCopy && !card.copyBusy && !card.active
+                        enabled: !!card.run.hasLatestCopy && !card.run.sharedSnapshot && !card.copyBusy && !card.active
                         onTriggered: card.deleteCopyRequested()
+                    }
+                    MenuItem {
+                        objectName: "reviewCleanup-" + card.cardIndex
+                        text: qsTr("Review incremental cleanup…")
+                        enabled: !card.active && !card.copyBusy
+                        onTriggered: card.cleanupRequested()
+                    }
+                    MenuItem {
+                        objectName: "takeoverWriter-" + card.cardIndex
+                        text: qsTr("Offline writer takeover…")
+                        enabled: !card.active && !card.copyBusy
+                        onTriggered: card.takeoverRequested()
+                    }
+                    MenuItem {
+                        objectName: "checkIntegrity-" + card.cardIndex
+                        text: qsTr("Run full integrity check")
+                        enabled: !card.active && !card.copyBusy
+                        onTriggered: card.integrityRequested()
                     }
                     MenuSeparator {}
                     MenuItem {
+                        objectName: "removeSet-" + card.cardIndex
                         text: qsTr("Delete backup set")
                         onTriggered: card.removeRequested()
                     }

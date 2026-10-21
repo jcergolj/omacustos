@@ -73,7 +73,7 @@ public slots:
             qFatal("Cannot load dashboard controller doubles: %s", qPrintable(component.errorString()));
         }
         controllers->setParent(engine);
-        for (const char *name : {"backupSetController", "backupLauncher", "restoreController", "protonFolderBrowser", "recentBackupCopies", "protonAuth", "themeColors", "resourceUsage", "backupScheduler"}) {
+        for (const char *name : {"backupSetController", "backupLauncher", "restoreController", "protonFolderBrowser", "recentBackupCopies", "protonAuth", "themeColors", "resourceUsage", "backupScheduler", "incrementalMaintenance"}) {
             engine->rootContext()->setContextProperty(QString::fromLatin1(name), controllers->property(name).value<QObject *>());
         }
         engine->rootContext()->setContextProperty(QStringLiteral("dashboardScreenshotPath"), qEnvironmentVariable("OMACUSTOS_TEST_SCREENSHOT"));
