@@ -46,18 +46,25 @@ If the terminal does not open, see [sign-in instructions](MANUAL.md#authenticate
 4. Use **Preview** to check what will be included.
 5. Press **Save**, then **Back up now** on the dashboard card.
 
-Fresh manual and scheduled runs use whole-file incremental backups with immutable
-tar.gz archives (gzip level 3). The first run saves a fresh baseline; later runs
-reuse unchanged contents. An unchanged check creates no new saved state. The
-restore picker still shows individual files and their download cost.
+Fresh manual and scheduled runs use whole-file incremental backups. The first run
+saves a full baseline; later runs upload added or changed files and reuse unchanged
+contents, including renamed files. An unchanged check creates no new saved state.
+Files are stored in shared tar.gz archives; the restore picker shows individual
+files and how much archive data must be downloaded to restore them.
 
-By default, history lives under `/my-files/backups` and the newest **three saved
-states** are retained. Cleanup needs an individual review of its exact deletion
-proposal: use **⋯ → Review incremental cleanup…** when attention is reported.
-Older formats remain restorable and are included in mixed-format retention.
-Imported, copied, and pre-ownership settings stay read-only until explicit offline
-writer enrollment/takeover. See [upgrade and safety details](docs/incremental-default-rollout.md)
-and the [staging and archive details](MANUAL.md#advanced-settings).
+By default, history lives under `/my-files/backups`. The retention policy keeps
+the newest **three saved states**, including older backup formats. Cleanup is not
+automatic: use **⋯ → Review incremental cleanup…** when attention is reported,
+and confirm each exact deletion proposal. Until you confirm cleanup, additional
+history can remain stored.
+
+**Upgrading or importing settings?** Imported, copied, and older settings without
+writer ownership stay read-only until you use **⋯ → Offline writer takeover…**.
+Before confirming, permanently stop the previous writer, its schedules, and
+retries; never let two computers write to the same set. The first incremental run
+uploads a fresh baseline alongside existing history, so it needs additional
+space. Old backups remain restorable and are never deleted to make upload space.
+See [advanced settings and upgrade guidance](MANUAL.md#advanced-settings).
 
 ### 4. Make it automatic
 
@@ -76,22 +83,33 @@ shows a suggested fix and an **Enable scheduling** button.
 4. Press **Start restore**.
 
 **Before reinstalling or moving computers, keep a copy of `~/.config/omacustos`.**
-It contains the backup definitions and run history needed to access copies through
-the app. A fresh installation cannot yet discover backups on its own. See
+It preserves backup definitions and run history for access through the app. A
+fresh installation has no standalone discovery action in the UI. See
 [reinstall and migration instructions](MANUAL.md#reinstall-or-move-to-another-computer).
 
-Advanced v4 shared-archive repositories also support [read-only recovery without
-local configuration](docs/incremental-restore.md) through `omacustos-incremental`.
-This does not change default UI backups or enable writes on a replacement machine.
+Default incremental backups also support [read-only recovery without local
+configuration](docs/incremental-restore.md). This advanced recovery path uses the
+`build/omacustos-incremental` tool, which must be built from source and is not
+included in the installed package. Recovery does not recreate schedules or grant
+write access on a replacement computer.
 
 ## Things to know
 
 - Folder backups include hidden files such as `.env` and `.git`. Add exclusions
   for anything you do not want backed up.
-- **Incomplete** means some files were verified but others failed; **Failed** means
-  there is no verified restorable copy. Use **View issues** for details.
-- Failed or incomplete runs do not remove older successful copies. The first
-  cleanup requires your confirmation.
+- A successful incremental run reports either a **New saved state** or a
+  **Successful check; no saved change**. Historical copies may also show
+  **Incomplete**, meaning only their verified files are restorable. Use
+  **View issues** or **View latest run details** for failures and warnings.
+- New uploads and restores are fully verified. Daily checks of reused archives
+  can miss same-sized remote corruption. Full integrity checks advance every
+  30 days when backups run; use **⋯ → Run full integrity check** to check now or
+  resume unfinished coverage.
+- Failed or incomplete runs do not remove older successful copies. Every cleanup
+  proposal requires your confirmation.
+- Capture is file-by-file, not an atomic filesystem snapshot. Edited files are
+  uploaded whole, and partly used archives keep obsolete contents until the
+  entire archive is no longer needed; archives are not compacted.
 - Deleting a backup set removes its settings and schedule, but leaves its remote
   copies in Proton Drive.
 
