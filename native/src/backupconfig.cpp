@@ -5,6 +5,7 @@
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QLockFile>
 #include <QSaveFile>
 #include <QSet>
 #include <QCryptographicHash>
@@ -15,6 +16,20 @@
 #include <limits>
 
 namespace {
+
+bool lockConfiguration(QLockFile &lock, const QString &path, QString *error)
+{
+    if (!QDir().mkpath(QFileInfo(path).absolutePath())) {
+        if (error) *error = QStringLiteral("Unable to create the OmaCustos configuration directory.");
+        return false;
+    }
+    lock.setStaleLockTime(0);
+    if (!lock.tryLock(0)) {
+        if (error) *error = QStringLiteral("Wait for the current configuration update to finish before saving settings.");
+        return false;
+    }
+    return true;
+}
 
 bool validSchedule(const BackupSchedule &schedule)
 {
@@ -342,11 +357,32 @@ bool BackupConfigStore::loadFile(BackupConfig *config, bool setsOnly, QString *e
 
 bool BackupConfigStore::save(const BackupConfig &config, QString *error) const
 {
+    QLockFile lock(path + QStringLiteral(".lock"));
+    if (!lockConfiguration(lock, path, error)) return false;
     return saveFile(config, false, error);
+}
+
+bool BackupConfigStore::grantWriteAuthority(const QString &setId, const QString &expectedRemoteRoot, QString *error) const
+{
+    QLockFile lock(path + QStringLiteral(".lock"));
+    if (!lockConfiguration(lock, path, error)) return false;
+    BackupConfig current;
+    if (!load(&current, error)) return false;
+    const auto set = std::find_if(current.sets.begin(), current.sets.end(), [&](const BackupSet &value) {
+        return value.id == setId;
+    });
+    if (set == current.sets.end() || set->remoteRoot != expectedRemoteRoot) {
+        if (error) *error = QStringLiteral("Remote takeover completed, but the backup set was removed or its remote root changed. Local write authority was not granted.");
+        return false;
+    }
+    set->readOnly = false;
+    return saveFile(current, false, error);
 }
 
 bool BackupConfigStore::exportSets(const BackupConfig &config, QString *error) const
 {
+    QLockFile lock(path + QStringLiteral(".lock"));
+    if (!lockConfiguration(lock, path, error)) return false;
     return saveFile(config, true, error);
 }
 

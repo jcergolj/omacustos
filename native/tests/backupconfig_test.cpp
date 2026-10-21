@@ -2,6 +2,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLockFile>
 #include <QTemporaryDir>
 #include <QTest>
 
@@ -25,6 +26,31 @@ private slots:
     void rejectsNullOutput();
     void rejectsMalformedInclusions_data();
     void rejectsMalformedInclusions();
+    void savesRespectConfigurationWriteLock()
+    {
+        QTemporaryDir directory;
+        BackupConfigStore store(directory.filePath("settings.json"));
+        BackupConfig config;
+        QString error;
+        QVERIFY(store.save(config, &error));
+        QFile file(store.filePath());
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const auto original = file.readAll();
+        file.close();
+        QLockFile lock(store.filePath() + ".lock");
+        QVERIFY(lock.tryLock(0));
+        config.protonBinary = "changed-binary";
+        QVERIFY(!store.save(config, &error));
+        QVERIFY(error.contains("configuration update"));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QCOMPARE(file.readAll(), original);
+        file.close();
+        lock.unlock();
+        QVERIFY(store.save(config, &error));
+        BackupConfig saved;
+        QVERIFY(store.load(&saved, &error));
+        QCOMPARE(saved.protonBinary, config.protonBinary);
+    }
 };
 
 void BackupConfigTest::loadsLegacyConfigurationAndSavesModernSets_data()

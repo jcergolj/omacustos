@@ -73,8 +73,7 @@ void IncrementalMaintenance::start(const QString &setId, Action action, const QS
         ProtonProvider provider(runner);
         if (action == Action::Takeover) {
             if (!IncrementalWorker::takeover(*set, directory, provider, oldWriterDisabled, &error)) return failure(error);
-            set->readOnly = false;
-            if (!BackupConfigStore(path).save(config, &error)) return failure(error);
+            if (!BackupConfigStore(path).grantWriteAuthority(setId, set->remoteRoot, &error)) return failure(error);
             return QJsonObject{{"message", "Offline writer authority verified. No backup was queued."}};
         }
         IncrementalWriteRequest request;

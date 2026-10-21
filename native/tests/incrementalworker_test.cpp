@@ -5,6 +5,7 @@
 #include "backupmanifest.h"
 #include "backuprestorecontroller.h"
 #include "incrementalmaintenance.h"
+#include "backupsetcontroller.h"
 #include "protonprovider.h"
 #include "qprocessrunner.h"
 #include <QSignalSpy>
@@ -13,6 +14,7 @@
 #include <QElapsedTimer>
 #include <QFile>
 #include <QJsonDocument>
+#include <QLockFile>
 #include <QProcess>
 #include <QProcessEnvironment>
 #include <QTemporaryDir>
@@ -90,9 +92,12 @@ public:
     explicit FixtureEnvironment(const ProcessFixture &fixture)
     {
         for (const auto &name : {QByteArray("FIXTURE_REMOTE"), QByteArray("FIXTURE_LOG"), QByteArray("FIXTURE_BATCH_LOG"),
-                 QByteArray("FIXTURE_MARKER"), QByteArray("FIXTURE_EXACT_IDENTITY")}) {
+                 QByteArray("FIXTURE_MARKER"), QByteArray("FIXTURE_EXACT_IDENTITY"),
+                 QByteArray("FIXTURE_BLOCK_ITEM"), QByteArray("FIXTURE_RELEASE")}) {
             previous.insert(name, qgetenv(name.constData()));
-            qputenv(name.constData(), fixture.environment.value(QString::fromUtf8(name)).toUtf8());
+            if (fixture.environment.contains(QString::fromUtf8(name)))
+                qputenv(name.constData(), fixture.environment.value(QString::fromUtf8(name)).toUtf8());
+            else qunsetenv(name.constData());
         }
     }
     ~FixtureEnvironment()
@@ -243,6 +248,7 @@ private slots:
         const auto configPath = f.state + "/settings.json";
         const auto queue = f.state + "/omacustos-backup-runs.json";
         QVERIFY(write(configPath, "settings to preserve"));
+        QVERIFY(write(configPath + ".lock", "volatile configuration lock"));
         QVERIFY(write(queue, "volatile queue"));
         f.set.sourceDirectories = {f.state};
         IncrementalWriteRequest first; QVERIFY2(f.request(&first), qPrintable(f.error));
@@ -262,6 +268,7 @@ private slots:
         IncrementalWorker::excludeCoordinationFiles(&preview, configPath);
         QCOMPARE(preview.includedFiles, QStringList{configPath});
         QVERIFY(preview.excludedFiles.contains(queue));
+        QVERIFY(preview.excludedFiles.contains(configPath + ".lock"));
     }
 
     void deferredCleanupDoesNotBlockScheduledWrites()
@@ -648,6 +655,61 @@ private slots:
         QVERIFY(IncrementalRestore::verifyCopy(provider, original, IncrementalWorker::setId(f.set), &historical, &f.error));
         if (!corrupt) QVERIFY(!historical.unavailableItems.isEmpty());
         else QCOMPARE(bytes(object), QByteArray(archive.value("size").toInteger(), '!'));
+    }
+
+    void takeoverPreservesConcurrentConfiguration_data()
+    {
+        QTest::addColumn<QString>("change");
+        QTest::newRow("editor save") << QString("edit");
+        QTest::newRow("deleted set") << QString("delete");
+        QTest::newRow("changed remote root") << QString("remote");
+        QTest::newRow("configuration write locked") << QString("locked");
+    }
+
+    void takeoverPreservesConcurrentConfiguration()
+    {
+        QFETCH(QString, change);
+        ProcessFixture f; f.set.readOnly = true; QVERIFY(f.prepareProcess());
+        f.environment.insert("FIXTURE_BLOCK_ITEM", "repository.json");
+        const auto release = f.directory.filePath("release");
+        f.environment.insert("FIXTURE_RELEASE", release);
+        FixtureEnvironment environment(f);
+        BackupEngine engine;
+        BackupSetController editor(engine, f.configPath);
+        IncrementalMaintenance maintenance(f.configPath);
+        const auto unblock = qScopeGuard([&] { write(release, "release"); });
+        QSignalSpy completed(&maintenance, &IncrementalMaintenance::completed);
+        QSignalSpy failed(&maintenance, &IncrementalMaintenance::failed);
+        QSignalSpy editorFailed(&editor, &BackupSetController::failed);
+        maintenance.takeover(f.set.id, true);
+        QTRY_VERIFY_WITH_TIMEOUT(QFile::exists(f.directory.filePath("blocked")), 10000);
+        if (change == "delete") editor.removeCurrentSet();
+        else {
+            editor.setCurrentName("Renamed while taking over");
+            editor.setCurrentSources({f.directory.filePath("different-source")});
+            editor.setCurrentExclusions({"*.tmp"});
+            if (change == "remote") editor.setCurrentRemoteRoot("/my-files/different-root");
+            QVERIFY(editor.save());
+        }
+        QVERIFY(editorFailed.isEmpty());
+        QLockFile configLock(f.configPath + ".lock");
+        if (change == "locked") QVERIFY(configLock.tryLock(0));
+        QVERIFY(write(release, "release"));
+        QTRY_VERIFY_WITH_TIMEOUT(!maintenance.busy(), 10000);
+        BackupConfig saved;
+        QVERIFY(BackupConfigStore(f.configPath).load(&saved, &f.error));
+        if (change == "delete") QVERIFY(saved.sets.isEmpty());
+        else {
+            QCOMPARE(saved.sets.first().name, QString("Renamed while taking over"));
+            QCOMPARE(saved.sets.first().sourceDirectories, QStringList{f.directory.filePath("different-source")});
+            QCOMPARE(saved.sets.first().exclusions, QStringList{"*.tmp"});
+            QCOMPARE(saved.sets.first().remoteRoot, change == "remote" ? QString("/my-files/different-root") : f.set.remoteRoot);
+            QCOMPARE(saved.sets.first().readOnly, change != "edit");
+        }
+        QCOMPARE(completed.size(), change == "edit" ? 1 : 0);
+        QCOMPARE(failed.size(), change == "edit" ? 0 : 1);
+        if (change == "delete" || change == "remote")
+            QVERIFY(failed.first().first().toString().contains("Local write authority was not granted"));
     }
 
     void settingsLossAndCopiedConfigurationNeedControllerTakeover()

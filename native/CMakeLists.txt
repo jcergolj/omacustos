@@ -222,7 +222,7 @@ add_test(NAME incrementalworker-failures-test COMMAND incrementalworker-test
 add_test(NAME incrementalworker-integrity-test COMMAND incrementalworker-test
     missingAndSameSizeCorruptionThroughWorker)
 add_test(NAME incrementalownership-test COMMAND incrementalworker-test
-    settingsLossAndCopiedConfigurationNeedControllerTakeover)
+    settingsLossAndCopiedConfigurationNeedControllerTakeover takeoverPreservesConcurrentConfiguration)
 add_test(NAME incrementalmaintenance-test COMMAND incrementalworker-test
     cleanupControllerRequiresConfirmationAndRestoresRetainedState)
 add_test(NAME incrementalcleanup-recovery-test COMMAND incrementalworker-test

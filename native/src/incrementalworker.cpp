@@ -363,7 +363,8 @@ void IncrementalWorker::excludeCoordinationFiles(BackupPreview *selection, const
     if (!selection || configPath.isEmpty()) return;
     const auto directory = QFileInfo(configPath).absolutePath();
     const auto excludedDirectory = coordinationDirectories(configPath);
-    const QStringList files{"omacustos-backup-runs.json", "omacustos-backup-cleanup.json", QFileInfo(configPath).fileName() + ".worker.lock"};
+    const QStringList files{"omacustos-backup-runs.json", "omacustos-backup-cleanup.json",
+        QFileInfo(configPath).fileName() + ".worker.lock", QFileInfo(configPath).fileName() + ".lock"};
     const auto internal = [&](const QString &path) {
         const auto absolute = QDir::cleanPath(QFileInfo(path).absoluteFilePath());
         for (const auto &root : excludedDirectory) if (absolute == root || absolute.startsWith(root + '/')) return true;

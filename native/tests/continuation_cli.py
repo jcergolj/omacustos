@@ -75,7 +75,7 @@ def transfer(source, destination):
         destination.write_bytes(b"!" * source.stat().st_size)
     if source.name == os.environ.get("FIXTURE_BLOCK_ITEM"):
         Path(os.environ["FIXTURE_MARKER"]).write_text(str(destination))
-        while True:
+        while not (os.environ.get("FIXTURE_RELEASE") and Path(os.environ["FIXTURE_RELEASE"]).exists()):
             time.sleep(0.05)
 
 
