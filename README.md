@@ -9,7 +9,15 @@ up selected files and folders, not system images or live databases.
 
 **[User manual](MANUAL.md)** · [Technical notes and development](TECHNICAL.md)
 
+**Jump to:** [Get started](#get-started) · [Restore files](#restore-your-files) ·
+[Things to know](#things-to-know) · [Help](#help-and-more-options)
+
+---
+
 ## Get started
+
+[1. Install](#1-install) → [2. Sign in](#2-sign-in) →
+[3. First backup](#3-make-your-first-backup) → [4. Schedule](#4-make-it-automatic)
 
 ### 1. Install
 
@@ -46,25 +54,31 @@ If the terminal does not open, see [sign-in instructions](MANUAL.md#authenticate
 4. Use **Preview** to check what will be included.
 5. Press **Save**, then **Back up now** on the dashboard card.
 
+#### How backup history works
+
 Fresh manual and scheduled runs use whole-file incremental backups. The first run
 saves a full baseline; later runs upload added or changed files and reuse unchanged
 contents, including renamed files. An unchanged check creates no new saved state.
 Files are stored in shared tar.gz archives; the restore picker shows individual
 files and how much archive data must be downloaded to restore them.
 
-By default, history lives under `/my-files/backups`. The retention policy keeps
-the newest **three saved states**, including older backup formats. Cleanup is not
-automatic: use **⋯ → Review incremental cleanup…** when attention is reported,
-and confirm each exact deletion proposal. Until you confirm cleanup, additional
-history can remain stored.
+| Setting | Default behavior |
+| --- | --- |
+| Storage location | `/my-files/backups` |
+| Retention | Newest **three saved states**, including older backup formats |
+| Cleanup | **Manual confirmation required**; additional history remains until you confirm |
 
-**Upgrading or importing settings?** Imported, copied, and older settings without
-writer ownership stay read-only until you use **⋯ → Offline writer takeover…**.
-Before confirming, permanently stop the previous writer, its schedules, and
-retries; never let two computers write to the same set. The first incremental run
-uploads a fresh baseline alongside existing history, so it needs additional
-space. Old backups remain restorable and are never deleted to make upload space.
-See [advanced settings and upgrade guidance](MANUAL.md#advanced-settings).
+Use **⋯ → Review incremental cleanup…** when attention is reported, and confirm
+each exact deletion proposal.
+
+> [!WARNING]
+> **Upgrading or importing settings?** Imported, copied, and older settings without
+> writer ownership stay read-only until you use **⋯ → Offline writer takeover…**.
+> Before confirming, permanently stop the previous writer, its schedules, and
+> retries; never let two computers write to the same set. The first incremental run
+> uploads a fresh baseline alongside existing history, so it needs additional
+> space. Old backups remain restorable and are never deleted to make upload space.
+> See [advanced settings and upgrade guidance](MANUAL.md#advanced-settings).
 
 ### 4. Make it automatic
 
@@ -82,10 +96,13 @@ shows a suggested fix and an **Enable scheduling** button.
 3. Use **Choose folder…** to select a separate destination folder.
 4. Press **Start restore**.
 
-**Before reinstalling or moving computers, keep a copy of `~/.config/omacustos`.**
-It preserves backup definitions and run history for access through the app. A
-fresh installation has no standalone discovery action in the UI. See
-[reinstall and migration instructions](MANUAL.md#reinstall-or-move-to-another-computer).
+> [!IMPORTANT]
+> **Before reinstalling or moving computers, keep a copy of `~/.config/omacustos`.**
+> It preserves backup definitions and run history for access through the app. A
+> fresh installation has no standalone discovery action in the UI. See
+> [reinstall and migration instructions](MANUAL.md#reinstall-or-move-to-another-computer).
+
+### Recovery without local configuration
 
 Default incremental backups also support [read-only recovery without local
 configuration](docs/incremental-restore.md). This advanced recovery path uses the
@@ -95,30 +112,40 @@ write access on a replacement computer.
 
 ## Things to know
 
+### Included files and run results
+
 - Folder backups include hidden files such as `.env` and `.git`. Add exclusions
   for anything you do not want backed up.
 - A successful incremental run reports either a **New saved state** or a
   **Successful check; no saved change**. Historical copies may also show
   **Incomplete**, meaning only their verified files are restorable. Use
   **View issues** or **View latest run details** for failures and warnings.
+
+### Verification and safety
+
 - New uploads and restores are fully verified. Daily checks of reused archives
   can miss same-sized remote corruption. Full integrity checks advance every
   30 days when backups run; use **⋯ → Run full integrity check** to check now or
   resume unfinished coverage.
 - Failed or incomplete runs do not remove older successful copies. Every cleanup
   proposal requires your confirmation.
+- Deleting a backup set removes its settings and schedule, but leaves its remote
+  copies in Proton Drive.
+
+### Backup limitations
+
 - Capture is file-by-file, not an atomic filesystem snapshot. Edited files are
   uploaded whole, and partly used archives keep obsolete contents until the
   entire archive is no longer needed; archives are not compacted.
-- Deleting a backup set removes its settings and schedule, but leaves its remote
-  copies in Proton Drive.
 
 ## Help and more options
 
 The **[user manual](MANUAL.md)** covers exclusions, backup settings, resource usage,
 import/export, managing copies, and uninstalling.
 
-- [Troubleshooting](MANUAL.md#troubleshooting)
-- [Import and export backup sets](MANUAL.md#import-and-export-backup-sets)
-- [Backup-set template](backup-sets.template.json)
-- [Technical notes and developer instructions](TECHNICAL.md)
+| I want to… | Go to |
+| --- | --- |
+| Fix a problem | [Troubleshooting](MANUAL.md#troubleshooting) |
+| Transfer backup settings | [Import and export backup sets](MANUAL.md#import-and-export-backup-sets) |
+| Start from a settings template | [Backup-set template](backup-sets.template.json) |
+| Build or contribute | [Technical notes and developer instructions](TECHNICAL.md) |
