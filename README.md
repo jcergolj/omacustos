@@ -56,29 +56,17 @@ If the terminal does not open, see [sign-in instructions](MANUAL.md#authenticate
 
 #### How backup history works
 
-Fresh manual and scheduled runs use whole-file incremental backups. The first run
-saves a full baseline; later runs upload added or changed files and reuse unchanged
-contents, including renamed files. An unchanged check creates no new saved state.
-Files are stored in shared tar.gz archives; the restore picker shows individual
-files and how much archive data must be downloaded to restore them.
+The first backup saves everything you selected. Later backups upload only new or
+changed files. If nothing changes, no new restore point is created.
 
-| Setting | Default behavior |
-| --- | --- |
-| Storage location | `/my-files/backups` |
-| Retention | Newest **three saved states**, including older backup formats |
-| Cleanup | **Manual confirmation required**; additional history remains until you confirm |
-
-Use **⋯ → Review incremental cleanup…** when attention is reported, and confirm
-each exact deletion proposal.
+- **Location:** `/my-files/backups`
+- **History:** Keeps the latest three restore points, including older backups.
+  Extra history stays until you approve cleanup.
+- **Cleanup:** Use **⋯ → Review incremental cleanup…** when prompted.
 
 > [!WARNING]
-> **Upgrading or importing settings?** Imported, copied, and older settings without
-> writer ownership stay read-only until you use **⋯ → Offline writer takeover…**.
-> Before confirming, permanently stop the previous writer, its schedules, and
-> retries; never let two computers write to the same set. The first incremental run
-> uploads a fresh baseline alongside existing history, so it needs additional
-> space. Old backups remain restorable and are never deleted to make upload space.
-> See [advanced settings and upgrade guidance](MANUAL.md#advanced-settings).
+> **Upgrading or moving computers?** Read the
+> [upgrade and migration guide](MANUAL.md#advanced-settings) before starting backups.
 
 ### 4. Make it automatic
 
