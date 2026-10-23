@@ -784,8 +784,8 @@ TestCase {
         restoreController.verified = true
         app.setRestoreSelection(indexes)
         const list = control("restoreFilesList")
-        tryCompare(list, "count", 10000)
-        list.positionViewAtIndex(5000, ListView.Center)
+        tryCompare(list, "count", 10002)
+        list.positionViewAtIndex(fileRow(5000), ListView.Center)
         waitForRendering(app.contentItem)
         verify(control("restoreFile-5000").checked)
         const selectedIndexes = app.selectedRestoreIndexes
@@ -803,7 +803,7 @@ TestCase {
         compare(control("restoreSelectionCount").text, "Selected files: 9999")
         // Deselecting swaps in the last selection. Toggling that moved item
         // must use its updated position and keep path/index arrays aligned.
-        list.positionViewAtIndex(9999, ListView.Center)
+        list.positionViewAtIndex(fileRow(9999), ListView.Center)
         waitForRendering(app.contentItem)
         control("restoreFile-9999").toggle()
         control("restoreFile-9999").toggled()
@@ -814,7 +814,7 @@ TestCase {
         control("restoreFile-9999").toggled()
         compare(app.selectedRestoreIndexes.length, 9999)
         compare(app.selectedRestorePaths[app.selectedRestoreIndexes.indexOf(9999)], paths[9999])
-        list.positionViewAtIndex(5000, ListView.Center)
+        list.positionViewAtIndex(fileRow(5000), ListView.Center)
         waitForRendering(app.contentItem)
         const scrollY = list.contentY
         mouseClick(control("closeRestoreButton"))
@@ -1013,14 +1013,46 @@ TestCase {
         compare(control("startRestoreButton").enabled, false)
     }
 
+    function fileRow(fileIndex) {
+        return control("restorePanel").selection.treeRows.findIndex(function (row) {
+            return !row.folder && row.fileIndex === fileIndex
+        })
+    }
+
     function folderControl(path) {
         const panel = control("restorePanel")
         const index = panel.folderRows.indexOf(path)
         verify(index >= 0, "Missing restore folder: " + path)
-        const list = control("restoreFoldersList")
-        list.positionViewAtIndex(index, ListView.Contain)
+        const list = control("restoreFilesList")
+        const rowIndex = panel.selection.treeRows.findIndex(function (row) {
+            return row.folder && row.path === path
+        })
+        list.positionViewAtIndex(rowIndex, ListView.Contain)
         waitForRendering(app.contentItem)
         return control("restoreFolder-" + index)
+    }
+
+    function test_restoreTreeGroupsEachFolderWithItsContentsAndKeepsOriginalFileIndexes() {
+        showRestoreFiles()
+        restoreController.entries = ["/safe/music/song.mp3", "/safe/documents/z.txt",
+            "/safe/documents/nested/photo.jpg", "/safe/documents/a.txt", "/safe/root.txt"]
+        const panel = control("restorePanel")
+        const rows = panel.selection.treeRows
+        compare(rows.map(function (row) { return row.path }), [
+            "/safe", "/safe/documents", "/safe/documents/nested",
+            "/safe/documents/nested/photo.jpg", "/safe/documents/a.txt",
+            "/safe/documents/z.txt", "/safe/music", "/safe/music/song.mp3", "/safe/root.txt"])
+        compare(rows.map(function (row) { return row.depth }), [0, 1, 2, 3, 2, 2, 1, 2, 1])
+        compare(rows.filter(function (row) { return !row.folder }).map(function (row) {
+            return row.fileIndex
+        }), [2, 3, 1, 0, 4])
+        const list = control("restoreFilesList")
+        list.positionViewAtIndex(fileRow(0), ListView.Contain)
+        waitForRendering(app.contentItem)
+        mouseClick(control("restoreFile-0"))
+        verify(app.selectedRestorePaths.indexOf("/safe/music/song.mp3") < 0)
+        compare(panel.folderCheckState("/safe/music"), Qt.Unchecked)
+        compare(panel.folderCheckState("/safe/documents"), Qt.Checked)
     }
 
     function test_parentFolderSelectionIncludesDescendantsAndKeepsSiblingFolders() {
@@ -1054,7 +1086,7 @@ TestCase {
         compare(app.selectedRestoreIndexes, [])
         restoreController.busy = true
         restoreController.entries = []
-        compare(control("restoreFoldersList").visible, false)
+        compare(control("restoreFilesList").count, 0)
         restoreController.entries = ["/safe/documents/notes.txt", "/safe/documents/photo.jpg"]
         restoreController.busy = false
         compare(app.selectedRestoreIndexes, [])

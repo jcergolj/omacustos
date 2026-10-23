@@ -36,7 +36,6 @@ FormCard {
         selection.reset()
         destinationField.text = ""
         restoreList.contentY = 0
-        restoreFoldersList.contentY = 0
         screenScrollY = -1
     }
 
@@ -45,7 +44,6 @@ FormCard {
         contextStates[contextKey] = {
             selection: selection.snapshot(),
             destination: destinationField.text, fileScroll: restoreList.contentY,
-            folderScroll: restoreFoldersList.contentY,
             screenScroll: screenScrollY
         }
     }
@@ -65,7 +63,6 @@ FormCard {
             Qt.callLater(function () {
                 if (panel && panel.contextKey === key) {
                     restoreList.contentY = state.fileScroll
-                    restoreFoldersList.contentY = state.folderScroll
                 }
             })
         }
@@ -248,51 +245,36 @@ FormCard {
         }
 
         ListView {
-            id: restoreFoldersList
-            objectName: "restoreFoldersList"
-            model: panel.folderRows
-            visible: count > 0 && panel.controller.entries.length > 0
+            id: restoreList
+            objectName: "restoreFilesList"
+            model: panel.controller.entries.length > 0 ? panel.selection.treeRows : []
             Layout.fillWidth: true
-            Layout.preferredHeight: Math.min(120, contentHeight)
+            Layout.preferredHeight: count > 0 ? Math.max(48, Math.min(300, contentHeight)) : 0
             clip: true
             ScrollBar.vertical: ScrollBar {}
             delegate: CheckBox {
                 required property int index
-                required property string modelData
-                objectName: "restoreFolder-" + index
-                text: modelData
-                width: restoreFoldersList.width
-                Accessible.name: qsTr("Select all files in %1 and its subfolders").arg(modelData)
+                required property var modelData
+                objectName: modelData.folder ? "restoreFolder-" + panel.folderRows.indexOf(modelData.path)
+                    : "restoreFile-" + modelData.fileIndex
+                text: modelData.name + (modelData.folder ? "/" : "")
+                leftPadding: 6 + modelData.depth * 20
+                width: restoreList.width
+                Accessible.name: modelData.folder
+                    ? qsTr("Select all files in %1 and its subfolders").arg(modelData.path) : modelData.path
                 checkState: {
                     panel.selectionRevision
-                    return panel.folderCheckState(modelData)
+                    return modelData.folder ? panel.folderCheckState(modelData.path)
+                        : panel.selectionLookup[modelData.fileIndex] !== undefined ? Qt.Checked : Qt.Unchecked
                 }
                 nextCheckState: function () { return checkState === Qt.Checked ? Qt.Unchecked : Qt.Checked }
                 onClicked: {
-                    panel.selectFolder(modelData, checkState === Qt.Checked)
+                    if (modelData.folder) panel.selectFolder(modelData.path, checkState === Qt.Checked)
+                    else panel.toggleSelection(modelData.fileIndex, modelData.path, checked)
                 }
-            }
-        }
-
-        ListView {
-            id: restoreList
-            objectName: "restoreFilesList"
-            model: panel.controller.entries
-            Layout.fillWidth: true
-            Layout.preferredHeight: count > 0 ? Math.max(48, Math.min(180, contentHeight)) : 0
-            clip: true
-            ScrollBar.vertical: ScrollBar {}
-            delegate: CheckBox {
-                required property int index
-                required property string modelData
-                objectName: "restoreFile-" + index
-                text: modelData
-                width: restoreList.width
-                checked: {
-                    panel.selectionRevision
-                    return panel.selectionLookup[index] !== undefined
+                onToggled: {
+                    if (!modelData.folder) panel.toggleSelection(modelData.fileIndex, modelData.path, checked)
                 }
-                onToggled: panel.toggleSelection(index, modelData, checked)
             }
         }
 

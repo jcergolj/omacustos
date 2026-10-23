@@ -10,13 +10,14 @@ QtObject {
     readonly property var selectionLookup: Object.create(null)
     property var _state: ({
         entries: [],
-        folderRows: [], folders: Object.create(null), ancestors: [],
+        folderRows: [], treeRows: [], folders: Object.create(null), ancestors: [],
         initialized: false, customized: false, copyPath: "", copyIndex: -1
     })
     property int _revision: 0
     readonly property int selectionRevision: _revision
     readonly property int selectedCount: { _revision; return selectedIndexes.length }
     readonly property var folderRows: _state.folderRows
+    readonly property var treeRows: _state.treeRows
     readonly property bool initialized: { _revision; return _state.initialized }
     readonly property bool customized: { _revision; return _state.customized }
     readonly property string copyPath: _state.copyPath
@@ -37,7 +38,39 @@ QtObject {
             }
             ancestors.push(paths)
         })
-        return { folders: folders, ancestors: ancestors, folderRows: Object.keys(folders).sort() }
+        const folderRows = Object.keys(folders).sort()
+        const root = { children: Object.create(null) }
+        entries.forEach(function (path, fileIndex) {
+            const parts = path.split("/").filter(function (part) { return part.length > 0 })
+            let parent = root
+            let fullPath = path.startsWith("/") ? "/" : ""
+            parts.forEach(function (name, index) {
+                fullPath += name
+                const folder = index < parts.length - 1
+                const key = (folder ? "folder:" : "file:") + name
+                if (!parent.children[key]) {
+                    parent.children[key] = { name: name, path: fullPath, folder: folder,
+                        fileIndex: folder ? -1 : fileIndex, children: Object.create(null) }
+                }
+                parent = parent.children[key]
+                fullPath += "/"
+            })
+        })
+        const treeRows = []
+        function visit(parent, depth) {
+            const children = Object.keys(parent.children).map(function (key) { return parent.children[key] })
+            children.sort(function (left, right) {
+                if (left.folder !== right.folder) return left.folder ? -1 : 1
+                return left.name < right.name ? -1 : left.name > right.name ? 1 : 0
+            })
+            for (const child of children) {
+                treeRows.push({ path: child.path, name: child.name, folder: child.folder,
+                    fileIndex: child.fileIndex, depth: depth })
+                if (child.folder) visit(child, depth + 1)
+            }
+        }
+        visit(root, 0)
+        return { folders: folders, ancestors: ancestors, folderRows: folderRows, treeRows: treeRows }
     }
 
     function replaceSelection(entries, indexes, initialized, customized, copyPath, copyIndex, structure) {
@@ -53,7 +86,8 @@ QtObject {
         })
         _state = {
             entries: entries,
-            folderRows: structure.folderRows, folders: structure.folders, ancestors: structure.ancestors,
+            folderRows: structure.folderRows, treeRows: structure.treeRows,
+            folders: structure.folders, ancestors: structure.ancestors,
             initialized: initialized, customized: customized, copyPath: copyPath, copyIndex: copyIndex
         }
         ++_revision
