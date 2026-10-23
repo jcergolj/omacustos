@@ -19,6 +19,7 @@
 #include "../src/backupmanifest.h"
 #include "../src/backupecleanup.h"
 #include "../src/localprovider.h"
+#include "../src/incrementalworker.h"
 
 class RestoreTestProvider final : public BackupProvider
 {
@@ -151,6 +152,8 @@ private slots:
     void rediscoveryHandlesMissingCopies_data();
     void rediscoveryHandlesMissingCopies();
     void browsesWithoutBlockingAndVerifiesOnlyTheSelectedCopy();
+    void historyListsCopiesWithoutCheckingTheirPayloads();
+    void historyListsSharedSnapshotsWithoutVisitingObjects();
     void discoveryFailureClearsPreviousResultsAndAllowsRetry();
     void rejectsUnidentifiableCopies_data();
     void rejectsUnidentifiableCopies();
@@ -818,6 +821,71 @@ void BackupRestoreControllerTest::rediscoveryHandlesMissingCopies()
     QCOMPARE(controller.entries(), QStringList {"/source/notes.txt"});
     QVERIFY(controller.restoreEligible());
     QVERIFY(!controller.showingCachedData());
+}
+
+void BackupRestoreControllerTest::historyListsSharedSnapshotsWithoutVisitingObjects()
+{
+    QTemporaryDir directory {QDir::current().filePath("restore-history-XXXXXX")};
+    const QString remote = directory.filePath("remote");
+    const QString source = directory.filePath("source");
+    QVERIFY(QDir().mkpath(remote));
+    QVERIFY(QDir().mkpath(source));
+    QFile file(source + "/notes.txt");
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QCOMPARE(file.write("notes"), 5);
+    file.close();
+    BackupSet set {"documents", "Documents", "backups", {source}, {}};
+    set.stagingDirectory = directory.filePath("stage");
+    set.stagingBudget = 8 * 1024 * 1024;
+    RestoreTestProvider provider(remote);
+    provider.injectInvalidFolders = false;
+    IncrementalWriteRequest request;
+    QString error;
+    QVERIFY2(IncrementalWorker::request(set, directory.filePath("state"),
+        QUuid::createUuid().toString(QUuid::WithoutBraces), provider.local, &request, &error), qPrintable(error));
+    const auto saved = IncrementalWorker::run(set, request, provider.local);
+    QVERIFY(saved.success());
+    provider.inspectedPaths.clear();
+    provider.listedPaths.clear();
+    BackupEngine engine;
+    BackupRestoreController controller(engine, &provider);
+    controller.discover("backups", set.id, true, set.name);
+    QTRY_VERIFY(!controller.busy());
+    QCOMPARE(controller.copies().size(), 1);
+    QVERIFY(provider.inspectedPaths.isEmpty());
+    for (const auto &path : provider.listedPaths) {
+        QVERIFY(!path.startsWith(request.remoteSetRoot + "/objects"));
+    }
+    QVERIFY(!controller.restoreEligible());
+    controller.selectCopy(0);
+    QTRY_VERIFY(!controller.busy());
+    QCOMPARE(controller.entries().size(), 1);
+    QVERIFY(controller.restoreEligible());
+    QCOMPARE(provider.inspectedPaths.size(), 1);
+}
+
+void BackupRestoreControllerTest::historyListsCopiesWithoutCheckingTheirPayloads()
+{
+    QTemporaryDir remote;
+    const QString folder = "backups/computer/Documents";
+    QVERIFY(createCopy(remote, folder + "/copy", "documents", "copy", 100));
+    BackupEngine engine;
+    RestoreTestProvider provider(remote.path());
+    provider.injectInvalidFolders = false;
+    BackupRestoreController controller(engine, &provider);
+    controller.discover("backups", "documents", true, "Documents");
+    QTRY_VERIFY(!controller.busy());
+    QCOMPARE(controller.copies().size(), 1);
+    // Filling the chooser must not wait for a remote check of every payload.
+    QCOMPARE(provider.inspectedPaths.size(), 0);
+    QVERIFY(!provider.listedPaths.contains(folder + "/copy/nested"));
+    QVERIFY(controller.entries().isEmpty());
+    QVERIFY(!controller.restoreEligible());
+    controller.selectCopy(0);
+    QTRY_VERIFY(!controller.busy());
+    QCOMPARE(controller.entries().size(), 100);
+    QVERIFY(controller.restoreEligible());
+    QCOMPARE(provider.inspectedPaths.size(), 100);
 }
 
 void BackupRestoreControllerTest::browsesWithoutBlockingAndVerifiesOnlyTheSelectedCopy()

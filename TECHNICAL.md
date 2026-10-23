@@ -544,6 +544,11 @@ restore actions are disabled while either task runs. Each selection rechecks rem
 files, and manifest backup/copy identity must match the selection. Full verified
 catalog discovery remains available internally for retention.
 
+Shared-history browsing uses metadata-only catalog discovery across the configured
+root. It reads manifests and validates copy/repository identity, but does not check
+payloads or descend into shared archive object directories. Only selecting a copy
+performs payload verification; listing alone never grants restore eligibility.
+
 Restores are limited to manifest entries that passed verification. Destination
 traversal and symbolic-link escapes are rejected. The UI requires users to tick
 files and specify a destination folder before enabling its single **Start

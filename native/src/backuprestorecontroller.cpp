@@ -408,7 +408,7 @@ void BackupRestoreController::startBrowse()
         if (cancelled->load()) return result;
         if (request.listing) {
             if (request.history) {
-                result.success = BackupCatalog::discover(*workerProvider, request.folder, &result.copies, &result.error, [cancelled] { return cancelled->load(); });
+                result.success = BackupCatalog::listHistory(*workerProvider, request.folder, &result.copies, &result.error, [cancelled] { return cancelled->load(); });
                 BackupSet identity; identity.id = request.setId;
                 const auto sharedId = IncrementalWorker::setId(identity);
                 result.copies.erase(std::remove_if(result.copies.begin(), result.copies.end(), [&](const auto &copy) {

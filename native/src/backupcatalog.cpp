@@ -2,6 +2,7 @@
 
 #include "backupmanifest.h"
 #include "incrementalrestore.h"
+#include "incrementalmanifest.h"
 #include "payloadmetadatapolicy.h"
 #include "remotemetadatacache.h"
 
@@ -14,6 +15,9 @@
 #include <algorithm>
 
 namespace {
+
+bool loadCopy(BackupProvider &provider, const QString &copyFolder, const QString &expectedSetId,
+    RemoteCopy *copy, QString *error, const std::function<bool()> &cancelled, bool verifyPayloads);
 
 bool inspectFolder(BackupProvider &provider, const QString &path, QVector<RemoteItem> *items, QString *error)
 {
@@ -37,7 +41,8 @@ void warning(QString *error, const QString &message)
 }
 
 bool visit(BackupProvider &provider, const QString &path, const QString &rootPath,
-    QVector<RemoteCopy> *copies, QSet<QString> *visited, QString *error, const std::function<bool()> &cancelled)
+    QVector<RemoteCopy> *copies, QSet<QString> *visited, QString *error, const std::function<bool()> &cancelled,
+    bool verifyPayloads)
 {
     if (cancelled && cancelled()) return false;
     const QString cleanPath = QDir::cleanPath(path);
@@ -56,10 +61,15 @@ bool visit(BackupProvider &provider, const QString &path, const QString &rootPat
     for (const auto &item : items) if (!item.directory && item.name == "manifest.json" && item.path == path + "/manifest.json") {
         RemoteCopy copy;
         QString copyError;
-        if (BackupCatalog::verifyCopy(provider, path, {}, &copy, &copyError, cancelled)) copies->append(copy);
+        if (loadCopy(provider, path, {}, &copy, &copyError, cancelled, verifyPayloads)) copies->append(copy);
         warning(error, copyError);
         return !(cancelled && cancelled());
     }
+    const bool repository = QFileInfo(QFileInfo(path).path()).fileName() == "sets"
+        && IncrementalManifest::validId(QFileInfo(path).fileName())
+        && std::any_of(items.cbegin(), items.cend(), [&](const auto &item) {
+            return !item.directory && item.path == path + "/repository.json";
+        });
     for (const RemoteItem &item : items) {
         if (cancelled && cancelled()) return false;
         if (!inside(item.path, rootPath)) {
@@ -67,7 +77,9 @@ bool visit(BackupProvider &provider, const QString &path, const QString &rootPat
             continue;
         }
         if (item.directory) {
-            if (!visit(provider, item.path, rootPath, copies, visited, error, cancelled)) {
+            // Shared archive objects cannot contain backup copies.
+            if (!verifyPayloads && repository && item.name == "objects") continue;
+            if (!visit(provider, item.path, rootPath, copies, visited, error, cancelled, verifyPayloads)) {
                 return false;
             }
             continue;
@@ -110,12 +122,15 @@ bool BackupCatalog::listCopies(BackupProvider &provider, const QString &backupFo
     return true;
 }
 
-bool BackupCatalog::verifyCopy(BackupProvider &provider, const QString &copyFolder, const QString &expectedSetId,
-    RemoteCopy *copy, QString *error, const std::function<bool()> &cancelled)
+namespace {
+bool loadCopy(BackupProvider &provider, const QString &copyFolder, const QString &expectedSetId,
+    RemoteCopy *copy, QString *error, const std::function<bool()> &cancelled, bool verifyPayloads)
 {
     QString setRoot, setId, snapshotId;
     if (IncrementalRestore::snapshotLocation(copyFolder, &setRoot, &setId, &snapshotId))
-        return IncrementalRestore::verifyCopy(provider, copyFolder, expectedSetId, copy, error, cancelled);
+        return verifyPayloads
+            ? IncrementalRestore::verifyCopy(provider, copyFolder, expectedSetId, copy, error, cancelled)
+            : IncrementalRestore::describeCopy(provider, copyFolder, expectedSetId, copy, error, cancelled);
     if (cancelled && cancelled()) return false;
     if (copy == nullptr || copyFolder.trimmed().isEmpty()) {
         warning(error, QStringLiteral("A remote copy folder and destination are required."));
@@ -150,6 +165,7 @@ bool BackupCatalog::verifyCopy(BackupProvider &provider, const QString &copyFold
     *copy = {root, remoteManifest, info.computerName, info.setId, info.setName, info.copyId,
         info.status, info.createdAt, {}, {}, info.failedItems};
     copy->manifestVersion = info.version;
+    if (!verifyPayloads) return true;
     RemoteMetadataCache directoryMetadata(provider);
     QHash<QString, bool> verifiedArchives;
     for (const BackupEntry &entry : entries) {
@@ -183,6 +199,13 @@ bool BackupCatalog::verifyCopy(BackupProvider &provider, const QString &copyFold
     }
     return true;
 }
+}
+
+bool BackupCatalog::verifyCopy(BackupProvider &provider, const QString &copyFolder, const QString &expectedSetId,
+    RemoteCopy *copy, QString *error, const std::function<bool()> &cancelled)
+{
+    return loadCopy(provider, copyFolder, expectedSetId, copy, error, cancelled, true);
+}
 
 bool BackupCatalog::discoverCopies(BackupProvider &provider, const QString &backupFolder, const QString &expectedSetId,
     QVector<RemoteCopy> *copies, QString *error)
@@ -204,8 +227,8 @@ bool BackupCatalog::discoverCopies(BackupProvider &provider, const QString &back
     return true;
 }
 
-bool BackupCatalog::discover(BackupProvider &provider, const QString &remoteRoot, QVector<RemoteCopy> *copies, QString *error,
-    const std::function<bool()> &cancelled)
+static bool discoverHistory(BackupProvider &provider, const QString &remoteRoot, QVector<RemoteCopy> *copies, QString *error,
+    const std::function<bool()> &cancelled, bool verifyPayloads)
 {
     if (copies == nullptr) {
         if (error != nullptr) {
@@ -223,7 +246,7 @@ bool BackupCatalog::discover(BackupProvider &provider, const QString &remoteRoot
 
     const QString normalizedRoot = QDir::cleanPath(remoteRoot);
     QSet<QString> visited;
-    if (!visit(provider, normalizedRoot, normalizedRoot, copies, &visited, error, cancelled)) {
+    if (!visit(provider, normalizedRoot, normalizedRoot, copies, &visited, error, cancelled, verifyPayloads)) {
         copies->clear();
         return false;
     }
@@ -231,4 +254,16 @@ bool BackupCatalog::discover(BackupProvider &provider, const QString &remoteRoot
         return left.createdAt > right.createdAt;
     });
     return true;
+}
+
+bool BackupCatalog::discover(BackupProvider &provider, const QString &remoteRoot, QVector<RemoteCopy> *copies, QString *error,
+    const std::function<bool()> &cancelled)
+{
+    return discoverHistory(provider, remoteRoot, copies, error, cancelled, true);
+}
+
+bool BackupCatalog::listHistory(BackupProvider &provider, const QString &remoteRoot, QVector<RemoteCopy> *copies, QString *error,
+    const std::function<bool()> &cancelled)
+{
+    return discoverHistory(provider, remoteRoot, copies, error, cancelled, false);
 }

@@ -71,11 +71,11 @@ bool IncrementalRestore::snapshotLocation(const QString &root, QString *setRoot,
     return true;
 }
 
-bool IncrementalRestore::verifyCopy(BackupProvider &provider, const QString &root, const QString &expectedSetId,
-    RemoteCopy *copy, QString *error, const std::function<bool()> &cancelled)
+static bool loadCopy(BackupProvider &provider, const QString &root, const QString &expectedSetId,
+    RemoteCopy *copy, QString *error, const std::function<bool()> &cancelled, bool verifyPayloads)
 {
     QString setRoot, setId, snapshotId;
-    if (!copy || !snapshotLocation(root, &setRoot, &setId, &snapshotId)
+    if (!copy || !IncrementalRestore::snapshotLocation(root, &setRoot, &setId, &snapshotId)
         || (!expectedSetId.isEmpty() && setId != expectedSetId)) return fail(error, "Invalid selected shared snapshot location.");
     QJsonObject control, manifest;
     if (cancelled && cancelled()) return false;
@@ -90,6 +90,8 @@ bool IncrementalRestore::verifyCopy(BackupProvider &provider, const QString &roo
     *copy = {root, root + "/manifest.json", control.value("origin_computer_id").toString(), setId, setId,
         snapshotId, "complete", QDateTime::fromString(manifest.value("created_at").toString(), Qt::ISODateWithMs), {}, {}, {}};
     copy->manifestVersion = 4;
+    if (cancelled && cancelled()) return false;
+    if (!verifyPayloads) return true;
     QHash<QString, BackupArchive> archives;
     QSet<QString> unavailable;
     for (const auto &value : manifest.value("archives").toArray()) {
@@ -128,6 +130,18 @@ bool IncrementalRestore::verifyCopy(BackupProvider &provider, const QString &roo
         else copy->entries.append(entry);
     }
     return true;
+}
+
+bool IncrementalRestore::describeCopy(BackupProvider &provider, const QString &root, const QString &expectedSetId,
+    RemoteCopy *copy, QString *error, const std::function<bool()> &cancelled)
+{
+    return loadCopy(provider, root, expectedSetId, copy, error, cancelled, false);
+}
+
+bool IncrementalRestore::verifyCopy(BackupProvider &provider, const QString &root, const QString &expectedSetId,
+    RemoteCopy *copy, QString *error, const std::function<bool()> &cancelled)
+{
+    return loadCopy(provider, root, expectedSetId, copy, error, cancelled, true);
 }
 
 bool IncrementalRestore::discover(BackupProvider &provider, const QString &remoteRoot, QVector<RemoteCopy> *copies, QString *error)
