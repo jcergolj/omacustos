@@ -386,6 +386,10 @@ clears the configured set list, while **Merge** keeps it.
 5. Press **Start restore** at the bottom. The button is available when at least
    one file is selected and a destination folder is specified.
 
+Copy labels show a local date in `dd/mm/yy` format and a 24-hour time including
+seconds, for example `25/10/26 14:30:05`, with warnings for unverified or unavailable
+copies.
+
 Pressing **Start restore** replaces the selection panel with a progress screen.
 It shows the backup, chosen copy, destination, required download, and completed-file
 count. After success, the completion summary stays visible until you press **Done**

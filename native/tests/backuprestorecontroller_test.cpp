@@ -93,7 +93,8 @@ public:
     }
 };
 
-static bool createCopy(const QTemporaryDir &remote, const QString &folder, const QString &setId, const QString &copyId, int fileCount = 1, int version = 2)
+static bool createCopy(const QTemporaryDir &remote, const QString &folder, const QString &setId, const QString &copyId,
+    int fileCount = 1, int version = 2, const QString &createdAt = "2026-10-02T12:00:00.000Z")
 {
     if (!QDir().mkpath(remote.filePath(folder + "/nested"))) {
         return false;
@@ -114,7 +115,7 @@ static bool createCopy(const QTemporaryDir &remote, const QString &folder, const
     return manifest.open(QIODevice::WriteOnly)
         && manifest.write(QJsonDocument(QJsonObject {{"version", version}, {"application", "omacustos"},
             {"computer", "computer"}, {"set_id", setId}, {"set_name", "Documents"}, {"copy_id", copyId},
-            {"created_at", "2026-10-02T12:00:00.000Z"}, {"status", "complete"},
+            {"created_at", createdAt}, {"status", "complete"},
             {"expected", expected}, {"failed", QJsonArray {}}, {"entries", entries}}).toJson()) > 0;
 }
 
@@ -152,6 +153,7 @@ private slots:
     void rediscoveryHandlesMissingCopies_data();
     void rediscoveryHandlesMissingCopies();
     void browsesWithoutBlockingAndVerifiesOnlyTheSelectedCopy();
+    void copyLabelsUseLocalDateAndTime();
     void historyListsCopiesWithoutCheckingTheirPayloads();
     void historyListsSharedSnapshotsWithoutVisitingObjects();
     void discoveryFailureClearsPreviousResultsAndAllowsRetry();
@@ -821,6 +823,33 @@ void BackupRestoreControllerTest::rediscoveryHandlesMissingCopies()
     QCOMPARE(controller.entries(), QStringList {"/source/notes.txt"});
     QVERIFY(controller.restoreEligible());
     QVERIFY(!controller.showingCachedData());
+}
+
+void BackupRestoreControllerTest::copyLabelsUseLocalDateAndTime()
+{
+    QTemporaryDir remote;
+    const QString folder = "backups/computer/Documents";
+    const QDateTime createdAt(QDate(2026, 10, 2), QTime(3, 4, 5));
+    QVERIFY(createCopy(remote, folder + "/copy-id", "documents", "copy-id", 1, 2,
+        createdAt.toUTC().toString(Qt::ISODateWithMs)));
+    BackupEngine engine;
+    RestoreTestProvider provider(remote.path());
+    provider.injectInvalidFolders = false;
+    BackupRestoreController controller(engine, &provider);
+
+    // Keep an identifiable fallback when a listing has no timestamp.
+    controller.discover(folder, "documents");
+    QTRY_VERIFY(!controller.busy());
+    QCOMPARE(controller.copies(), QStringList {"copy-id (not verified)"});
+
+    controller.selectCopy(0);
+    QTRY_VERIFY(!controller.busy());
+    QCOMPARE(controller.copies(), QStringList {"02/10/26 03:04:05"});
+    QCOMPARE(controller.currentCopyPath(), folder + "/copy-id");
+
+    controller.discover("backups", {}, true, "Documents");
+    QTRY_VERIFY(!controller.busy());
+    QCOMPARE(controller.copies(), QStringList {"02/10/26 03:04:05"});
 }
 
 void BackupRestoreControllerTest::historyListsSharedSnapshotsWithoutVisitingObjects()

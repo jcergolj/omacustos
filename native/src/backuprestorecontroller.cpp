@@ -221,14 +221,16 @@ QStringList BackupRestoreController::copies() const
     QStringList result;
     for (const int index : filteredCopyIndexes()) {
         const RemoteCopy &copy = remoteCopies.at(index);
-        result.append(QStringLiteral("%1 / %2 / %3%4 (%5)%6")
-            .arg(copy.computerName, copy.setName,
-                copy.copyId, copy.createdAt.isValid()
-                    ? QStringLiteral(" / ") + copy.createdAt.toLocalTime().toString(QStringLiteral("yyyy-MM-dd HH:mm"))
-                    : QString(), copy.status,
-                copy.unavailableItems.isEmpty() && copy.failedItems.isEmpty()
-                    ? QString()
-                    : QStringLiteral(" - some items unavailable")));
+        QString label = copy.createdAt.isValid()
+            ? copy.createdAt.toLocalTime().toString(QStringLiteral("dd/MM/yy HH:mm:ss"))
+            : copy.copyId;
+        if (copy.status != QStringLiteral("complete")) {
+            label += QStringLiteral(" (%1)").arg(copy.status);
+        }
+        if (!copy.unavailableItems.isEmpty() || !copy.failedItems.isEmpty()) {
+            label += QStringLiteral(" - some items unavailable");
+        }
+        result.append(label);
     }
     return result;
 }
