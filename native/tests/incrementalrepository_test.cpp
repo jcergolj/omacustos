@@ -580,7 +580,7 @@ private slots:
     void protonDeletionRequiresActualAncestry_data()
     {
         QTest::addColumn<QString>("fault");
-        for (const auto &fault : {"short UID alias", "long UID alias", "listed parent mismatch", "resolved parent mismatch"})
+        for (const auto &fault : {"short UID alias", "long UID alias", "listed parent mismatch", "resolved parent mismatch", "unreadable ancestor"})
             QTest::newRow(fault) << QString(fault);
     }
 
@@ -600,12 +600,14 @@ private slots:
             path = "/my-files/allowed/" + alias + "/victim";
             QCOMPARE(runner.remoteFile(path), runner.remoteFile("/my-files/outside/victim"));
         } else if (fault == "listed parent mismatch") runner.wrongListedParentName = "victim";
-        else runner.wrongResolvedParentPath = path;
+        else if (fault == "resolved parent mismatch") runner.wrongResolvedParentPath = path;
+        else runner.failListPath = "/my-files/outside";
         QString identity, error;
         QVERIFY(!provider.deletionIdentity(path, &identity, &error));
         QVERIFY2(!error.isEmpty(), qPrintable(fault));
         QVector<RemoteItem> items;
         QVERIFY(!provider.listComplete(path, &items, &error));
+        QVERIFY(!provider.listCompleteIfPresent(path, &items, &error));
         for (const auto &call : runner.calls) QVERIFY(call[1] != "trash" && call[1] != "delete");
         QVERIFY(QFileInfo::exists(runner.remoteFile("/my-files/outside/victim")));
     }
@@ -656,6 +658,75 @@ private slots:
         const auto resumed = IncrementalRepository::execute(fixture.request, fixture.provider);
         QVERIFY2(resumed.success(), qPrintable(errors(resumed)));
         QCOMPARE(resumed.state, IncrementalWriteResult::State::Unchanged);
+    }
+
+    void protonCleanupAcceptsMissingLegacyFolder_data()
+    {
+        QTest::addColumn<QString>("legacyRoot");
+        QTest::addColumn<bool>("createLegacy");
+        QTest::newRow("missing leaf") << QString("/my-files/backups/legacy") << false;
+        QTest::newRow("missing ancestor") << QString("/my-files/backups/legacy/Documents") << false;
+        QTest::newRow("existing empty folder") << QString("/my-files/backups/legacy/Documents") << true;
+        QTest::newRow("no legacy folder configured") << QString() << false;
+    }
+
+    void protonCleanupAcceptsMissingLegacyFolder()
+    {
+        QFETCH(QString, legacyRoot);
+        QFETCH(bool, createLegacy);
+        Fixture fixture;
+        FilesystemRunner runner;
+        ProtonProvider provider(runner);
+        QVERIFY(QDir().mkpath(runner.remoteFile("/my-files")));
+        fixture.request.remoteSetRoot = "/my-files/backups/" + fixture.request.remoteSetRoot;
+        QString error, confirmation;
+        QJsonObject proposal;
+        QVERIFY2(IncrementalRepository::initialize(fixture.request, provider, true, &error), qPrintable(error));
+        QVERIFY(IncrementalRepository::execute(fixture.request, provider).success());
+        fixture.request.legacyRoot = legacyRoot;
+        fixture.request.retention = 3;
+        if (createLegacy) QVERIFY(QDir().mkpath(runner.remoteFile(legacyRoot)));
+        const auto uploads = runner.uploadedPaths;
+        QVERIFY2(IncrementalRepository::cleanup(fixture.request, provider, &proposal, &confirmation, &error), qPrintable(error));
+        QVERIFY(proposal.isEmpty());
+        QCOMPARE(runner.uploadedPaths, uploads);
+        QVERIFY(runner.trashedPaths.isEmpty());
+        QVERIFY(QFileInfo::exists(runner.remoteFile(fixture.request.remoteSetRoot + "/snapshots/" + fixture.request.snapshotId + "/manifest.json")));
+        if (!legacyRoot.isEmpty() && !createLegacy) {
+            QVector<RemoteItem> items;
+            QString identity;
+            QVERIFY(!provider.listComplete(legacyRoot, &items, &error));
+            QVERIFY(!provider.deletionIdentity(legacyRoot, &identity, &error));
+        }
+    }
+
+    void protonMissingLegacyFolderStillRequiresCleanupConfirmation()
+    {
+        Fixture fixture;
+        FilesystemRunner runner;
+        ProtonProvider provider(runner);
+        QVERIFY(QDir().mkpath(runner.remoteFile("/my-files")));
+        fixture.request.remoteSetRoot = "/my-files/backups/" + fixture.request.remoteSetRoot;
+        QVERIFY(fixture.source("a", "old"));
+        QString error, confirmation;
+        QJsonObject proposal;
+        QVERIFY(IncrementalRepository::initialize(fixture.request, provider, true, &error));
+        QVERIFY(IncrementalRepository::execute(fixture.request, provider).success());
+        const auto oldSnapshot = fixture.request.snapshotId;
+        fixture.next();
+        QVERIFY(fixture.source("a", "new"));
+        QVERIFY(IncrementalRepository::execute(fixture.request, provider).success());
+        fixture.request.legacyRoot = "/my-files/backups/legacy/Documents";
+        fixture.request.retention = 1;
+        QVERIFY(!IncrementalRepository::cleanup(fixture.request, provider, &proposal, &confirmation, &error));
+        QVERIFY2(!confirmation.isEmpty(), qPrintable(error));
+        QCOMPARE(proposal.value("snapshots").toArray().size(), 1);
+        QVERIFY(runner.trashedPaths.isEmpty());
+        fixture.request.cleanupConfirmation = confirmation;
+        QVERIFY2(IncrementalRepository::cleanup(fixture.request, provider, &proposal, &confirmation, &error), qPrintable(error));
+        const auto snapshots = fixture.request.remoteSetRoot + "/snapshots/";
+        QVERIFY(!QFileInfo::exists(runner.remoteFile(snapshots + oldSnapshot + "/manifest.json")));
+        QVERIFY(QFileInfo::exists(runner.remoteFile(snapshots + fixture.request.snapshotId + "/manifest.json")));
     }
 
     void protonCleanupRecovery_data()

@@ -118,7 +118,8 @@ public:
             QJsonArray items;
             for (const QFileInfo &item : QDir(path).entryInfoList(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden)) {
                 QJsonObject node {{"uid", identity(item.filePath())}, {"parentUid", identity(path)}, {"name", QJsonObject {{"ok", true}, {"value", item.fileName()}}},
-                    {"type", item.isDir() ? "folder" : "file"}, {"totalStorageSize", item.size()}};
+                    {"type", item.isDir() ? "folder" : "file"}, {"totalStorageSize", item.size()},
+                    {"modificationTime", item.lastModified().toUTC().toString(Qt::ISODateWithMs)}};
                 if (item.fileName() == wrongListedParentName) node["parentUid"] = "outside-parent";
                 if (item.isFile() && includeListingContentSize && item.fileName() != omitListingMetadataName) {
                     node.insert("activeRevision", QJsonObject {{"claimedSize", item.size()}});

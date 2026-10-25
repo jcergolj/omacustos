@@ -583,6 +583,15 @@ private slots:
         BackupRestoreController browser(engine, &f.provider);
         browser.discover(f.set.remoteRoot, f.set.id, true, "Documents");
         QTRY_VERIFY_WITH_TIMEOUT(!browser.busy(), 10000);
+        QCOMPARE(browser.copies().size(), 1); // The selected-set chooser skips historical formats.
+        browser.selectCopy(0);
+        QTRY_VERIFY_WITH_TIMEOUT(!browser.busy(), 10000);
+        QCOMPARE(browser.currentCopyPath(), saved.latestSnapshotPath);
+        QVERIFY2(browser.restoreEligible(), qPrintable(browser.browseError()));
+        QCOMPARE(browser.entries().size(), 3);
+        // General discovery and verification remain compatible with old copies.
+        browser.discover(f.set.remoteRoot, {}, true, "Documents");
+        QTRY_VERIFY_WITH_TIMEOUT(!browser.busy(), 10000);
         QCOMPARE(browser.copies().size(), 2);
         for (int index = 0; index < 2; ++index) {
             browser.selectCopy(index);
@@ -634,7 +643,10 @@ private slots:
             QSignalSpy completed(&maintenance, &IncrementalMaintenance::completed);
             QSignalSpy failed(&maintenance, &IncrementalMaintenance::failed);
             maintenance.checkIntegrity(f.set.id);
+            QVERIFY(maintenance.busy());
+            QCOMPARE(maintenance.property("integritySetId").toString(), f.set.id);
             QTRY_VERIFY_WITH_TIMEOUT(!maintenance.busy(), 60000);
+            QCOMPARE(maintenance.property("integritySetId").toString(), QString());
             QVERIFY2(failed.isEmpty(), failed.isEmpty() ? "" : qPrintable(failed.first().first().toString()));
             QCOMPARE(completed.size(), 1);
         } else QVERIFY(QFile::remove(object));
@@ -655,6 +667,24 @@ private slots:
         QVERIFY(IncrementalRestore::verifyCopy(provider, original, IncrementalWorker::setId(f.set), &historical, &f.error));
         if (!corrupt) QVERIFY(!historical.unavailableItems.isEmpty());
         else QCOMPARE(bytes(object), QByteArray(archive.value("size").toInteger(), '!'));
+    }
+
+    void integrityActivityClearsAfterFailure()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        IncrementalMaintenance maintenance(directory.filePath("missing-settings.json"));
+        QSignalSpy busy(&maintenance, &IncrementalMaintenance::busyChanged);
+        QSignalSpy failed(&maintenance, &IncrementalMaintenance::failed);
+        maintenance.checkIntegrity("documents-id");
+        QVERIFY(maintenance.busy());
+        QCOMPARE(maintenance.property("integritySetId").toString(), QString("documents-id"));
+        maintenance.checkIntegrity("photos-id");
+        QCOMPARE(maintenance.property("integritySetId").toString(), QString("documents-id"));
+        QTRY_VERIFY_WITH_TIMEOUT(!maintenance.busy(), 1000);
+        QCOMPARE(maintenance.property("integritySetId").toString(), QString());
+        QCOMPARE(busy.size(), 2);
+        QCOMPARE(failed.size(), 1);
     }
 
     void takeoverPreservesConcurrentConfiguration_data()

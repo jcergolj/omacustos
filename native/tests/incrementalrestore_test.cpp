@@ -73,6 +73,175 @@ struct Fixture {
 class IncrementalRestoreTest : public QObject {
     Q_OBJECT
 private slots:
+    void sharedArchiveVerificationUsesBulkMetadata_data()
+    {
+        QTest::addColumn<QString>("scenario");
+        QTest::addColumn<int>("calls");
+        QTest::addColumn<int>("available");
+        QTest::newRow("complete metadata") << QString("bulk") << 2 << 3;
+        QTest::newRow("partial metadata") << QString("partial") << 3 << 3;
+        QTest::newRow("storage-only metadata") << QString("storage") << 5 << 3;
+        QTest::newRow("failed listing") << QString("failed") << 5 << 3;
+        QTest::newRow("missing archive") << QString("missing") << 3 << 2;
+        QTest::newRow("changed archive size") << QString("size") << 2 << 2;
+    }
+
+    void sharedArchiveVerificationUsesBulkMetadata()
+    {
+        QFETCH(QString, scenario);
+        QFETCH(int, calls);
+        QFETCH(int, available);
+        Fixture f;
+        QVERIFY(f.source("a", "alpha"));
+        QVERIFY(f.source("b", "beta"));
+        QVERIFY(f.source("c", "gamma"));
+        FilesystemRunner runner;
+        ProtonProvider provider(runner);
+        QVERIFY(QDir().mkpath(runner.remoteFile("/my-files")));
+        f.request.remoteSetRoot = "/my-files/sets/" + f.request.scan.setId;
+        f.request.archiveTargetBytes = 1;
+        QString error;
+        QVERIFY(IncrementalRepository::initialize(f.request, provider, true, &error));
+        QVERIFY(IncrementalRepository::execute(f.request, provider).success());
+        const auto manifest = object(runner.remoteFile(f.snapshot() + "/manifest.json"));
+        const auto archives = manifest.value("archives").toArray();
+        QCOMPARE(archives.size(), 3);
+        const auto remote = f.request.remoteSetRoot + '/' + archives.first().toObject().value("remote").toString();
+        runner.includeListingContentSize = scenario != "storage";
+        if (scenario == "partial") runner.omitListingMetadataName = QFileInfo(remote).fileName();
+        if (scenario == "failed") runner.failListPath = f.request.remoteSetRoot + "/objects";
+        if (scenario == "missing") QVERIFY(QFile::remove(runner.remoteFile(remote)));
+        if (scenario == "size") {
+            QVERIFY(QFile::setPermissions(runner.remoteFile(remote), QFileDevice::ReadOwner | QFileDevice::WriteOwner));
+            QVERIFY(write(runner.remoteFile(remote), "changed size"));
+        }
+        runner.calls.clear();
+        RemoteCopy copy;
+        QVERIFY2(IncrementalRestore::verifyCopy(provider, f.snapshot(), f.request.scan.setId, &copy, &error), qPrintable(error));
+        QCOMPARE(copy.entries.size(), available);
+        QCOMPARE(copy.unavailableItems.size(), 3 - available);
+        QCOMPARE(runner.calls.size(), calls);
+        QCOMPARE(runner.calls.first().mid(7, 2), (QStringList {f.request.remoteSetRoot + "/repository.json", f.snapshot() + "/manifest.json"}));
+        for (const auto &call : runner.calls) {
+            QVERIFY(call.value(1) == "download" || call.value(1) == "list" || call.value(1) == "info");
+            if (call.value(1) == "download") QVERIFY(call.at(call.size() - 2).endsWith(".json"));
+        }
+        runner.calls.clear();
+        RemoteCopy cancelled;
+        QVERIFY(!IncrementalRestore::verifyCopy(provider, f.snapshot(), f.request.scan.setId, &cancelled, &error,
+            [&] { return !runner.calls.isEmpty(); }));
+        QCOMPARE(runner.calls.size(), 1); // Cancellation after the batch prevents archive inspection/publication.
+        QVERIFY(cancelled.entries.isEmpty());
+    }
+
+    void selectedHistoryRejectsInvalidRepository_data()
+    {
+        QTest::addColumn<QString>("damage");
+        for (const QString &damage : {"missing", "malformed", "set", "origin", "epoch"})
+            QTest::newRow(qPrintable(damage)) << damage;
+    }
+
+    void selectedHistoryRejectsInvalidRepository()
+    {
+        QFETCH(QString, damage);
+        Fixture f;
+        QVERIFY(f.source("a", "alpha")); QVERIFY(f.initialize()); QVERIFY(f.save());
+        const QString path = f.cloud(f.request.remoteSetRoot + "/repository.json");
+        auto control = object(path);
+        if (damage == "missing") QVERIFY(QFile::remove(path));
+        else if (damage == "malformed") QVERIFY(write(path, "not JSON"));
+        else {
+            if (damage == "set") control["set_id"] = uuid();
+            if (damage == "origin") control["origin_computer_id"] = "invalid";
+            if (damage == "epoch") control["ownership_epoch"] = 1.5;
+            QVERIFY(write(path, QJsonDocument(control).toJson()));
+        }
+        QVector<RemoteCopy> copies;
+        QVERIFY(!BackupCatalog::listHistory(f.provider, "backup", &copies, &f.error, {}, f.request.scan.setId));
+        QVERIFY(copies.isEmpty());
+        QVERIFY(!f.error.isEmpty());
+        QVERIFY(IncrementalRestore::listSnapshotCandidates(f.provider, "backup", f.request.scan.setId, &copies, &f.error));
+        QCOMPARE(copies.size(), 1);
+        QVERIFY(!copies.first().complete());
+        QVERIFY(copies.first().entries.isEmpty());
+    }
+
+    void selectedHistoryKeepsPublishedCopiesAndRefreshesIdentity()
+    {
+        Fixture f;
+        QVERIFY(f.source("a", "alpha")); QVERIFY(f.initialize()); QVERIFY(f.save());
+        const QString first = f.snapshot();
+        f.next(); QVERIFY(f.source("a", "changed")); QVERIFY(f.save());
+        QVERIFY(QFile::remove(f.cloud(first + "/manifest.json")));
+        QVector<RemoteCopy> copies;
+        QVERIFY(BackupCatalog::listHistory(f.provider, "backup", &copies, &f.error, {}, f.request.scan.setId));
+        QCOMPARE(copies.size(), 1);
+        QCOMPARE(copies.first().rootPath, f.snapshot());
+        QVERIFY(copies.first().entries.isEmpty());
+        QVERIFY(!f.error.isEmpty()); // An unpublished/missing manifest is not a restore point.
+        QVector<RemoteCopy> candidates;
+        QVERIFY(IncrementalRestore::listSnapshotCandidates(f.provider, "backup", f.request.scan.setId, &candidates, &f.error));
+        QCOMPARE(candidates.size(), 2); // Display-only folders may include an unpublished point.
+        for (const auto &candidate : candidates) {
+            QCOMPARE(candidate.status, QString("not verified"));
+            QVERIFY(candidate.entries.isEmpty());
+        }
+
+        const QString path = f.cloud(f.request.remoteSetRoot + "/repository.json");
+        auto control = object(path);
+        control["origin_computer_id"] = uuid();
+        QVERIFY(write(path, QJsonDocument(control).toJson()));
+        f.error.clear();
+        QVERIFY(BackupCatalog::listHistory(f.provider, "backup", &copies, &f.error, {}, f.request.scan.setId));
+        QVERIFY(copies.isEmpty()); // A previous pass's identity must never authorize a later one.
+        QVERIFY(!f.error.isEmpty());
+    }
+
+    void selectedHistoryRejectsUnexpectedSnapshotEntries_data()
+    {
+        QTest::addColumn<bool>("directory");
+        QTest::newRow("invalid directory name") << true;
+        QTest::newRow("file in snapshot namespace") << false;
+    }
+
+    void selectedHistoryRejectsUnexpectedSnapshotEntries()
+    {
+        QFETCH(bool, directory);
+        Fixture f;
+        QVERIFY(f.source("a", "alpha")); QVERIFY(f.initialize()); QVERIFY(f.save());
+        const QString path = f.cloud(f.request.remoteSetRoot + "/snapshots/" + (directory ? "unexpected" : uuid()));
+        if (directory) QVERIFY(QDir().mkpath(path));
+        else QVERIFY(write(path, "not a snapshot"));
+        QVector<RemoteCopy> copies;
+        QVERIFY(!BackupCatalog::listHistory(f.provider, "backup", &copies, &f.error, {}, f.request.scan.setId));
+        QVERIFY(copies.isEmpty());
+        QVERIFY(!f.error.isEmpty());
+        QVERIFY(!IncrementalRestore::listSnapshotCandidates(f.provider, "backup", f.request.scan.setId, &copies, &f.error));
+        QVERIFY(copies.isEmpty());
+    }
+
+    void selectedHistoryRejectsUnsafeRootsAndHonorsCancellation()
+    {
+        Fixture f;
+        QVERIFY(f.source("a", "alpha")); QVERIFY(f.initialize()); QVERIFY(f.save());
+        QVector<RemoteCopy> copies;
+        for (const QString &root : {"backup/../backup", "backup//", "backup\\other", ""}) {
+            QVERIFY(!BackupCatalog::listHistory(f.provider, root, &copies, &f.error, {}, f.request.scan.setId));
+            QVERIFY(copies.isEmpty());
+            QVERIFY(!IncrementalRestore::listSnapshotCandidates(f.provider, root, f.request.scan.setId, &copies, &f.error));
+            QVERIFY(copies.isEmpty());
+        }
+        QVERIFY(!BackupCatalog::listHistory(f.provider, "backup", &copies, &f.error, [] { return true; }, f.request.scan.setId));
+        QVERIFY(copies.isEmpty());
+        QVERIFY(!IncrementalRestore::listSnapshotCandidates(f.provider, "backup", f.request.scan.setId,
+            &copies, &f.error, [] { return true; }));
+        QVERIFY(copies.isEmpty());
+        int polls = 0;
+        QVERIFY(!IncrementalRestore::listSnapshotCandidates(f.provider, "backup", f.request.scan.setId,
+            &copies, &f.error, [&] { return ++polls > 3; }));
+        QVERIFY(copies.isEmpty());
+    }
+
     void legacyComputerNamedSetsStillDiscovered()
     {
         Fixture f;
@@ -201,6 +370,11 @@ private slots:
         manifest["archives"] = archives; manifest["entries"] = entries;
         QVERIFY(write(f.cloud(f.snapshot() + "/manifest.json"), QJsonDocument(manifest).toJson()));
         RemoteCopy copy; QVERIFY(!f.load(&copy));
+        QVector<RemoteCopy> listed;
+        f.error.clear();
+        QVERIFY(BackupCatalog::listHistory(f.provider, "backup", &listed, &f.error, {}, f.request.scan.setId));
+        QVERIFY(listed.isEmpty());
+        QVERIFY(!f.error.isEmpty());
         QVector<RemoteCopy> discovered;
         QVERIFY(IncrementalRestore::discover(f.provider, "backup", &discovered, &f.error));
         QCOMPARE(discovered.size(), 1); QCOMPARE(discovered[0].status, QString("damaged"));

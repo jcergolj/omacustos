@@ -25,6 +25,9 @@ bool SystemBackupPrerequisiteProbe::onAcPower() const
 
 BackupPrerequisiteResult BackupPrerequisites::check(const BackupSet &set, const BackupPrerequisiteProbe &probe)
 {
+    if (set.schedule.paused) {
+        return {false, QStringLiteral("Imported settings are paused. Correct source paths, complete offline takeover, then explicitly resume this set. Restore remains available.")};
+    }
     if (set.onlyOnAcPower && !probe.onAcPower()) {
         return {false, QStringLiteral("Waiting for AC power.")};
     }

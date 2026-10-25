@@ -3,6 +3,7 @@
 #include <QByteArray>
 #include <QDateTime>
 #include <QString>
+#include <QStringList>
 #include <QVector>
 
 struct RemoteFile {
@@ -44,6 +45,10 @@ public:
     virtual bool uploadDirectory(const QString &, const QString &, QString * = nullptr) { return false; }
     virtual bool ensureDirectory(const QString &remotePath, QString *error = nullptr) = 0;
     virtual bool download(const QString &remotePath, const QString &localPath, QString *error = nullptr) = 0;
+    // Optional multi-source download into an existing private directory. Keep
+    // remote basenames; reject collisions and never overwrite existing targets.
+    virtual bool supportsBatchDownload() const { return false; }
+    virtual bool downloadFiles(const QStringList &, const QString &, QString * = nullptr) { return false; }
     virtual bool inspect(const QString &remotePath, RemoteFile *file, QString *error = nullptr) = 0;
     // Optional bulk content metadata. False means unsupported/unavailable;
     // omitted files must still be inspected individually by the caller.
@@ -55,6 +60,10 @@ public:
     // unreadable/ambiguous children. Exact deletion uses a persisted stable node
     // identity, reconciles trash, and is idempotent after a lost response.
     virtual bool listComplete(const QString &, QVector<RemoteItem> *, QString * = nullptr) { return false; }
+    // Optional historical folders: only proven absence may produce an empty
+    // inventory. Providers without that proof retain strict enumeration.
+    virtual bool listCompleteIfPresent(const QString &path, QVector<RemoteItem> *items, QString *error = nullptr)
+    { return listComplete(path, items, error); }
     virtual bool deletionIdentity(const QString &, QString *, QString * = nullptr) { return false; }
     virtual bool trashExact(const QString &, const QString &, QString * = nullptr) { return false; }
     virtual bool deleteExact(const QString &, const QString &, QString * = nullptr) { return false; }

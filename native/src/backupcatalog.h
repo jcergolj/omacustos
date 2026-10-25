@@ -31,11 +31,14 @@ struct RemoteCopy {
 class BackupCatalog final
 {
 public:
+    static bool listLegacyHistory(BackupProvider &provider, const QString &remoteRoot, QVector<RemoteCopy> *copies,
+        QString *error = nullptr, const std::function<bool()> &cancelled = {});
     static bool discover(BackupProvider &provider, const QString &remoteRoot, QVector<RemoteCopy> *copies, QString *error = nullptr,
         const std::function<bool()> &cancelled = {});
     // Identity/manifest discovery only; payloads are verified when a copy is selected.
+    // With a shared set ID, lists only that set's incremental snapshots, not legacy copies.
     static bool listHistory(BackupProvider &provider, const QString &remoteRoot, QVector<RemoteCopy> *copies, QString *error = nullptr,
-        const std::function<bool()> &cancelled = {});
+        const std::function<bool()> &cancelled = {}, const QString &expectedSharedSetId = {});
     static bool listCopies(BackupProvider &provider, const QString &backupFolder, QVector<RemoteCopy> *copies, QString *error = nullptr);
     static bool discoverCopies(BackupProvider &provider, const QString &backupFolder, const QString &expectedSetId,
         QVector<RemoteCopy> *copies, QString *error = nullptr);

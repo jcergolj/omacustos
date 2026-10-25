@@ -72,8 +72,78 @@ private slots:
     void successfulInspectClearsEarlierErrors();
     void commandErrorsAreActionable();
     void rejectsNullMetadataOutput();
+    void downloadsMetadataTogetherWithoutTouchingUnrelatedFiles_data();
+    void downloadsMetadataTogetherWithoutTouchingUnrelatedFiles();
+    void batchDownloadsRejectCollisionsAndMissingOutput();
     void listsRemoteItemsAndUsesExactCleanupCommands();
 };
+
+void ProtonProviderTest::downloadsMetadataTogetherWithoutTouchingUnrelatedFiles_data()
+{
+    QTest::addColumn<bool>("fail");
+    QTest::newRow("complete batch") << false;
+    QTest::newRow("partial batch") << true;
+}
+
+void ProtonProviderTest::downloadsMetadataTogetherWithoutTouchingUnrelatedFiles()
+{
+    QFETCH(bool, fail);
+    FilesystemRunner runner;
+    ProtonProvider provider(runner);
+    QTemporaryDir destination;
+    QVERIFY(QDir().mkpath(runner.remoteFile("/my-files/snapshot")));
+    const QStringList paths {"/my-files/repository.json", "/my-files/snapshot/manifest.json"};
+    for (const auto &path : paths) {
+        QFile file(runner.remoteFile(path));
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QCOMPARE(file.write(path.toUtf8()), path.toUtf8().size());
+    }
+    QFile unrelated(destination.filePath("keep.txt"));
+    QVERIFY(unrelated.open(QIODevice::WriteOnly));
+    QCOMPARE(unrelated.write("keep"), 4);
+    unrelated.close();
+    if (fail) runner.downloadFailure = FilesystemRunner::Failure::PartialOutput;
+    QString error;
+    QCOMPARE(provider.downloadFiles(paths, destination.path(), &error), !fail);
+    QCOMPARE(runner.calls.size(), 1);
+    QCOMPARE(runner.calls.first().mid(7, 2), paths);
+    QVERIFY(unrelated.open(QIODevice::ReadOnly));
+    QCOMPARE(unrelated.readAll(), QByteArray("keep"));
+    for (const auto &path : paths) {
+        QFile file(destination.filePath(QFileInfo(path).fileName()));
+        QCOMPARE(file.exists(), !fail);
+        if (!fail) {
+            QVERIFY(file.open(QIODevice::ReadOnly));
+            QCOMPARE(file.readAll(), path.toUtf8());
+        }
+    }
+    QCOMPARE(QDir(destination.path()).entryList({".omacustos-download-*"}, QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot).size(), 0);
+}
+
+void ProtonProviderTest::batchDownloadsRejectCollisionsAndMissingOutput()
+{
+    FakeRunner runner;
+    runner.response = {0, {}, {}};
+    ProtonProvider provider(runner);
+    QTemporaryDir destination;
+    QString error;
+    for (const auto &paths : {QStringList {}, QStringList {"/my-files/a/record.json", "/my-files/b/record.json"},
+            QStringList {"/my-files/../record.json"}, QStringList {"relative/record.json"}}) {
+        QVERIFY(!provider.downloadFiles(paths, destination.path(), &error));
+        QVERIFY(runner.arguments.isEmpty());
+    }
+    QFile existing(destination.filePath("record.json"));
+    QVERIFY(existing.open(QIODevice::WriteOnly));
+    QCOMPARE(existing.write("keep"), 4);
+    existing.close();
+    QVERIFY(!provider.downloadFiles({"/my-files/record.json"}, destination.path(), &error));
+    QVERIFY(runner.arguments.isEmpty());
+    QVERIFY(existing.open(QIODevice::ReadOnly));
+    QCOMPARE(existing.readAll(), QByteArray("keep"));
+    QVERIFY(!provider.downloadFiles({"/my-files/missing.json"}, destination.path(), &error));
+    QVERIFY(!runner.arguments.isEmpty()); // A successful CLI exit without a file is not success.
+    QVERIFY(!QFileInfo::exists(destination.filePath("missing.json")));
+}
 
 void ProtonProviderTest::immutableUploadsNeverSelectReplacement()
 {

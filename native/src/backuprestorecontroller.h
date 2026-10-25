@@ -21,6 +21,7 @@ class BackupRestoreController final : public QObject
     Q_PROPERTY(QStringList entries READ entries NOTIFY entriesChanged)
     Q_PROPERTY(QString defaultDestination READ defaultDestination CONSTANT)
     Q_PROPERTY(QStringList copies READ copies NOTIFY copiesChanged)
+    Q_PROPERTY(bool hasUnverifiedCopies READ hasUnverifiedCopies NOTIFY copiesChanged)
     Q_PROPERTY(QString copySearch READ copySearch WRITE setCopySearch NOTIFY copiesChanged)
     Q_PROPERTY(QStringList unavailableEntries READ unavailableEntries NOTIFY entriesChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
@@ -54,6 +55,7 @@ public:
     QStringList entries() const;
     QString defaultDestination() const;
     QStringList copies() const;
+    bool hasUnverifiedCopies() const;
     QString copySearch() const;
     void setCopySearch(const QString &search);
     QStringList unavailableEntries() const;
@@ -85,7 +87,7 @@ public:
     bool showingCachedData() const;
     bool restoreEligible() const;
     int currentCopyIndex() const;
-    Q_INVOKABLE void discover(const QString &backupFolder, const QString &setId = QString(), bool history = false, const QString &legacyName = {});
+    Q_INVOKABLE void discover(const QString &backupFolder, const QString &setId = QString(), bool history = false, const QString &legacyName = {}, bool refresh = true, bool includeLegacy = false);
     Q_INVOKABLE void selectCopy(int index);
     Q_INVOKABLE void restore(int index, const QString &destinationDirectory);
     Q_INVOKABLE void restoreSelected(const QVariantList &indexes, const QString &destinationDirectory);
@@ -123,6 +125,7 @@ private:
         QString selectedPath;
         bool history = false;
         QString legacyName;
+        bool includeLegacy = false;
     };
     struct Snapshot {
         QVector<RemoteCopy> copies;
@@ -149,7 +152,9 @@ private:
     QString expectedSetId;
     QString activeBackupFolder;
     bool historyContext = false;
+    bool hasCopyListing = false;
     QString historyLegacyName;
+    bool includeLegacyHistory = false;
     QString refreshError;
     QString transferBackupFolder;
     QString transferBackupId;

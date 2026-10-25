@@ -534,20 +534,29 @@ existing destination content, and staging is cleaned up on every return path.
 Destination and parent symlink checks are repeated after the transfer before
 writing the replacement and again immediately before committing it.
 
-Opening Restore lists only direct copy folders for the selected backup, using
-the recorded run's copy parent when available and the configured computer/backup
-folder otherwise. Listing runs in a background task; it does not traverse payload
-directories, download manifests, or inspect files. No copy is selected automatically.
-Selecting a copy downloads its manifest and verifies only that copy's files in
-the background. Loading indicators distinguish listing from verification; conflicting
-restore actions are disabled while either task runs. Each selection rechecks remote
-files, and manifest backup/copy identity must match the selection. Full verified
-catalog discovery remains available internally for retention.
+The internal direct-folder browsing interface lists only direct copy folders,
+without traversing payload directories, downloading manifests, or inspecting files.
+The normal Restore screen instead uses selected-backup history browsing below.
+Both list asynchronously and require an explicit copy selection. Selecting a copy
+downloads its manifest and verifies only that copy's files in the background.
+Loading indicators distinguish listing from verification; conflicting restore
+actions are disabled while either task runs. Each selection rechecks remote files,
+and manifest backup/copy identity must match the selection. Full verified catalog
+discovery remains available internally for retention.
 
-Shared-history browsing uses metadata-only catalog discovery across the configured
-root. It reads manifests and validates copy/repository identity, but does not check
-payloads or descend into shared archive object directories. Only selecting a copy
-performs payload verification; listing alone never grants restore eligibility.
+The normal selected-backup history chooser lists only that set's incremental
+snapshot candidates directly with one directory-listing request. Candidate paths
+and UUIDs are validated, but manifests and repository identity are not downloaded
+until selection. Labels say **not verified**; their provisional **folder date**
+comes from provider metadata, not a validated manifest. Incomplete candidates can
+appear and are rejected on selection. Listing never grants restore eligibility.
+Selected-copy verification freshly downloads the identity and manifest, validates
+their provenance, and uses operation-local bulk archive metadata with individual
+inspection fallback. No archive bytes are downloaded merely to browse files;
+actual restore retains full hash and physical-inventory verification.
+Old v1–v3 copies are intentionally excluded from this chooser, not deleted;
+validated metadata history, general discovery and legacy readers remain available
+internally. See [restore dropdown measurements](docs/restore-dropdown-performance.md).
 
 Restores are limited to manifest entries that passed verification. Destination
 traversal and symbolic-link escapes are rejected. The UI requires users to tick
@@ -659,7 +668,7 @@ backup is not restarted. Quotas are measured against one CPU core, so 200%
 permits up to two cores. Priorities never exceed normal (`nice=0`).
 
 The package installs the timer without enabling it. After a successful backup
-configuration save or import with any enabled schedule, the UI asynchronously
+configuration save with any enabled, unpaused schedule, the UI asynchronously
 runs `systemctl --user daemon-reload`, then
 `systemctl --user enable --now omacustos.timer`. Activation waits for any
 resource-preset update to finish, so an immediately due backup starts with the
@@ -707,3 +716,20 @@ hit its unchanged 180-second timeout. That timeout is not addressed by #54.
 
 See [Responsiveness measurements](native/tests/responsiveness.md) for the opt-in
 on-screen benchmark, before/after results, and outstanding target-hardware checks.
+## Manual cloud settings recovery
+
+`SettingsArchive` owns the append-only version-1 settings archive under
+`/my-files/omacustos/settings/<computer>`. It uses conflict-failing immutable
+uploads and full JSON readback comparison. `CloudSettingsController` executes
+manual browse/export/download operations asynchronously with a dedicated Proton
+runner; it neither schedules work nor transfers writer authority. Listings are
+checked for exact parent/child containment, duplicate selections and bounded
+entry counts. Selected documents have a 4 MiB metadata/read/parse limit and pass
+the same complete configuration validation as local imports before preview/apply.
+
+Imported `schedule.paused` is persisted independently of its original frequency
+and time. Scheduler calculations exclude paused schedules, and worker prerequisites
+block queued writes for paused imports. Handoff grants authority without clearing
+the pause; explicit per-set resume checks authority and source existence. Local
+and cloud imports use identical Merge/Replace behavior and read-only defaults.
+No remote operation, integrity or cleanup ledger is cleared to enable recovery.

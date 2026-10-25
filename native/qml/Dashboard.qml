@@ -88,6 +88,8 @@ ColumnLayout {
             run: dashboard.controller.runSummaries[setId] || ({})
             runActive: dashboard.controller.runningSetIds.indexOf(setId) >= 0
             deleting: dashboard.copies.deletingSetId === setId
+            integrityChecking: typeof incrementalMaintenance !== "undefined"
+                && incrementalMaintenance.busy && incrementalMaintenance.integritySetId === setId
             remaining: dashboard.controller.remainingTimes[setId] || qsTr("Estimating time remaining…")
             progress: dashboard.controller.transferProgress[setId] || ({})
             copyBusy: dashboard.copies.busy || dashboard.folderBrowser.busy
@@ -95,7 +97,10 @@ ColumnLayout {
             onEditRequested: dashboard.editSetRequested(index)
             onBackupRequested: dashboard.launcher.startBackup(setId)
             onPauseRequested: dashboard.launcher.pauseBackup(setId)
-            onResumeRequested: dashboard.launcher.resumeBackup(setId)
+            onResumeRequested: {
+                if (info.importPaused) dashboard.controller.resumeImportedSet(setId)
+                else dashboard.launcher.resumeBackup(setId)
+            }
             onCancelRequested: dashboard.launcher.cancelBackup(setId)
             onRestoreRequested: dashboard.restoreRequested(setId)
             onOpenFolderRequested: dashboard.openFolderRequested(setId)

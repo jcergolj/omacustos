@@ -94,6 +94,14 @@ bool validateImport(const QJsonObject &document, QString *error)
             }
         }
         const QString id = set.value(QStringLiteral("id")).toString();
+        if (id == "." || id == ".." || id.contains('/') || id.contains('\\') || id.contains(QChar::Null)) {
+            return invalidImportField(path + ".id", "must be a safe single path component", error);
+        }
+        const QString remote = set.value("remote_root").toString();
+        if (remote == "." || remote == ".." || remote.startsWith("../") || QDir::cleanPath(remote) != remote
+            || remote.contains('\\') || remote.contains(QChar::Null)) {
+            return invalidImportField(path + ".remote_root", "must be a canonical path without traversal", error);
+        }
         if (ids.contains(id)) {
             return invalidImportField(path + QStringLiteral(".id"), QStringLiteral("duplicates another set's ID (%1)").arg(id), error);
         }
@@ -216,8 +224,13 @@ bool BackupConfigStore::loadFile(BackupConfig *config, bool setsOnly, QString *e
         return false;
     }
 
+    const QByteArray bytes = setsOnly ? file.read(MaximumImportBytes + 1) : file.readAll();
+    if (setsOnly && bytes.size() > MaximumImportBytes) {
+        if (error) *error = QStringLiteral("Settings imports must not exceed 4 MiB.");
+        return false;
+    }
     QJsonParseError parseError;
-    const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &parseError);
+    const QJsonDocument document = QJsonDocument::fromJson(bytes, &parseError);
     const QJsonObject object = document.object();
     if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
         if (error != nullptr) {
@@ -292,6 +305,11 @@ bool BackupConfigStore::loadFile(BackupConfig *config, bool setsOnly, QString *e
             set.schedule.minute = schedule.value(QStringLiteral("minute")).toInt(0);
             set.schedule.weekday = schedule.value(QStringLiteral("weekday")).toInt(1);
             set.schedule.dayOfMonth = schedule.value(QStringLiteral("day_of_month")).toInt(1);
+            if (schedule.contains("paused") && !schedule.value("paused").isBool()) {
+                if (error) *error = QStringLiteral("The schedule paused setting must be a boolean.");
+                return false;
+            }
+            set.schedule.paused = setsOnly || schedule.value("paused").toBool(false);
             set.retention = qMax(1, setObject.value(QStringLiteral("retention")).toInt(3));
             set.onlyOnAcPower = setObject.value(QStringLiteral("only_on_ac_power")).toBool(false);
             const auto binding = installationBinding(QFileInfo(path).absolutePath());
@@ -386,6 +404,28 @@ bool BackupConfigStore::exportSets(const BackupConfig &config, QString *error) c
     return saveFile(config, true, error);
 }
 
+bool BackupConfigStore::resumeImportedSet(const QString &setId, QString *error) const
+{
+    QLockFile lock(path + QStringLiteral(".lock"));
+    if (!lockConfiguration(lock, path, error)) return false;
+    BackupConfig config;
+    if (!load(&config, error)) return false;
+    for (auto &set : config.sets) if (set.id == setId) {
+        if (set.readOnly) {
+            if (error) *error = QStringLiteral("Complete offline writer takeover before resuming this set. Restore remains available.");
+            return false;
+        }
+        for (const auto &source : set.sourceDirectories) if (!QFileInfo(source).exists()) {
+            if (error) *error = QStringLiteral("Correct the missing source before resuming: %1").arg(source);
+            return false;
+        }
+        set.schedule.paused = false;
+        return saveFile(config, false, error);
+    }
+    if (error) *error = QStringLiteral("The backup set no longer exists.");
+    return false;
+}
+
 bool BackupConfigStore::saveFile(const BackupConfig &config, bool setsOnly, QString *error) const
 {
     if (!setsOnly && config.protonBinary.isEmpty()) {
@@ -442,6 +482,7 @@ bool BackupConfigStore::saveFile(const BackupConfig &config, bool setsOnly, QStr
             {QStringLiteral("minute"), set.schedule.minute},
             {QStringLiteral("weekday"), set.schedule.weekday},
             {QStringLiteral("day_of_month"), set.schedule.dayOfMonth},
+            {QStringLiteral("paused"), set.schedule.paused},
         };
 
         sets.append(QJsonObject {
@@ -458,6 +499,11 @@ bool BackupConfigStore::saveFile(const BackupConfig &config, bool setsOnly, QStr
             {QStringLiteral("staging_budget_bytes"), set.stagingBudget},
             {QStringLiteral("read_only"), setsOnly || set.readOnly},
         });
+        if (setsOnly) {
+            auto definition = sets.last().toObject();
+            definition.remove("read_only");
+            sets.replace(sets.size() - 1, definition);
+        }
     }
     object.insert(QStringLiteral("sets"), sets);
 

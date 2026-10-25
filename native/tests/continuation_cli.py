@@ -115,9 +115,17 @@ try:
     elif command == "download":
         # Explicit writes let the quota fixture exercise the real download sink,
         # instead of bypassing it through copy_file_range/sendfile.
-        with remote(args[-2]).open("rb") as source, (Path(args[-1]) / Path(args[-2]).name).open("wb", buffering=0) as destination:
-            while chunk := source.read(64 * 1024):
-                destination.write(chunk)
+        # Like the real CLI, accept all sources before the destination folder.
+        paths = iter(args[2:-1])
+        for path in paths:
+            if path in ("-f", "-d"):
+                next(paths)
+                continue
+            if path == "-j":
+                continue
+            with remote(path).open("rb") as source, (Path(args[-1]) / Path(path).name).open("wb", buffering=0) as destination:
+                while chunk := source.read(64 * 1024):
+                    destination.write(chunk)
         print("{}")
     elif command in ("trash", "delete"):
         if not os.environ.get("FIXTURE_EXACT_IDENTITY"):

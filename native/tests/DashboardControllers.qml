@@ -1,12 +1,26 @@
 import QtQuick
 
 QtObject {
+    property QtObject cloudSettings: QtObject {
+        property bool busy: false
+        property var versions: []
+        property string error: ""
+        property int browseCount: 0
+        property int exportCount: 0
+        property string previewPath: ""
+        signal downloaded(string filePath)
+        signal exported(string remotePath)
+        function browse() { browseCount++ }
+        function exportSettings() { exportCount++ }
+        function previewVersion(path) { previewPath = path }
+    }
     property QtObject incrementalMaintenance: QtObject {
         property bool busy: false
         property string previewSet: ""
         property string takeoverSet: ""
         property bool takeoverAcknowledged: false
         property string integritySet: ""
+        readonly property string integritySetId: busy ? integritySet : ""
         property int confirmationCount: 0
         property int dismissalCount: 0
         signal cleanupReady(string setId, string proposal)
@@ -16,7 +30,7 @@ QtObject {
         function confirmCleanup() { confirmationCount++ }
         function cancelCleanup() { dismissalCount++ }
         function takeover(setId, acknowledged) { takeoverSet = setId; takeoverAcknowledged = acknowledged }
-        function checkIntegrity(setId) { integritySet = setId }
+        function checkIntegrity(setId) { integritySet = setId; busy = true }
     }
 
     property QtObject backupScheduler: QtObject {
@@ -122,6 +136,12 @@ QtObject {
         property string exportedPath: ""
         property string templatePath: ""
         property bool importSucceeds: true
+        property string preparedImportPath: ""
+        property string importPreview: "Documents — Add on merge\nMissing source: /home/old/Documents\nweekly 15:42 (paused)"
+        property string resumedImportedId: ""
+        function prepareImport(path) { preparedImportPath = path; return importSucceeds }
+        function applyImport(merge) { return importSets(preparedImportPath, merge) }
+        function resumeImportedSet(id) { resumedImportedId = id }
         property bool saveSucceeds: true
         property var unsavedSetIds: []
         signal currentSetChanged()
@@ -272,11 +292,14 @@ QtObject {
         property int selectedCopy: -1
         property var entries: []
         property var copies: []
+        readonly property bool hasUnverifiedCopies: copies.some(function (copy) { return copy.indexOf("not verified") >= 0 })
         property var unavailableEntries: []
         property string copySearch: ""
         property string defaultDestination: "/safe/restore"
         property string discoveredRoot: ""
         property string discoveredSetId: ""
+        property int discoverCount: 0
+        property bool discoveryRefresh: true
         property var restoredIndexes: []
         property string restoreDestination: ""
         property int restoreCount: 0
@@ -286,7 +309,12 @@ QtObject {
         signal restoreCompleted()
         signal restoreStarted()
         signal restoreCompletedForContext(string folder, string setId, string copyPath)
-        function discover(remoteRoot, setId) { discoveredRoot = remoteRoot; discoveredSetId = setId }
+        function discover(remoteRoot, setId, history, legacyName, refresh) {
+            discoveredRoot = remoteRoot
+            discoveredSetId = setId
+            ++discoverCount
+            discoveryRefresh = refresh !== false
+        }
         function selectCopy(index) { selectedCopy = index; currentCopyIndex = index }
         property var downloadObjects: []
         function downloadCost(indexes) {

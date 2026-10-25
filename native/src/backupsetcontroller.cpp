@@ -905,6 +905,68 @@ bool BackupSetController::importSets(const QString &filePath, bool merge)
         emit failed(error);
         return false;
     }
+    return applyImportedConfig(imported, merge);
+}
+
+bool BackupSetController::prepareImport(const QString &filePath)
+{
+    importPrepared = false;
+    pendingImportPreview.clear();
+    QString error;
+    if (!BackupConfigStore(filePath).importSets(&pendingImport, &error)) {
+        emit importPreviewChanged();
+        emit failed(error);
+        return false;
+    }
+    QStringList lines;
+    QStringList unrelated;
+    for (const auto &saved : savedSets) {
+        if (std::none_of(pendingImport.sets.cbegin(), pendingImport.sets.cend(), [&](const auto &incoming) { return incoming.id == saved.id; }))
+            unrelated << saved.name + " (" + saved.id + ')';
+    }
+    if (!unrelated.isEmpty()) lines << tr("Merge preserves / Replace removes these local definitions only: %1").arg(unrelated.join(", "));
+    for (const auto &set : pendingImport.sets) {
+        const bool updating = std::any_of(savedSets.cbegin(), savedSets.cend(), [&](const auto &saved) { return saved.id == set.id; });
+        lines << tr("%1 — %2 (ID: %3)\nDestination: %4\nSources: %5\nInclude: %6\nExclude: %7")
+            .arg(set.name, updating ? tr("Update matching ID on merge") : tr("Add on merge"), set.id,
+                set.remoteRoot, set.sourceDirectories.join(", "), set.inclusions.join(", "), set.exclusions.join(", "))
+            + '\n' + tr("Retention: %1; schedule: %2 %3:%4, weekday %5, day %6 (paused)")
+                .arg(QString::number(set.retention), set.schedule.frequency, QString::number(set.schedule.hour),
+                    QString::number(set.schedule.minute), QString::number(set.schedule.weekday), QString::number(set.schedule.dayOfMonth))
+            + '\n' + tr("AC only: %1; staging: %2; budget: %3 bytes")
+                .arg(set.onlyOnAcPower ? tr("yes") : tr("no"), set.stagingDirectory, QString::number(set.stagingBudget));
+        for (const auto &source : set.sourceDirectories) if (!QFileInfo::exists(source)) lines << tr("Missing source (correct after import): %1").arg(source);
+    }
+    pendingImportPreview = lines.isEmpty() ? tr("This export contains no backup sets.") : lines.join("\n\n");
+    importPrepared = true;
+    emit importPreviewChanged();
+    return true;
+}
+
+bool BackupSetController::applyImport(bool merge)
+{
+    if (!importPrepared) { emit failed(tr("Preview a valid settings export first.")); return false; }
+    if (!applyImportedConfig(pendingImport, merge)) return false;
+    importPrepared = false;
+    return true;
+}
+
+bool BackupSetController::resumeImportedSet(const QString &setId)
+{
+    QString error;
+    if (!store.resumeImportedSet(setId, &error)) { emit failed(error); return false; }
+    refreshWriteAuthority();
+    emit setsChanged();
+    emit currentSetChanged();
+    emit configurationSaved();
+    emit statusChanged(tr("Backup set resumed. Its original schedule is now available."));
+    return true;
+}
+
+bool BackupSetController::applyImportedConfig(const BackupConfig &imported, bool merge)
+{
+    QString error;
+    if (!QDir().mkpath(QFileInfo(store.filePath()).absolutePath())) { emit failed(tr("Unable to create the configuration directory.")); return false; }
     QLockFile managementGate(runStore.filePath() + QStringLiteral(".management.lock"));
     QLockFile workerLock(store.filePath() + QStringLiteral(".worker.lock"));
     QLockFile queueWorkerLock(runStore.filePath() + QStringLiteral(".worker.lock"));
@@ -918,6 +980,7 @@ bool BackupSetController::importSets(const QString &filePath, bool merge)
         return false;
     }
     BackupConfig updated = config;
+    if (QFileInfo::exists(store.filePath()) && !store.load(&updated, &error)) { emit failed(error); return false; }
     if (merge) {
         updated.sets.erase(std::remove_if(updated.sets.begin(), updated.sets.end(), [this](const BackupSet &set) {
             return unsavedSetIds.contains(set.id);
@@ -1076,8 +1139,8 @@ void BackupSetController::refreshWriteAuthority()
     QString error;
     if (!store.load(&saved, &error)) { emit failed(error); return; }
     for (const auto &set : saved.sets) {
-        for (auto &draft : config.sets) if (draft.id == set.id && draft.remoteRoot == set.remoteRoot) draft.readOnly = set.readOnly;
-        for (auto &previous : savedSets) if (previous.id == set.id && previous.remoteRoot == set.remoteRoot) previous.readOnly = set.readOnly;
+        for (auto &draft : config.sets) if (draft.id == set.id && draft.remoteRoot == set.remoteRoot) { draft.readOnly = set.readOnly; draft.schedule.paused = set.schedule.paused; }
+        for (auto &previous : savedSets) if (previous.id == set.id && previous.remoteRoot == set.remoteRoot) { previous.readOnly = set.readOnly; previous.schedule.paused = set.schedule.paused; }
     }
 }
 
@@ -1105,6 +1168,8 @@ void BackupSetController::updateDashboard()
         setSummaries.insert(set.id, QVariantMap {
             {QStringLiteral("sourceCount"), set.sourceDirectories.size()},
             {QStringLiteral("schedule"), schedule},
+            {QStringLiteral("importPaused"), set.schedule.paused},
+            {QStringLiteral("readOnly"), set.readOnly},
             {QStringLiteral("nextRun"), next.isValid() ? next.toString(QStringLiteral("dd/MM/yyyy HH:mm")) : QString()},
             {QStringLiteral("retention"), set.retention},
             {QStringLiteral("onlyOnAcPower"), set.onlyOnAcPower},

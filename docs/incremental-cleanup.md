@@ -18,6 +18,12 @@ Legacy copies and snapshots share one creation-time/identity ordering. Incomplet
 legacy states remain intact and consume no successful-history slot. Unreadable,
 unsupported or ambiguous history blocks cleanup rather than being ignored.
 
+An optional historical Proton folder that is absent contributes no copies, even
+if one of its ancestors is also absent. Absence must be established from a complete,
+name/UID/parent-validated ancestor listing; download errors, unreadable listings,
+UID aliases and identity mismatches are never treated as absence. Required
+repository inventories and exact deletion targets retain their strict checks.
+
 Only a verified, durably completed **saved** publication can start a proposal.
 Unchanged checks publish no snapshot and consume no slot. Failed uploads, quota
 errors, and incomplete backups cannot start retention. No history is removed to
@@ -123,6 +129,20 @@ per-node failures with exit status zero, and ambiguous trash names.
 Review regressions cover failed/lost initial proposal publication after local-state
 loss, short/long global UID aliases, listed/resolved parent UID mismatches, and
 offline handoff after completed retention.
+
+### Missing historical-folder recovery (2026-10-24)
+
+An absent optional Proton legacy namespace previously produced “Resolved Proton
+node is not the selected child of its allowed parent” and blocked cleanup even
+when current snapshots were healthy. Optional inventory now distinguishes proven
+absence from identity/read failures; required inventories and deletion identities
+still reject missing paths.
+
+Regression coverage includes missing leaves/ancestors, existing empty folders,
+unchanged exact-proposal confirmation, unreadable ancestry, UID aliases and parent
+identity mismatches. A read-only capture of the affected repository failed before
+the fix and its offline replay passed afterward without remote mutations. The full
+CTest suite passed **41/41** after rebuilding all targets.
 
 ### Validation record (2026-10-20)
 

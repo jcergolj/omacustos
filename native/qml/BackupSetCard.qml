@@ -15,6 +15,7 @@ Frame {
     required property string remaining
     required property var progress
     required property bool copyBusy
+    property bool integrityChecking: false
     signal editRequested()
     signal backupRequested()
     signal pauseRequested()
@@ -199,9 +200,23 @@ Frame {
             Layout.fillWidth: true
         }
 
+        TransferProgress {
+            style: card.style
+            visible: card.integrityChecking
+            statusText: qsTr("Checking backup integrity…")
+            detailText: qsTr("Saved backup data is downloaded and verified. No new backup is created.")
+            indeterminate: true
+            accessibleName: qsTr("Backup integrity check")
+            statusObjectName: "setIntegrityStatus-" + card.cardIndex
+            detailObjectName: "setIntegrityDetail-" + card.cardIndex
+            barObjectName: "setIntegrityProgress-" + card.cardIndex
+            Layout.fillWidth: true
+        }
+
         Label {
             objectName: "setSchedule-" + card.cardIndex
-            text: (card.info.schedule || qsTr("Manual backups"))
+            text: (card.info.importPaused ? qsTr("Imported — paused. Correct missing sources, complete offline writer takeover, then resume. Restore is available.\n") : "")
+                + (card.info.schedule || qsTr("Manual backups"))
                 + (card.info.onlyOnAcPower ? qsTr(" · AC power only") : "")
             color: card.style.mutedColor
             wrapMode: Text.WordWrap
@@ -241,7 +256,7 @@ Frame {
                 style: card.style
                 objectName: "resumeBackup-" + card.cardIndex
                 text: qsTr("Resume")
-                visible: !card.runActive && (card.run.statusCode === "paused" || !!card.run.unfinished)
+                visible: !card.runActive && (card.info.importPaused || card.run.statusCode === "paused" || !!card.run.unfinished)
                 onClicked: card.resumeRequested()
             }
             ActionButton {
@@ -256,7 +271,7 @@ Frame {
                 style: card.style
                 objectName: "backUpNow-" + card.cardIndex
                 text: qsTr("Back up now")
-                visible: !card.run.unfinished && card.run.statusCode !== "paused"
+                visible: !card.info.importPaused && !card.run.unfinished && card.run.statusCode !== "paused"
                 enabled: !card.active
                 onClicked: card.backupRequested()
             }
@@ -264,9 +279,9 @@ Frame {
                 style: card.style
                 objectName: "restore-" + card.cardIndex
                 text: qsTr("Restore copies…")
-                enabled: !!card.run.hasActivity && !card.deleting
+                enabled: !card.deleting
                 ToolTip.visible: hovered
-                ToolTip.text: enabled ? qsTr("Choose from the available copies, including older backups") : qsTr("Run a backup first to create a copy")
+                ToolTip.text: qsTr("Choose from available copies, including backups from another computer")
                 onClicked: card.restoreRequested()
             }
             ActionButton {

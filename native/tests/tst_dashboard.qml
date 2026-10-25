@@ -13,6 +13,14 @@ TestCase {
     Component { id: windowComponent; OmaCustos.Main {} }
 
     function init() {
+        cloudSettings.busy = false
+        cloudSettings.versions = []
+        cloudSettings.error = ""
+        cloudSettings.browseCount = 0
+        cloudSettings.exportCount = 0
+        cloudSettings.previewPath = ""
+        backupSetController.preparedImportPath = ""
+        backupSetController.resumedImportedId = ""
         incrementalMaintenance.busy = false
         incrementalMaintenance.previewSet = ""
         incrementalMaintenance.takeoverSet = ""
@@ -91,6 +99,8 @@ TestCase {
         backupLauncher.cancelledId = ""
         restoreController.discoveredRoot = ""
         restoreController.discoveredSetId = ""
+        restoreController.discoverCount = 0
+        restoreController.discoveryRefresh = true
         restoreController.busy = false
         restoreController.restoring = false
         restoreController.restoreProgress = ""
@@ -323,6 +333,55 @@ TestCase {
         compare(incrementalMaintenance.integritySet, "documents-id")
     }
 
+    function test_fullIntegrityCheckShowsVisibleRunningFeedback() {
+        openMenu(0)
+        mouseClick(control("checkIntegrity-0"))
+        compare(incrementalMaintenance.integritySet, "documents-id")
+        verify(incrementalMaintenance.busy)
+        tryVerify(function () {
+            return visibleTexts(app.contentItem).some(function (text) {
+                return text.indexOf("Checking backup integrity") >= 0
+            })
+        }, 1000, "A running full integrity check must have visible feedback")
+        verify(control("setIntegrityStatus-0").visible)
+        verify(!control("setIntegrityStatus-1").visible)
+        const progress = control("setIntegrityProgress-0")
+        verify(progress.visible)
+        verify(progress.indeterminate)
+        compare(progress.Accessible.name, "Backup integrity check")
+        verify(control("setIntegrityDetail-0").text.indexOf("No new backup is created") >= 0)
+        if (dashboardScreenshotPath.length > 0) {
+            waitForRendering(app.contentItem)
+            grabImage(app.contentItem).save(dashboardScreenshotPath + ".integrity.png")
+        }
+    }
+
+    function test_fullIntegrityCheckStopsFeedbackAndShowsResult_data() {
+        return [
+            { tag: "completed", failed: false, message: "Full integrity status: complete." },
+            { tag: "failed", failed: true, message: "Unable to read backup operation metadata." }
+        ]
+    }
+
+    function test_fullIntegrityCheckStopsFeedbackAndShowsResult(data) {
+        openMenu(0)
+        mouseClick(control("checkIntegrity-0"))
+        verify(control("setIntegrityProgress-0").visible)
+        incrementalMaintenance.busy = false
+        if (data.failed) incrementalMaintenance.failed(data.message)
+        else incrementalMaintenance.completed(data.message)
+        verify(!control("setIntegrityStatus-0").visible)
+        verify(!control("setIntegrityProgress-0").visible)
+        compare(app.notificationMessage, data.message)
+        tryCompare(control("notificationToast"), "opened", true)
+    }
+
+    function test_otherMaintenanceDoesNotShowIntegrityFeedback() {
+        incrementalMaintenance.busy = true
+        verify(!control("setIntegrityStatus-0").visible)
+        verify(!control("setIntegrityStatus-1").visible)
+    }
+
     function test_sharedSnapshotsCannotUseLegacyWholeCopyDeletion() {
         backupSetController.runDetails = {
             "documents-id": {statusCode: "success", status: "Successful", hasLatestCopy: true, sharedSnapshot: true}
@@ -395,7 +454,7 @@ TestCase {
         compare(backupSetController.currentIndex, 0)
         compare(app.showEditor, false)
         compare(control("setStatus-1").text, "No backup yet")
-        compare(control("restore-1").enabled, false)
+        compare(control("restore-1").enabled, true)
     }
 
     function test_deleteRequiresConfirmationAndCancelDoesNotRemove() {
@@ -532,11 +591,12 @@ TestCase {
         compare(backupSetController.removedIndex, -1)
     }
 
-    function test_restoreUsesCardSetIdAndRequiresActivity() {
-        compare(control("restore-1").enabled, false)
+    function test_restoreUsesCardSetIdWithoutLocalActivity() {
+        compare(control("restore-1").enabled, true)
         mouseClick(control("restore-1"))
-        compare(restoreController.discoveredRoot, "")
-        compare(app.showRestore, false)
+        compare(restoreController.discoveredRoot, "/backups/photos-id")
+        compare(app.showRestore, true)
+        app.showRestore = false
         backupSetController.currentIndex = 1
         mouseClick(control("restore-0"))
         compare(backupSetController.currentIndex, 1)
@@ -597,6 +657,41 @@ TestCase {
         restoreController.loadingMessage = "Loading and verifying files…"
         compare(control("restoreLoadingMessage").text, "Loading and verifying files…")
         compare(selector.enabled, true)
+    }
+
+    function test_restoreNavigationReusesCopiesAndOffersExplicitRefresh() {
+        mouseClick(control("restore-0"))
+        compare(restoreController.discoveryRefresh, false)
+        const root = restoreController.discoveredRoot
+        const setId = restoreController.discoveredSetId
+        const refresh = control("refreshRestoreCopiesButton")
+        mouseClick(refresh)
+        compare(restoreController.discoverCount, 2)
+        compare(restoreController.discoveryRefresh, true)
+        compare(restoreController.discoveredRoot, root)
+        compare(restoreController.discoveredSetId, setId)
+        restoreController.busy = true
+        compare(refresh.enabled, false)
+    }
+
+    function test_unverifiedRestoreCandidatesCannotStartRestore() {
+        mouseClick(control("restore-0"))
+        restoreController.copies = ["Documents / candidate (not verified)"]
+        verify(control("restoreUnverifiedCopiesMessage").visible)
+        verify(control("restoreUnverifiedCopiesMessage").text.indexOf("Incomplete or unavailable") >= 0)
+        compare(control("restoreCopyCount").text, "1 listed restore point — select it to verify")
+        control("restoreDestinationField").text = "/safe/restore"
+        verify(!control("startRestoreButton").enabled)
+        restoreController.currentCopyIndex = 0
+        restoreController.busy = true
+        restoreController.entries = ["notes.txt"]
+        verify(!control("startRestoreButton").enabled)
+        restoreController.copies = ["Documents / selected point (complete)"]
+        restoreController.verified = true
+        verify(!control("startRestoreButton").enabled)
+        restoreController.busy = false
+        verify(control("startRestoreButton").enabled)
+        verify(!control("restoreUnverifiedCopiesMessage").visible)
     }
 
     function test_restoreLetsUserChooseAnOlderCopyOfTheSameSet() {
@@ -1055,6 +1150,44 @@ TestCase {
         compare(panel.folderCheckState("/safe/documents"), Qt.Checked)
     }
 
+    function test_restoreTreeDistinguishesFoldersFromFiles() {
+        showRestoreFiles()
+        restoreController.entries = ["/safe/notes.txt"]
+        const folder = folderControl("/safe")
+        const folderIcon = findChild(folder, "restoreEntryIcon")
+        verify(folderIcon)
+        compare(folderIcon.folder, true)
+        compare(findChild(folder, "restoreEntryLabel").font.weight, Font.DemiBold)
+        compare(folder.text, "safe")
+        const list = control("restoreFilesList")
+        list.positionViewAtIndex(fileRow(0), ListView.Contain)
+        waitForRendering(app.contentItem)
+        const file = control("restoreFile-0")
+        compare(findChild(file, "restoreEntryIcon").folder, false)
+        compare(findChild(file, "restoreEntryLabel").font.weight, Font.Normal)
+        compare(file.text, "notes.txt")
+    }
+
+    function test_restoreFoldersCollapseWithoutChangingSelection() {
+        showRestoreFiles()
+        restoreController.entries = ["/safe/documents/nested/notes.txt", "/safe/music/song.mp3"]
+        const panel = control("restorePanel")
+        const selected = panel.selectedPaths.slice()
+        mouseClick(findChild(folderControl("/safe/documents/nested"), "restoreFolderExpander"))
+        verify(!panel.visibleTreeRows.some(function (row) { return row.path.endsWith("notes.txt") }))
+        mouseClick(findChild(folderControl("/safe/documents"), "restoreFolderExpander"))
+        compare(panel.visibleTreeRows.map(function (row) { return row.path }),
+            ["/safe", "/safe/documents", "/safe/music", "/safe/music/song.mp3"])
+        compare(panel.selectedPaths, selected)
+        mouseClick(findChild(folderControl("/safe/documents"), "restoreFolderExpander"))
+        verify(panel.visibleTreeRows.some(function (row) { return row.path === "/safe/documents/nested" }))
+        verify(!panel.visibleTreeRows.some(function (row) { return row.path.endsWith("notes.txt") }))
+        // The nested folder remembers its own collapsed state.
+        panel.toggleFolderExpanded("/safe/documents/nested")
+        compare(panel.visibleTreeRows.length, panel.selection.treeRows.length)
+        compare(panel.selectedPaths, selected)
+    }
+
     function test_parentFolderSelectionIncludesDescendantsAndKeepsSiblingFolders() {
         showRestoreFiles()
         restoreController.entries = ["/safe/documents/notes.txt", "/safe/documents/nested/photo.jpg",
@@ -1464,7 +1597,9 @@ TestCase {
         compare(menu.itemAt(0), control("newBackupSetButton"))
         compare(menu.itemAt(2), control("importSetsButton"))
         compare(menu.itemAt(3), control("exportSetsButton"))
-        compare(menu.itemAt(4), control("downloadTemplateButton"))
+        compare(menu.itemAt(4), control("importCloudSettingsButton"))
+        compare(menu.itemAt(5), control("exportCloudSettingsButton"))
+        compare(menu.itemAt(6), control("downloadTemplateButton"))
         const menuTop = menu.contentItem.mapToItem(app.contentItem, 0, 0)
         verify(menuTop.y >= position.y + button.height)
         verify(Math.abs(menuTop.x + menu.contentItem.width - position.x - button.width) < 16)
@@ -1483,7 +1618,7 @@ TestCase {
         control("exportSetsDialog").reject()
         mouseClick(button)
         tryCompare(menu, "opened", true)
-        mouseClick(menu.itemAt(4))
+        mouseClick(control("downloadTemplateButton"))
         tryCompare(control("templateDialog"), "visible", true)
         control("templateDialog").reject()
     }
@@ -1512,10 +1647,77 @@ TestCase {
         const dialog = control("importSetsDialog")
         dialog.selectedFile = dashboardInvalidImportFileUrl
         dialog.accepted()
-        tryCompare(control("importModeDialog"), "opened", true)
-        mouseClick(control("mergeImportButton"))
-        compare(backupSetController.importedPath, app.localPath(dashboardInvalidImportFileUrl))
+        compare(control("importModeDialog").visible, false)
+        compare(backupSetController.importedPath, "")
         compare(app.showEditor, true)
+    }
+
+    function test_cloudSettingsBrowserPreviewAndExplicitMerge() {
+        cloudSettings.versions = [
+            { computer: "old-laptop", version: "20261025-v2.json", path: "/settings/old-laptop/v2.json" },
+            { computer: "old-laptop", version: "20261024-v1.json", path: "/settings/old-laptop/v1.json" },
+            { computer: "desktop", version: "20261023-v1.json", path: "/settings/desktop/v1.json" }
+        ]
+        control("importCloudSettingsButton").triggered()
+        tryCompare(control("cloudSettingsDialog"), "opened", true)
+        compare(cloudSettings.browseCount, 1)
+        compare(control("settingsComputer").count, 2)
+        compare(control("settingsVersion").count, 2)
+        control("settingsComputer").currentIndex = 1
+        compare(control("settingsVersion").count, 1)
+        control("settingsComputer").currentIndex = 0
+        control("settingsVersion").currentIndex = 1
+        mouseClick(control("previewCloudSettingsButton"))
+        compare(cloudSettings.previewPath, "/settings/old-laptop/v1.json")
+        compare(backupSetController.importedPath, "")
+        cloudSettings.downloaded(dashboardImportFilePath)
+        tryCompare(control("importModeDialog"), "opened", true)
+        verify(control("settingsImportPreview").text.indexOf("Missing source") >= 0)
+        compare(backupSetController.importedPath, "")
+        mouseClick(control("mergeImportButton"))
+        compare(backupSetController.importedMerge, true)
+        compare(backupSetController.importedPath, dashboardImportFilePath)
+    }
+
+    function test_cloudExportRequiresVerifiedSuccessAndDisplaysErrors() {
+        control("exportCloudSettingsButton").triggered()
+        tryCompare(control("cloudSettingsDialog"), "opened", true)
+        compare(cloudSettings.exportCount, 1)
+        compare(control("previewCloudSettingsButton").visible, false)
+        cloudSettings.error = "Settings verification mismatch"
+        compare(control("cloudSettingsError").text, "Settings verification mismatch")
+        compare(control("cloudSettingsDialog").visible, true)
+        cloudSettings.error = ""
+        cloudSettings.exported("/my-files/omacustos/settings/laptop/20261025.json")
+        tryCompare(control("cloudSettingsDialog"), "visible", false)
+        verify(app.notificationMessage.indexOf("verification") >= 0)
+    }
+
+    function test_cloudSettingsErrorsAndSignedOutState() {
+        protonAuth.authenticated = false
+        compare(control("importCloudSettingsButton").enabled, false)
+        compare(control("exportCloudSettingsButton").enabled, false)
+        protonAuth.authenticated = true
+        control("importCloudSettingsButton").triggered()
+        tryCompare(control("cloudSettingsDialog"), "opened", true)
+        cloudSettings.error = "Unsafe settings listing"
+        compare(control("cloudSettingsError").text, "Unsafe settings listing")
+        compare(control("previewCloudSettingsButton").enabled, false)
+        compare(backupSetController.importedPath, "")
+    }
+
+    function test_importedSetHasRestoreAndExplicitResumeWithoutHistory() {
+        backupSetController.runDetails = ({})
+        backupSetController.setSummaries = ({"photos-id": {importPaused: true, readOnly: true}})
+        compare(control("restore-1").enabled, true)
+        compare(control("backUpNow-1").visible, false)
+        verify(control("setSchedule-1").text.indexOf("paused") >= 0)
+        mouseClick(control("resumeBackup-1"))
+        compare(backupSetController.resumedImportedId, "photos-id")
+        compare(backupLauncher.launchedId, "")
+        mouseClick(control("restore-1"))
+        compare(app.showRestore, true)
+        compare(restoreController.discoveredRoot, "/backups/photos-id")
     }
 
     function test_editorCloseButtonReturnsToDashboard_data() {

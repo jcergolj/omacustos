@@ -20,6 +20,8 @@
 #include "../src/backupecleanup.h"
 #include "../src/localprovider.h"
 #include "../src/incrementalworker.h"
+#include "../src/protonprovider.h"
+#include "protonclifixture.h"
 
 class RestoreTestProvider final : public BackupProvider
 {
@@ -155,7 +157,11 @@ private slots:
     void browsesWithoutBlockingAndVerifiesOnlyTheSelectedCopy();
     void copyLabelsUseLocalDateAndTime();
     void historyListsCopiesWithoutCheckingTheirPayloads();
+    void reopeningHistoryReusesTheListButRefreshStillChecksRemote();
     void historyListsSharedSnapshotsWithoutVisitingObjects();
+    void historyListsCandidatesWithOneCliCall();
+    void snapshotCandidatesRequireFreshVerification_data();
+    void snapshotCandidatesRequireFreshVerification();
     void discoveryFailureClearsPreviousResultsAndAllowsRetry();
     void rejectsUnidentifiableCopies_data();
     void rejectsUnidentifiableCopies();
@@ -852,6 +858,159 @@ void BackupRestoreControllerTest::copyLabelsUseLocalDateAndTime()
     QCOMPARE(controller.copies(), QStringList {"02/10/26 03:04:05"});
 }
 
+void BackupRestoreControllerTest::historyListsCandidatesWithOneCliCall()
+{
+    QTemporaryDir directory {QDir::current().filePath("restore-history-XXXXXX")};
+    FilesystemRunner runner;
+    ProtonProvider provider(runner);
+    QVERIFY(QDir().mkpath(runner.remoteFile("/my-files")));
+    const QString source = directory.filePath("notes.txt");
+    QFile file(source);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QCOMPARE(file.write("first"), 5);
+    file.close();
+    BackupSet set {"documents", "Documents", "/my-files/backups", {source}, {}};
+    IncrementalWriteRequest request;
+    request.scan.setId = IncrementalWorker::setId(set);
+    request.remoteSetRoot = IncrementalWorker::root(set);
+    request.computerId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    request.originComputerId = request.computerId;
+    request.stateDirectory = directory.filePath("state");
+    request.stagingDirectory = directory.filePath("stage");
+    request.scan.sources.append({source, "notes.txt"});
+    request.operationId = request.snapshotId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    request.scan.checkedAt = QDateTime::currentDateTimeUtc().addSecs(-1);
+    QString error;
+    QVERIFY2(IncrementalRepository::initialize(request, provider, true, &error), qPrintable(error));
+    QVERIFY(IncrementalRepository::execute(request, provider).success());
+    const QString first = request.remoteSetRoot + "/snapshots/" + request.snapshotId;
+    QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    QCOMPARE(file.write("second"), 6);
+    file.close();
+    request.operationId = request.snapshotId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    request.scan.checkedAt = QDateTime::currentDateTimeUtc();
+    QVERIFY(IncrementalRepository::execute(request, provider).success());
+    const QString newest = request.remoteSetRoot + "/snapshots/" + request.snapshotId;
+    QVERIFY(createCopy(runner.remote, "my-files/backups/computer/Documents/old-copy", set.id, "old-copy"));
+    QVERIFY(QDir().mkpath(runner.remoteFile("/my-files/backups/sets/11111111-1111-4111-8111-111111111111")));
+    QVERIFY(QDir().mkpath(runner.remoteFile(request.remoteSetRoot + "/operations/old-operation/protection/nested")));
+    runner.calls.clear();
+
+    BackupEngine engine;
+    BackupRestoreController controller(engine, &provider);
+    QSignalSpy failures(&controller, &BackupRestoreController::failed);
+    controller.discover(set.remoteRoot, set.id, true, set.name, false);
+    QTRY_VERIFY(!controller.busy());
+    QVERIFY(failures.isEmpty());
+    // Candidate discovery is display-only: no manifests or payload checks yet.
+    QCOMPARE(runner.calls.size(), 1);
+    QCOMPARE(controller.copies().size(), 2);
+    QStringList expectedLabels;
+    for (const auto &path : {newest, first}) {
+        expectedLabels.append(QFileInfo(runner.remoteFile(path)).lastModified().toLocalTime()
+            .toString("dd/MM/yy HH:mm:ss") + " (not verified)");
+    }
+    QCOMPARE(controller.copies(), expectedLabels);
+    QCOMPARE(runner.calls.first(), (QStringList {"filesystem", "list", "-j", request.remoteSetRoot + "/snapshots"}));
+    for (const auto &label : controller.copies()) QVERIFY(label.contains("not verified"));
+    QVERIFY(controller.entries().isEmpty());
+    QVERIFY(!controller.restoreEligible());
+
+    runner.calls.clear();
+    controller.selectCopy(0);
+    QTRY_VERIFY(!controller.busy());
+    QCOMPARE(controller.currentCopyPath(), newest);
+    QCOMPARE(controller.copies().first(), request.scan.checkedAt.toLocalTime().toString("dd/MM/yy HH:mm:ss"));
+    QCOMPARE(controller.entries(), QStringList {"notes.txt"});
+    QVERIFY(controller.restoreEligible());
+    QCOMPARE(runner.calls.size(), 3); // Fresh identity + manifest in one command, bulk attempt, individual fallback.
+    QVERIFY(QFile::exists(runner.remoteFile("/my-files/backups/computer/Documents/old-copy/manifest.json")));
+
+    runner.calls.clear();
+    controller.discover(set.remoteRoot, set.id, true, set.name, false);
+    QVERIFY(!controller.busy());
+    QVERIFY(runner.calls.isEmpty());
+    QVERIFY(controller.showingCachedData());
+    QVERIFY(!controller.restoreEligible());
+    controller.discover(set.remoteRoot, set.id);
+    QTRY_VERIFY(!controller.busy());
+    QCOMPARE(runner.calls.size(), 1);
+    QCOMPARE(controller.copies().size(), 2);
+    QVERIFY(!controller.restoreEligible());
+}
+
+void BackupRestoreControllerTest::snapshotCandidatesRequireFreshVerification_data()
+{
+    QTest::addColumn<QString>("damage");
+    for (const auto &damage : {"none", "missing manifest", "malformed manifest", "invalid identity", "foreign origin"})
+        QTest::newRow(damage) << QString(damage);
+}
+
+void BackupRestoreControllerTest::snapshotCandidatesRequireFreshVerification()
+{
+    QFETCH(QString, damage);
+    QTemporaryDir directory {QDir::current().filePath("restore-candidates-XXXXXX")};
+    FilesystemRunner runner;
+    ProtonProvider provider(runner);
+    QVERIFY(QDir().mkpath(runner.remoteFile("/my-files")));
+    const auto source = directory.filePath("notes.txt");
+    QFile file(source);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QCOMPARE(file.write("notes"), 5);
+    file.close();
+    BackupSet set {"documents", "Documents", "/my-files/backups", {source}, {}};
+    IncrementalWriteRequest request;
+    request.scan.setId = IncrementalWorker::setId(set);
+    request.remoteSetRoot = IncrementalWorker::root(set);
+    request.computerId = request.originComputerId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    request.operationId = request.snapshotId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    request.stateDirectory = directory.filePath("state");
+    request.stagingDirectory = directory.filePath("stage");
+    request.scan.sources.append({source, "notes.txt"});
+    request.scan.checkedAt = QDateTime::currentDateTimeUtc();
+    QString error;
+    QVERIFY(IncrementalRepository::initialize(request, provider, true, &error));
+    QVERIFY(IncrementalRepository::execute(request, provider).success());
+    const auto manifest = request.remoteSetRoot + "/snapshots/" + request.snapshotId + "/manifest.json";
+    const auto target = runner.remoteFile(damage == "invalid identity" ? request.remoteSetRoot + "/repository.json" : manifest);
+    if (damage == "missing manifest") QVERIFY(QFile::remove(target));
+    else if (damage != "none") {
+        QFile record(target);
+        QVERIFY(record.open(QIODevice::ReadOnly));
+        auto object = QJsonDocument::fromJson(record.readAll()).object();
+        record.close();
+        if (damage == "invalid identity") object["version"] = 999;
+        if (damage == "foreign origin") object["origin_computer_id"] = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        QVERIFY(record.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner));
+        QVERIFY(record.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        const auto bytes = damage == "malformed manifest" ? QByteArray("not JSON") : QJsonDocument(object).toJson();
+        QCOMPARE(record.write(bytes), bytes.size());
+    }
+    BackupEngine engine;
+    BackupRestoreController controller(engine, &provider);
+    QSignalSpy failures(&controller, &BackupRestoreController::failed);
+    runner.calls.clear();
+    controller.discover(set.remoteRoot, set.id, true, set.name, false);
+    QTRY_VERIFY(!controller.busy());
+    QCOMPARE(runner.calls.size(), 1);
+    QCOMPARE(controller.copies().size(), 1);
+    QVERIFY(controller.hasUnverifiedCopies());
+    QVERIFY(controller.entries().isEmpty());
+    QVERIFY(!controller.restoreEligible());
+    controller.restoreSelected({0}, directory.filePath("must-not-restore"));
+    QCOMPARE(failures.size(), 1);
+    QCOMPARE(runner.calls.size(), 1);
+    QVERIFY(!QFileInfo::exists(directory.filePath("must-not-restore")));
+    failures.clear();
+    controller.selectCopy(0);
+    QTRY_VERIFY(!controller.busy());
+    QCOMPARE(controller.restoreEligible(), damage == "none");
+    QCOMPARE(controller.entries().size(), damage == "none" ? 1 : 0);
+    QCOMPARE(failures.isEmpty(), damage == "none");
+    QVERIFY(!controller.hasUnverifiedCopies());
+    if (damage != "none") QVERIFY(controller.copies().first().contains("unavailable"));
+}
+
 void BackupRestoreControllerTest::historyListsSharedSnapshotsWithoutVisitingObjects()
 {
     QTemporaryDir directory {QDir::current().filePath("restore-history-XXXXXX")};
@@ -874,6 +1033,12 @@ void BackupRestoreControllerTest::historyListsSharedSnapshotsWithoutVisitingObje
         QUuid::createUuid().toString(QUuid::WithoutBraces), provider.local, &request, &error), qPrintable(error));
     const auto saved = IncrementalWorker::run(set, request, provider.local);
     QVERIFY(saved.success());
+    // Writer bookkeeping grows independently of the restorable snapshot list.
+    QVERIFY(QDir().mkpath(remote + "/" + request.remoteSetRoot + "/operations/old-operation/protection/nested"));
+    const QString otherRoot = "backups/sets/11111111-1111-4111-8111-111111111111";
+    QVERIFY(QDir().mkpath(remote + "/" + otherRoot + "/snapshots/22222222-2222-4222-8222-222222222222"));
+    QVERIFY(QFile::copy(remote + "/" + request.remoteSetRoot + "/repository.json",
+        remote + "/" + otherRoot + "/repository.json"));
     provider.inspectedPaths.clear();
     provider.listedPaths.clear();
     BackupEngine engine;
@@ -884,13 +1049,53 @@ void BackupRestoreControllerTest::historyListsSharedSnapshotsWithoutVisitingObje
     QVERIFY(provider.inspectedPaths.isEmpty());
     for (const auto &path : provider.listedPaths) {
         QVERIFY(!path.startsWith(request.remoteSetRoot + "/objects"));
+        QVERIFY2(!path.startsWith(request.remoteSetRoot + "/operations"), qPrintable(path));
+        QVERIFY2(!path.startsWith(otherRoot + "/"), qPrintable(path));
     }
+    QVERIFY(!provider.downloadedPaths.contains(otherRoot + "/repository.json"));
     QVERIFY(!controller.restoreEligible());
     controller.selectCopy(0);
     QTRY_VERIFY(!controller.busy());
     QCOMPARE(controller.entries().size(), 1);
     QVERIFY(controller.restoreEligible());
     QCOMPARE(provider.inspectedPaths.size(), 1);
+}
+
+void BackupRestoreControllerTest::reopeningHistoryReusesTheListButRefreshStillChecksRemote()
+{
+    QTemporaryDir remote;
+    const QString folder = "backups/computer/Documents";
+    QVERIFY(createCopy(remote, folder + "/copy", "documents", "copy"));
+    BackupEngine engine;
+    RestoreTestProvider provider(remote.path());
+    provider.injectInvalidFolders = false;
+    BackupRestoreController controller(engine, &provider);
+    // Unscoped history remains available to compatibility callers, not the selected-set chooser.
+    controller.discover("backups", {}, true, "Documents");
+    QTRY_VERIFY(!controller.busy());
+    controller.selectCopy(0);
+    QTRY_VERIFY(!controller.busy());
+    QVERIFY(controller.restoreEligible());
+    const auto listed = provider.listedPaths;
+    const auto downloaded = provider.downloadedPaths;
+
+    controller.discover("backups", {}, true, "Documents", false);
+    QVERIFY(!controller.busy());
+    QCOMPARE(provider.listedPaths, listed);
+    QCOMPARE(provider.downloadedPaths, downloaded);
+    QCOMPARE(controller.copies().size(), 1);
+    QVERIFY(controller.showingCachedData());
+    QVERIFY(!controller.restoreEligible());
+
+    QVERIFY(createCopy(remote, folder + "/new-copy", "documents", "new-copy"));
+    controller.discover("backups", {}, true, "Documents");
+    QTRY_VERIFY(!controller.busy());
+    QCOMPARE(controller.copies().size(), 2);
+    QVERIFY(provider.listedPaths.size() > listed.size());
+    QVERIFY(!controller.restoreEligible());
+    controller.selectCopy(controller.currentCopyIndex());
+    QTRY_VERIFY(!controller.busy());
+    QVERIFY(controller.restoreEligible());
 }
 
 void BackupRestoreControllerTest::historyListsCopiesWithoutCheckingTheirPayloads()
@@ -902,7 +1107,7 @@ void BackupRestoreControllerTest::historyListsCopiesWithoutCheckingTheirPayloads
     RestoreTestProvider provider(remote.path());
     provider.injectInvalidFolders = false;
     BackupRestoreController controller(engine, &provider);
-    controller.discover("backups", "documents", true, "Documents");
+    controller.discover("backups", {}, true, "Documents");
     QTRY_VERIFY(!controller.busy());
     QCOMPARE(controller.copies().size(), 1);
     // Filling the chooser must not wait for a remote check of every payload.

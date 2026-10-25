@@ -7,6 +7,7 @@
 #include <QDir>
 #include <QDateTime>
 #include <QElapsedTimer>
+#include <QDebug>
 #include <QtConcurrentRun>
 #include <algorithm>
 
@@ -44,6 +45,7 @@ BackupRestoreController::BackupRestoreController(BackupEngine &engine, BackupPro
         }
         if (activeBrowse.listing) {
             if (result.success) {
+                hasCopyListing = true;
                 QHash<QString, RemoteCopy> previous;
                 for (const auto &copy : remoteCopies) previous.insert(copy.rootPath, copy);
                 remoteCopies = result.copies;
@@ -79,6 +81,8 @@ BackupRestoreController::BackupRestoreController(BackupEngine &engine, BackupPro
                 verified = true;
                 emit restoreEligibilityChanged();
             }
+        } else if (selectedCopyIndex >= 0 && selectedCopyIndex < remoteCopies.size()) {
+            remoteCopies[selectedCopyIndex].status = QStringLiteral("unavailable");
         }
         loading = false;
         refreshError = result.error;
@@ -94,7 +98,7 @@ BackupRestoreController::BackupRestoreController(BackupEngine &engine, BackupPro
             }
             emit failed(result.error);
         } else if (activeBrowse.listing) {
-            emit statusChanged(QStringLiteral("%1 backup copies found. Select one to load and verify its files.").arg(remoteCopies.size())
+            emit statusChanged(QStringLiteral("%1 backup copies listed. Select one to load and verify its files.").arg(remoteCopies.size())
                 + (result.error.isEmpty() ? QString() : " " + result.error));
         } else {
             const QString status = QStringLiteral("%1 verified files available; %2 unavailable or failed.")
@@ -235,6 +239,13 @@ QStringList BackupRestoreController::copies() const
     return result;
 }
 
+bool BackupRestoreController::hasUnverifiedCopies() const
+{
+    return std::any_of(remoteCopies.cbegin(), remoteCopies.cend(), [](const auto &copy) {
+        return copy.status == QStringLiteral("not verified");
+    });
+}
+
 QString BackupRestoreController::copySearch() const
 {
     return searchText;
@@ -284,6 +295,7 @@ void BackupRestoreController::loadManifest(const QString &path)
     if (busy()) {
         return;
     }
+    hasCopyListing = false;
     QVector<BackupEntry> loadedEntries;
     QString error;
     if (!BackupManifest::load(path, &loadedEntries, &error)) {
@@ -317,7 +329,7 @@ void BackupRestoreController::loadManifest(const QString &path)
     emit statusChanged(QStringLiteral("%1 files available for restore.").arg(manifestEntries.size()));
 }
 
-void BackupRestoreController::discover(const QString &backupFolder, const QString &setId, bool history, const QString &legacyName)
+void BackupRestoreController::discover(const QString &backupFolder, const QString &setId, bool history, const QString &legacyName, bool refresh, bool includeLegacy)
 {
     if (restoring) return;
     if (provider == nullptr) {
@@ -325,11 +337,32 @@ void BackupRestoreController::discover(const QString &backupFolder, const QStrin
         return;
     }
 
-    if (browseCancelled) browseCancelled->store(true);
     const bool sameContext = activeBackupFolder == backupFolder && expectedSetId == setId;
+    if (qEnvironmentVariableIsSet("OMACUSTOS_TRACE_BROWSE")) {
+        qInfo() << "[DEBUG-restore-browse] open: refresh=" << refresh
+            << "sameContext=" << sameContext << "listed=" << hasCopyListing
+            << "inFlight=" << browseInFlight << "sameHistory=" << (history == historyContext)
+            << "sameLegacyName=" << (legacyName.isEmpty() || legacyName == historyLegacyName);
+    }
+    // Navigation may reuse a successful list, but never its restore eligibility.
+    // Explicit refreshes and copy selections still read fresh remote metadata.
+    if (!refresh && sameContext && hasCopyListing && !browseInFlight
+        && history == historyContext && (!includeLegacy || includeLegacyHistory) && (legacyName.isEmpty() || legacyName == historyLegacyName)) {
+        if (qEnvironmentVariableIsSet("OMACUSTOS_TRACE_BROWSE"))
+            qInfo() << "[DEBUG-restore-browse] reusing loaded list";
+        setCachedData(!remoteCopies.isEmpty() || !manifestEntries.isEmpty());
+        if (verified) {
+            verified = false;
+            emit restoreEligibilityChanged();
+        }
+        return;
+    }
+    if (browseCancelled) browseCancelled->store(true);
     historyContext = history || (sameContext && historyContext);
     historyLegacyName = legacyName.isEmpty() && sameContext ? historyLegacyName : legacyName;
+    includeLegacyHistory = includeLegacy || (sameContext && includeLegacyHistory);
     if (!sameContext) {
+        hasCopyListing = false;
         if (!activeBackupFolder.isEmpty()) {
             snapshots.insert(activeBackupFolder + QChar(0) + expectedSetId,
                 new Snapshot {remoteCopies, manifestEntries, selectedCopyIndex, searchText});
@@ -353,6 +386,7 @@ void BackupRestoreController::discover(const QString &backupFolder, const QStrin
     pendingBrowse = {++browseGeneration, true, backupFolder, setId, {}, currentCopyPath()};
     pendingBrowse.history = historyContext;
     pendingBrowse.legacyName = historyLegacyName;
+    pendingBrowse.includeLegacy = includeLegacyHistory;
     emit busyChanged();
     emit copiesChanged();
     emit currentCopyIndexChanged();
@@ -406,13 +440,41 @@ void BackupRestoreController::startBrowse()
     const auto cancelled = browseCancelled;
     BackupProvider *workerProvider = provider;
     watcher.setFuture(QtConcurrent::run(&operations, [workerProvider, request, cancelled] {
+        QElapsedTimer timer;
+        timer.start();
+        const bool trace = qEnvironmentVariableIsSet("OMACUSTOS_TRACE_BROWSE");
+        if (trace) qInfo() << "[DEBUG-restore-browse] starting" << (request.listing ? "copy listing" : "file verification");
         BrowseResult result;
         if (cancelled->load()) return result;
         if (request.listing) {
             if (request.history) {
-                result.success = BackupCatalog::listHistory(*workerProvider, request.folder, &result.copies, &result.error, [cancelled] { return cancelled->load(); });
                 BackupSet identity; identity.id = request.setId;
                 const auto sharedId = IncrementalWorker::setId(identity);
+                result.success = request.setId.isEmpty()
+                    ? BackupCatalog::listHistory(*workerProvider, request.folder, &result.copies, &result.error,
+                        [cancelled] { return cancelled->load(); })
+                    : IncrementalRestore::listSnapshotCandidates(*workerProvider, request.folder, sharedId,
+                        &result.copies, &result.error, [cancelled] { return cancelled->load(); });
+                if (!request.setId.isEmpty() && request.includeLegacy) {
+                    QVector<RemoteCopy> legacy;
+                    QString legacyError;
+                    const bool legacyListed = BackupCatalog::listLegacyHistory(*workerProvider, request.folder, &legacy, &legacyError,
+                        [cancelled] { return cancelled->load(); });
+                    if (legacyListed) {
+                        legacy.erase(std::remove_if(legacy.begin(), legacy.end(), [&](const auto &copy) {
+                            return copy.setId != request.setId && copy.setId != sharedId
+                                && !(copy.manifestVersion == 1 && !request.legacyName.isEmpty() && copy.setName == request.legacyName);
+                        }), legacy.end());
+                        result.copies += legacy;
+                        // A valid legacy-only destination need not have a shared repository yet.
+                        if (!result.success && !legacy.isEmpty()) result.error.clear();
+                        result.success = result.success || !legacy.isEmpty();
+                    } else if (result.error.isEmpty()) result.error = legacyError;
+                    std::sort(result.copies.begin(), result.copies.end(), [](const auto &a, const auto &b) { return a.createdAt > b.createdAt; });
+                }
+                for (auto &copy : result.copies) {
+                    if (copy.status == "not verified" && !request.legacyName.isEmpty()) copy.setName = request.legacyName;
+                }
                 result.copies.erase(std::remove_if(result.copies.begin(), result.copies.end(), [&](const auto &copy) {
                     return !request.setId.isEmpty() && copy.setId != request.setId && copy.setId != sharedId
                         && !(copy.manifestVersion == 1 && !request.legacyName.isEmpty() && copy.setName == request.legacyName);
@@ -426,6 +488,8 @@ void BackupRestoreController::startBrowse()
             result.success = BackupCatalog::verifyCopy(*workerProvider, request.copyPath, expectedId,
                 &result.copy, &result.error, [cancelled] { return cancelled->load(); });
         }
+        if (trace) qInfo() << "[DEBUG-restore-browse] finished: ms=" << timer.elapsed()
+            << "success=" << result.success << "copies=" << result.copies.size();
         return result;
     }));
 }

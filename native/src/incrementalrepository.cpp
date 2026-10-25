@@ -1687,7 +1687,7 @@ bool legacyInventory(Store &store, BackupProvider &provider, const IncrementalWr
             store.error = "Unsafe legacy root."; return false;
         }
         QVector<RemoteItem> items;
-        if (!provider.listComplete(root, &items, &store.error)) return false;
+        if (!provider.listCompleteIfPresent(root, &items, &store.error)) return false;
         QSet<QString> seen;
         for (const auto &item : items) {
             if (item.name.isEmpty() || item.name == "." || item.name == ".." || item.name.contains('/')

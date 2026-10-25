@@ -19,14 +19,30 @@ FormCard {
         selectionRevision
         controller.entries
         controller.currentCopyPath
-        return controller.downloadCost(selectedIndexes)
+        return controller.downloadCost(selectedIndexes || [])
     }
     property var contextStates: ({})
     property string contextKey: ""
     property real screenScrollY: -1
     property bool restoringContext: false
     property alias folderRows: selectionState.folderRows
+    property var collapsedFolders: ({})
+    readonly property var visibleTreeRows: selection.treeRows.filter(function (row) {
+        let parent = row.path.lastIndexOf("/")
+        while (parent > 0) {
+            if (collapsedFolders[row.path.slice(0, parent)]) return false
+            parent = row.path.lastIndexOf("/", parent - 1)
+        }
+        return true
+    })
     signal closeRequested()
+
+    function toggleFolderExpanded(path) {
+        const next = Object.assign({}, collapsedFolders)
+        if (next[path]) delete next[path]
+        else next[path] = true
+        collapsedFolders = next
+    }
 
     objectName: "restorePanel"
     Layout.fillWidth: true
@@ -34,6 +50,7 @@ FormCard {
 
     function reset() {
         selection.reset()
+        collapsedFolders = ({})
         destinationField.text = ""
         restoreList.contentY = 0
         screenScrollY = -1
@@ -43,6 +60,7 @@ FormCard {
         if (contextKey.length === 0) return
         contextStates[contextKey] = {
             selection: selection.snapshot(),
+            collapsedFolders: collapsedFolders,
             destination: destinationField.text, fileScroll: restoreList.contentY,
             screenScroll: screenScrollY
         }
@@ -58,6 +76,7 @@ FormCard {
         const state = contextStates[key]
         if (state) {
             selection.restoreSnapshot(state.selection)
+            collapsedFolders = state.collapsedFolders || ({})
             destinationField.text = state.destination
             screenScrollY = state.screenScroll
             Qt.callLater(function () {
@@ -138,13 +157,33 @@ FormCard {
             displayText: currentIndex < 0 ? qsTr("Choose a backup copy…") : currentText
         }
 
+        ActionButton {
+            style: panel.style
+            objectName: "refreshRestoreCopiesButton"
+            text: qsTr("Refresh copies")
+            enabled: !panel.controller.busy
+            onClicked: panel.controller.discover(panel.controller.backupFolder, panel.controller.backupId)
+        }
+
         Label {
             objectName: "restoreCopyCount"
             visible: !panel.controller.busy && panel.controller.copies.length > 0
             text: panel.controller.copySearch.trim().length > 0
                 ? (panel.controller.copies.length === 1 ? qsTr("1 matching copy") : qsTr("%1 matching copies").arg(panel.controller.copies.length))
+                : panel.controller.hasUnverifiedCopies
+                    ? (panel.controller.copies.length === 1 ? qsTr("1 listed restore point — select it to verify")
+                        : qsTr("%1 listed restore points — select one to verify").arg(panel.controller.copies.length))
                 : (panel.controller.copies.length === 1 ? qsTr("1 available copy — choose it to restore")
                     : qsTr("%1 available copies — choose the date you want to restore").arg(panel.controller.copies.length))
+            color: panel.style.mutedColor
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
+        }
+
+        Label {
+            objectName: "restoreUnverifiedCopiesMessage"
+            visible: panel.controller.hasUnverifiedCopies
+            text: qsTr("Dates are shown in local time. Before verification, they are remote folder dates, not verified backup dates. Select a restore point to validate its metadata and load available files. Incomplete or unavailable points cannot be restored.")
             color: panel.style.mutedColor
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
@@ -247,19 +286,110 @@ FormCard {
         ListView {
             id: restoreList
             objectName: "restoreFilesList"
-            model: panel.controller.entries.length > 0 ? panel.selection.treeRows : []
+            model: panel.controller.entries.length > 0 ? panel.visibleTreeRows : []
             Layout.fillWidth: true
             Layout.preferredHeight: count > 0 ? Math.max(48, Math.min(300, contentHeight)) : 0
             clip: true
             ScrollBar.vertical: ScrollBar {}
             delegate: CheckBox {
+                id: treeRow
                 required property int index
                 required property var modelData
                 objectName: modelData.folder ? "restoreFolder-" + panel.folderRows.indexOf(modelData.path)
                     : "restoreFile-" + modelData.fileIndex
-                text: modelData.name + (modelData.folder ? "/" : "")
+                text: modelData.name
                 leftPadding: 6 + modelData.depth * 20
+                rightPadding: 10
+                topPadding: 7
+                bottomPadding: 7
+                spacing: 8
+                hoverEnabled: true
                 width: restoreList.width
+                contentItem: RowLayout {
+                    spacing: treeRow.spacing
+                    Item {
+                        Layout.preferredWidth: treeRow.indicator.width
+                        Layout.preferredHeight: 1
+                    }
+                    ToolButton {
+                        objectName: "restoreFolderExpander"
+                        visible: treeRow.modelData.folder
+                        text: panel.collapsedFolders[treeRow.modelData.path] ? "▸" : "▾"
+                        font.pixelSize: 16
+                        Layout.preferredWidth: 24
+                        Layout.preferredHeight: 24
+                        Accessible.name: panel.collapsedFolders[treeRow.modelData.path]
+                            ? qsTr("Expand %1").arg(treeRow.modelData.name)
+                            : qsTr("Collapse %1").arg(treeRow.modelData.name)
+                        onClicked: panel.toggleFolderExpanded(treeRow.modelData.path)
+                    }
+                    Item {
+                        visible: !treeRow.modelData.folder
+                        Layout.preferredWidth: 24
+                        Layout.preferredHeight: 1
+                    }
+                    Canvas {
+                        objectName: "restoreEntryIcon"
+                        readonly property bool folder: treeRow.modelData.folder
+                        readonly property color ink: folder ? panel.style.accentColor : panel.style.mutedColor
+                        Layout.preferredWidth: 20
+                        Layout.preferredHeight: 20
+                        onInkChanged: requestPaint()
+                        onFolderChanged: requestPaint()
+                        onPaint: {
+                            const ctx = getContext("2d")
+                            ctx.reset()
+                            ctx.strokeStyle = ink
+                            ctx.fillStyle = ink
+                            ctx.lineWidth = 1.5
+                            ctx.lineJoin = "round"
+                            ctx.beginPath()
+                            if (folder) {
+                                ctx.moveTo(2, 5)
+                                ctx.lineTo(8, 5)
+                                ctx.lineTo(10, 7)
+                                ctx.lineTo(18, 7)
+                                ctx.lineTo(18, 16)
+                                ctx.lineTo(2, 16)
+                                ctx.closePath()
+                                ctx.globalAlpha = 0.18
+                                ctx.fill()
+                                ctx.globalAlpha = 1
+                            } else {
+                                ctx.moveTo(5, 2)
+                                ctx.lineTo(12, 2)
+                                ctx.lineTo(16, 6)
+                                ctx.lineTo(16, 18)
+                                ctx.lineTo(5, 18)
+                                ctx.closePath()
+                                ctx.moveTo(12, 2)
+                                ctx.lineTo(12, 6)
+                                ctx.lineTo(16, 6)
+                            }
+                            ctx.stroke()
+                        }
+                    }
+                    Label {
+                        objectName: "restoreEntryLabel"
+                        text: treeRow.text
+                        font.family: panel.style.bodyFontFamily
+                        font.pixelSize: panel.style.bodyTypeSize
+                        font.weight: treeRow.modelData.folder ? Font.DemiBold : Font.Normal
+                        color: panel.style.inkColor
+                        elide: Text.ElideMiddle
+                        Layout.fillWidth: true
+                    }
+                }
+                background: Rectangle {
+                    radius: 5
+                    color: panel.style.softColor
+                    opacity: treeRow.hovered || treeRow.activeFocus ? 1 : treeRow.modelData.folder ? 0.45 : 0
+                    border.width: treeRow.activeFocus ? 1 : 0
+                    border.color: panel.style.accentColor
+                }
+                ToolTip.visible: hovered
+                ToolTip.delay: 700
+                ToolTip.text: modelData.path
                 Accessible.name: modelData.folder
                     ? qsTr("Select all files in %1 and its subfolders").arg(modelData.path) : modelData.path
                 checkState: {

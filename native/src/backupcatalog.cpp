@@ -42,7 +42,7 @@ void warning(QString *error, const QString &message)
 
 bool visit(BackupProvider &provider, const QString &path, const QString &rootPath,
     QVector<RemoteCopy> *copies, QSet<QString> *visited, QString *error, const std::function<bool()> &cancelled,
-    bool verifyPayloads)
+    bool verifyPayloads, const QString &expectedSharedSetId, bool legacyOnly = false)
 {
     if (cancelled && cancelled()) return false;
     const QString cleanPath = QDir::cleanPath(path);
@@ -70,6 +70,8 @@ bool visit(BackupProvider &provider, const QString &path, const QString &rootPat
         && std::any_of(items.cbegin(), items.cend(), [&](const auto &item) {
             return !item.directory && item.path == path + "/repository.json";
         });
+    if (!verifyPayloads && repository && !expectedSharedSetId.isEmpty()
+        && QFileInfo(path).fileName() != expectedSharedSetId) return true;
     for (const RemoteItem &item : items) {
         if (cancelled && cancelled()) return false;
         if (!inside(item.path, rootPath)) {
@@ -77,9 +79,11 @@ bool visit(BackupProvider &provider, const QString &path, const QString &rootPat
             continue;
         }
         if (item.directory) {
-            // Shared archive objects cannot contain backup copies.
-            if (!verifyPayloads && repository && item.name == "objects") continue;
-            if (!visit(provider, item.path, rootPath, copies, visited, error, cancelled, verifyPayloads)) {
+            if (legacyOnly && item.path == rootPath + "/sets") continue;
+            // Only snapshots contain copies in a shared repository. Objects and
+            // writer bookkeeping can be large and do not belong in the chooser.
+            if (!verifyPayloads && repository && item.name != "snapshots") continue;
+            if (!visit(provider, item.path, rootPath, copies, visited, error, cancelled, verifyPayloads, expectedSharedSetId, legacyOnly)) {
                 return false;
             }
             continue;
@@ -228,7 +232,7 @@ bool BackupCatalog::discoverCopies(BackupProvider &provider, const QString &back
 }
 
 static bool discoverHistory(BackupProvider &provider, const QString &remoteRoot, QVector<RemoteCopy> *copies, QString *error,
-    const std::function<bool()> &cancelled, bool verifyPayloads)
+    const std::function<bool()> &cancelled, bool verifyPayloads, const QString &expectedSharedSetId = {}, bool legacyOnly = false)
 {
     if (copies == nullptr) {
         if (error != nullptr) {
@@ -246,7 +250,7 @@ static bool discoverHistory(BackupProvider &provider, const QString &remoteRoot,
 
     const QString normalizedRoot = QDir::cleanPath(remoteRoot);
     QSet<QString> visited;
-    if (!visit(provider, normalizedRoot, normalizedRoot, copies, &visited, error, cancelled, verifyPayloads)) {
+    if (!visit(provider, normalizedRoot, normalizedRoot, copies, &visited, error, cancelled, verifyPayloads, expectedSharedSetId, legacyOnly)) {
         copies->clear();
         return false;
     }
@@ -262,8 +266,16 @@ bool BackupCatalog::discover(BackupProvider &provider, const QString &remoteRoot
     return discoverHistory(provider, remoteRoot, copies, error, cancelled, true);
 }
 
-bool BackupCatalog::listHistory(BackupProvider &provider, const QString &remoteRoot, QVector<RemoteCopy> *copies, QString *error,
-    const std::function<bool()> &cancelled)
+bool BackupCatalog::listLegacyHistory(BackupProvider &provider, const QString &remoteRoot, QVector<RemoteCopy> *copies,
+    QString *error, const std::function<bool()> &cancelled)
 {
-    return discoverHistory(provider, remoteRoot, copies, error, cancelled, false);
+    return discoverHistory(provider, remoteRoot, copies, error, cancelled, false, {}, true);
+}
+
+bool BackupCatalog::listHistory(BackupProvider &provider, const QString &remoteRoot, QVector<RemoteCopy> *copies, QString *error,
+    const std::function<bool()> &cancelled, const QString &expectedSharedSetId)
+{
+    if (!expectedSharedSetId.isEmpty())
+        return IncrementalRestore::listSnapshots(provider, remoteRoot, expectedSharedSetId, copies, error, cancelled);
+    return discoverHistory(provider, remoteRoot, copies, error, cancelled, false, expectedSharedSetId);
 }

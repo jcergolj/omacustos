@@ -271,6 +271,42 @@ bool ProtonProvider::download(const QString &remotePath, const QString &localPat
     return destination.commit() || placementFailure();
 }
 
+bool ProtonProvider::downloadFiles(const QStringList &remotePaths, const QString &localDirectory, QString *error)
+{
+    const auto invalid = [&] {
+        if (error) *error = "Batch download requires distinct files and an unused destination for each basename.";
+        return false;
+    };
+    if (remotePaths.isEmpty() || !QFileInfo(localDirectory).isDir()) return invalid();
+    QSet<QString> names;
+    for (const auto &path : remotePaths) {
+        const auto name = QFileInfo(path).fileName();
+        const QFileInfo target(QDir(localDirectory).filePath(name));
+        if (!path.startsWith('/') || path != QDir::cleanPath(path) || path.contains('\\') || path.contains(QChar::Null)
+            || path.split('/').contains("..") || name.isEmpty() || name == "." || name == ".."
+            || names.contains(name) || target.exists() || target.isSymLink()) return invalid();
+        names.insert(name);
+    }
+    // One CLI process shares authentication/path setup for all metadata files.
+    // Keep the CLI's destructive local conflict handling inside private staging.
+    QTemporaryDir staging(QDir(localDirectory).filePath(".omacustos-download-XXXXXX"));
+    if (!staging.isValid()) return invalid();
+    QStringList arguments {"filesystem", "download", "-j", "-f", "remove", "-d", "remove"};
+    arguments.append(remotePaths);
+    arguments.append(staging.path());
+    if (!run(arguments, error)) return false;
+    for (const auto &path : remotePaths) {
+        const auto name = QFileInfo(path).fileName();
+        const QFileInfo downloaded(staging.filePath(name));
+        if (!downloaded.isFile() || downloaded.isSymLink()) return invalid();
+    }
+    for (const auto &path : remotePaths) {
+        const auto name = QFileInfo(path).fileName();
+        if (!QFile::rename(staging.filePath(name), QDir(localDirectory).filePath(name))) return invalid();
+    }
+    return true;
+}
+
 bool ProtonProvider::inspect(const QString &remotePath, RemoteFile *file, QString *error)
 {
     if (file == nullptr) {
@@ -466,8 +502,9 @@ bool ProtonProvider::containedChildren(const QString &path, const QString &paren
     return true; // CLI consumes the entire SDK iterator, not a paginated slice.
 }
 
-bool ProtonProvider::containedNode(const QString &path, QJsonObject *node, QString *error)
+bool ProtonProvider::containedNode(const QString &path, QJsonObject *node, QString *error, bool *missing)
 {
+    if (missing) *missing = false;
     if (!cleanupPath(path)) {
         if (error) *error = "Cleanup requires a canonical name-based /my-files path; UID aliases and other virtual roots are forbidden.";
         return false;
@@ -492,7 +529,12 @@ bool ProtonProvider::containedNode(const QString &path, QJsonObject *node, QStri
         QJsonObject selected;
         for (const auto &value : children) if (itemName(value.toObject()) == part) selected = value.toObject();
         current += '/' + part;
-        if (selected.isEmpty() || !info(current, node) || node->value("uid") != selected.value("uid")
+        if (selected.isEmpty()) {
+            if (missing) *missing = true;
+            if (error) *error = "Proton path is absent from a complete parent inventory: " + current;
+            return false;
+        }
+        if (!info(current, node) || node->value("uid") != selected.value("uid")
             || node->value("parentUid") != parentUid || itemName(*node) != part) {
             if (error) *error = "Resolved Proton node is not the selected child of its allowed parent.";
             return false;
@@ -503,10 +545,27 @@ bool ProtonProvider::containedNode(const QString &path, QJsonObject *node, QStri
 
 bool ProtonProvider::listComplete(const QString &path, QVector<RemoteItem> *items, QString *error)
 {
+    return completeInventory(path, items, error, false);
+}
+
+bool ProtonProvider::listCompleteIfPresent(const QString &path, QVector<RemoteItem> *items, QString *error)
+{
+    return completeInventory(path, items, error, true);
+}
+
+bool ProtonProvider::completeInventory(const QString &path, QVector<RemoteItem> *items, QString *error, bool optional)
+{
     QJsonObject parent;
     QJsonArray values;
-    if (!items || !containedNode(path, &parent, error)
-        || !containedChildren(path, parent.value("uid").toString(), &values, error)) return false;
+    bool missing = false;
+    if (!items) return false;
+    if (!containedNode(path, &parent, error, &missing)) {
+        if (!optional || !missing) return false;
+        items->clear();
+        if (error) error->clear();
+        return true;
+    }
+    if (!containedChildren(path, parent.value("uid").toString(), &values, error)) return false;
     items->clear();
     for (const auto &value : values) {
         const auto object = value.toObject();

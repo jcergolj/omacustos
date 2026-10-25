@@ -148,7 +148,7 @@ ApplicationWindow {
         restorePanel.activateContext(folder, setId)
         showEditor = false
         showRestore = true
-        restoreController.discover(folder, setId, !!history, legacyName || "")
+        restoreController.discover(folder, setId, !!history, legacyName || "", false, true)
         Qt.callLater(function () {
             if (!root || !root.showRestore || root.showEditor
                 || restoreController.backupId !== setId || restoreController.backupFolder !== folder) return
@@ -295,7 +295,7 @@ ApplicationWindow {
         nameFilters: [qsTr("OmaCustos backup sets (*.json)")]
         onAccepted: {
             importModeDialog.filePath = root.localPath(selectedFile)
-            importModeDialog.open()
+            if (backupSetController.prepareImport(importModeDialog.filePath)) importModeDialog.open()
         }
     }
 
@@ -311,19 +311,31 @@ ApplicationWindow {
         standardButtons: Dialog.Cancel
 
         function importFile(merge) {
-            if (backupSetController.importSets(filePath, merge)) {
+            if (backupSetController.applyImport(merge)) {
                 root.showEditor = false
                 root.loadCurrentSet()
+                close()
             }
-            close()
         }
 
         contentItem: ColumnLayout {
             spacing: 16
             Label {
                 Layout.fillWidth: true
-                text: qsTr("Merge keeps other existing sets, adds new sets, and updates sets with matching IDs. Replace removes the current list and uses only the imported sets.\n\nOmaCustos validates the file before changing your settings.")
+                text: qsTr("Merge updates matching IDs and preserves unrelated sets. Names alone never combine sets. Replace replaces ALL local definitions, not remote backup files.\n\nImported sets remain paused and read-only. Paths are not rewritten. Correct missing sources, permanently disable the old writer, complete offline takeover, then explicitly resume each set. Restore is available without resuming.")
                 wrapMode: Text.WordWrap
+            }
+            ScrollView {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.min(220, root.height / 3)
+                clip: true
+                TextArea {
+                    objectName: "settingsImportPreview"
+                    text: backupSetController.importPreview
+                    readOnly: true
+                    wrapMode: TextEdit.Wrap
+                    selectByMouse: true
+                }
             }
             RowLayout {
                 Layout.alignment: Qt.AlignRight
@@ -352,6 +364,90 @@ ApplicationWindow {
         defaultSuffix: "json"
         nameFilters: [qsTr("OmaCustos backup sets (*.json)")]
         onAccepted: backupSetController.exportSets(root.localPath(selectedFile))
+    }
+
+    Connections {
+        target: typeof cloudSettings !== "undefined" ? cloudSettings : null
+        function onDownloaded(filePath) {
+            if (backupSetController.prepareImport(filePath)) {
+                cloudSettingsDialog.close()
+                importModeDialog.open()
+            }
+        }
+        function onExported(remotePath) {
+            cloudSettingsDialog.close()
+            root.setStatus(qsTr("Settings export uploaded and downloaded for verification: %1").arg(remotePath))
+        }
+    }
+
+    ActionDialog {
+        id: cloudSettingsDialog
+        objectName: "cloudSettingsDialog"
+        style: uiStyle
+        anchors.centerIn: parent
+        property bool exportMode: false
+        title: exportMode ? qsTr("Export settings to Proton Drive") : qsTr("Import settings from Proton Drive")
+        width: Math.min(root.width - 2 * root.contentPadding, 640)
+        modal: true
+        standardButtons: Dialog.Cancel
+        readonly property var archive: typeof cloudSettings !== "undefined" ? cloudSettings : null
+        readonly property var computers: {
+            const names = []
+            const rows = archive ? archive.versions : []
+            for (let i = 0; i < rows.length; ++i) if (names.indexOf(rows[i].computer) < 0) names.push(rows[i].computer)
+            return names
+        }
+        readonly property var versions: {
+            const rows = archive ? archive.versions : []
+            return rows.filter(function(row) { return row.computer === settingsComputer.currentText })
+        }
+        contentItem: ColumnLayout {
+            spacing: 12
+            Label {
+                text: cloudSettingsDialog.exportMode
+                    ? qsTr("Uploading saved definitions as a new version, then downloading to verify. Earlier exports are kept. This is not automatic synchronization.")
+                    : qsTr("Choose a computer and timestamped settings version. This restores definitions only, not credentials or local history.")
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+            ComboBox {
+                id: settingsComputer
+                visible: !cloudSettingsDialog.exportMode
+                objectName: "settingsComputer"
+                model: cloudSettingsDialog.computers
+                Layout.fillWidth: true
+                enabled: !!cloudSettingsDialog.archive && !cloudSettingsDialog.archive.busy
+            }
+            ComboBox {
+                id: settingsVersion
+                visible: !cloudSettingsDialog.exportMode
+                objectName: "settingsVersion"
+                model: cloudSettingsDialog.versions
+                textRole: "version"
+                Layout.fillWidth: true
+                enabled: settingsComputer.enabled
+            }
+            Label {
+                objectName: "cloudSettingsError"
+                text: cloudSettingsDialog.archive ? cloudSettingsDialog.archive.error : ""
+                textFormat: Text.PlainText
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+            Label {
+                text: cloudSettingsDialog.archive && cloudSettingsDialog.archive.busy ? qsTr("Loading settings…")
+                    : !cloudSettingsDialog.exportMode && !cloudSettingsDialog.computers.length ? qsTr("No settings exports found.") : ""
+                Layout.fillWidth: true
+            }
+            ActionButton {
+                style: uiStyle
+                objectName: "previewCloudSettingsButton"
+                visible: !cloudSettingsDialog.exportMode
+                text: qsTr("Preview import…")
+                enabled: settingsComputer.enabled && settingsVersion.currentIndex >= 0
+                onClicked: cloudSettingsDialog.archive.previewVersion(cloudSettingsDialog.versions[settingsVersion.currentIndex].path)
+            }
+        }
     }
 
     FileDialog {
@@ -719,6 +815,19 @@ ApplicationWindow {
                         text: qsTr("Export")
                         enabled: backupSetController.setNames.length > 0
                         onTriggered: exportSetsDialog.open()
+                    }
+
+                    MenuItem {
+                        objectName: "importCloudSettingsButton"
+                        text: qsTr("Import settings from Proton Drive…")
+                        enabled: protonAuth.authenticated && typeof cloudSettings !== "undefined" && !cloudSettings.busy && !recentBackupCopies.busy
+                        onTriggered: { cloudSettingsDialog.exportMode = false; cloudSettingsDialog.open(); cloudSettings.browse() }
+                    }
+                    MenuItem {
+                        objectName: "exportCloudSettingsButton"
+                        text: qsTr("Export settings to Proton Drive…")
+                        enabled: protonAuth.authenticated && backupSetController.setNames.length > 0 && typeof cloudSettings !== "undefined" && !cloudSettings.busy
+                        onTriggered: { cloudSettingsDialog.exportMode = true; cloudSettingsDialog.open(); cloudSettings.exportSettings() }
                     }
 
                     MenuItem {

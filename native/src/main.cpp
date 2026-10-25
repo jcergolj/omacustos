@@ -6,6 +6,7 @@
 #include "backuplauncher.h"
 #include "backuprestorecontroller.h"
 #include "backupsetcontroller.h"
+#include "cloudsettingscontroller.h"
 #include "protonprovider.h"
 #include "protonfolderbrowser.h"
 #include "recentbackupcopies.h"
@@ -42,6 +43,10 @@ int main(int argc, char *argv[])
         protonBinary
     );
     ProtonProvider browserProvider(browserRunner);
+    QProcessRunner settingsRunner(protonBinary);
+    ProtonProvider settingsProvider(settingsRunner);
+    CloudSettingsController cloudSettings(settingsProvider, configPath);
+    settingsRunner.setStopRequested([&cloudSettings] { return cloudSettings.stopRequested(); });
     ProtonFolderBrowser protonFolderBrowser(browserRunner, ProtonFolderLink::cachePath(configPath));
     RecentBackupCopies recentBackupCopies(browserProvider, configPath, QSysInfo::machineHostName());
     IncrementalMaintenance incrementalMaintenance(configPath);
@@ -90,6 +95,7 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty(QStringLiteral("backupEngine"), &backupEngine);
     engine.rootContext()->setContextProperty(QStringLiteral("backupLauncher"), &backupLauncher);
     engine.rootContext()->setContextProperty(QStringLiteral("backupSetController"), &backupSetController);
+    engine.rootContext()->setContextProperty(QStringLiteral("cloudSettings"), &cloudSettings);
     engine.rootContext()->setContextProperty(QStringLiteral("restoreController"), &restoreController);
     engine.rootContext()->setContextProperty(QStringLiteral("protonFolderBrowser"), &protonFolderBrowser);
     engine.rootContext()->setContextProperty(QStringLiteral("recentBackupCopies"), &recentBackupCopies);

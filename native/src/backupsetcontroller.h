@@ -57,6 +57,7 @@ class BackupSetController final : public QObject
     Q_PROPERTY(QStringList previewMissing READ previewMissing NOTIFY previewChanged)
     Q_PROPERTY(QStringList cleanupTargets READ cleanupTargets NOTIFY cleanupChanged)
     Q_PROPERTY(bool cleanupConfirmationRequired READ cleanupConfirmationRequired NOTIFY cleanupChanged)
+    Q_PROPERTY(QString importPreview READ importPreview NOTIFY importPreviewChanged)
 
 public:
     explicit BackupSetController(BackupEngine &engine, QString configPath, QObject *parent = nullptr);
@@ -133,9 +134,14 @@ public:
     Q_INVOKABLE bool exportSets(const QString &filePath);
     Q_INVOKABLE bool saveTemplate(const QString &filePath);
     Q_INVOKABLE bool importSets(const QString &filePath, bool merge = false);
+    Q_INVOKABLE bool prepareImport(const QString &filePath);
+    Q_INVOKABLE bool applyImport(bool merge);
+    Q_INVOKABLE bool resumeImportedSet(const QString &setId);
+    QString importPreview() const { return pendingImportPreview; }
     Q_INVOKABLE bool confirmCleanup();
 
 signals:
+    void importPreviewChanged();
     void setsChanged();
     void currentIndexChanged();
     void currentSetChanged();
@@ -154,6 +160,10 @@ signals:
     void failed(const QString &error);
 
 private:
+    bool applyImportedConfig(const BackupConfig &imported, bool merge);
+    BackupConfig pendingImport;
+    QString pendingImportPreview;
+    bool importPrepared = false;
     BackupSet *currentSet();
     const BackupSet *currentSet() const;
     QVector<int> recentBackupIndexes() const;

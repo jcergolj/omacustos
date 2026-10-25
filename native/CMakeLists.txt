@@ -30,6 +30,7 @@ add_library(omacustos-core STATIC
     src/remotemetadatacache.h
     src/backupecleanup.cpp
     src/backupconfig.cpp
+    src/settingsarchive.cpp
     src/backupschedule.cpp
     src/backuprunstore.cpp
     src/backupprerequisites.cpp
@@ -49,6 +50,7 @@ target_include_directories(omacustos-core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/sr
 # UI-facing controllers add asynchronous work, but no GUI-only dependencies.
 add_library(omacustos-controllers STATIC
     src/backupsetcontroller.cpp
+    src/cloudsettingscontroller.cpp
     src/backuprestorecontroller.cpp
     src/backuplauncher.cpp
     src/backupscheduler.cpp
@@ -136,6 +138,7 @@ omacustos_add_test(themecolors-test tests/themecolors_test.cpp omacustos-theme)
 set_tests_properties(themecolors-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORMTHEME=")
 
 omacustos_add_test(backupsetcontroller-test tests/backupsetcontroller_test.cpp omacustos-controllers)
+omacustos_add_test(settingsarchive-test tests/settingsarchive_test.cpp omacustos-controllers)
 target_link_libraries(backupsetcontroller-test PRIVATE Qt6::Qml)
 omacustos_add_test(protonfolderbrowser-test tests/protonfolderbrowser_test.cpp omacustos-controllers)
 omacustos_add_test(recentbackupcopies-test tests/recentbackupcopies_test.cpp omacustos-controllers)
@@ -224,7 +227,7 @@ add_test(NAME incrementalworker-integrity-test COMMAND incrementalworker-test
 add_test(NAME incrementalownership-test COMMAND incrementalworker-test
     settingsLossAndCopiedConfigurationNeedControllerTakeover takeoverPreservesConcurrentConfiguration)
 add_test(NAME incrementalmaintenance-test COMMAND incrementalworker-test
-    cleanupControllerRequiresConfirmationAndRestoresRetainedState)
+    cleanupControllerRequiresConfirmationAndRestoresRetainedState integrityActivityClearsAfterFailure)
 add_test(NAME incrementalcleanup-recovery-test COMMAND incrementalworker-test
     protectedWriterAndInterruptedAuthorizedControllerCleanupRecover)
 target_compile_definitions(incrementalworker-test PRIVATE

@@ -1,8 +1,10 @@
 #include "incrementalrestore.h"
 #include "incrementalmanifest.h"
+#include "remotemetadatacache.h"
 
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -16,17 +18,21 @@ bool fail(QString *error, const QString &message)
     return false;
 }
 
+bool readObject(const QString &local, QJsonObject *object, QString *error)
+{
+    QFile file(local);
+    if (!file.open(QIODevice::ReadOnly)) return fail(error, "Unable to read downloaded repository metadata.");
+    const auto document = QJsonDocument::fromJson(file.readAll());
+    if (file.error() != QFileDevice::NoError || !document.isObject()) return fail(error, "Malformed repository metadata.");
+    *object = document.object();
+    return true;
+}
+
 bool read(BackupProvider &provider, const QString &path, QJsonObject *object, QString *error)
 {
     QTemporaryDir temporary;
     const QString local = temporary.filePath("record.json");
-    if (!temporary.isValid() || !provider.download(path, local, error)) return false;
-    QFile file(local);
-    if (!file.open(QIODevice::ReadOnly)) return fail(error, "Unable to read downloaded repository metadata.");
-    const auto document = QJsonDocument::fromJson(file.readAll());
-    if (file.error() != QFileDevice::NoError || !document.isObject()) return fail(error, "Malformed repository metadata: " + path);
-    *object = document.object();
-    return true;
+    return temporary.isValid() && provider.download(path, local, error) && readObject(local, object, error);
 }
 
 bool children(BackupProvider &provider, const QString &root, QVector<RemoteItem> *items, QString *error)
@@ -42,19 +48,23 @@ bool children(BackupProvider &provider, const QString &root, QVector<RemoteItem>
     return true;
 }
 
-bool anchor(BackupProvider &provider, const QString &root, const QString &setId, QJsonObject *object, QString *error)
+bool validateAnchor(const QJsonObject &object, const QString &setId, QString *error)
 {
-    if (!read(provider, root + "/repository.json", object, error)) return false;
-    const auto epoch = object->value("ownership_epoch");
+    const auto epoch = object.value("ownership_epoch");
     const QSet<QString> expected {"version", "application", "coordination", "set_id", "origin_computer_id", "owner_computer_id", "ownership_epoch"};
-    const auto keys = object->keys();
-    if (QSet<QString>(keys.cbegin(), keys.cend()) != expected || object->value("version") != 1
-        || object->value("application") != "omacustos" || object->value("coordination") != "manual-offline-v1"
-        || object->value("set_id") != setId || !IncrementalManifest::validId(object->value("origin_computer_id").toString())
-        || !IncrementalManifest::validId(object->value("owner_computer_id").toString())
+    const auto keys = object.keys();
+    if (QSet<QString>(keys.cbegin(), keys.cend()) != expected || object.value("version") != 1
+        || object.value("application") != "omacustos" || object.value("coordination") != "manual-offline-v1"
+        || object.value("set_id") != setId || !IncrementalManifest::validId(object.value("origin_computer_id").toString())
+        || !IncrementalManifest::validId(object.value("owner_computer_id").toString())
         || !epoch.isDouble() || epoch.toDouble() < 1 || epoch.toDouble() > 9007199254740991.0
         || epoch.toDouble() != double(epoch.toInteger())) return fail(error, "Invalid repository identity or ownership record.");
     return true;
+}
+
+bool anchor(BackupProvider &provider, const QString &root, const QString &setId, QJsonObject *object, QString *error)
+{
+    return read(provider, root + "/repository.json", object, error) && validateAnchor(*object, setId, error);
 }
 }
 
@@ -72,15 +82,26 @@ bool IncrementalRestore::snapshotLocation(const QString &root, QString *setRoot,
 }
 
 static bool loadCopy(BackupProvider &provider, const QString &root, const QString &expectedSetId,
-    RemoteCopy *copy, QString *error, const std::function<bool()> &cancelled, bool verifyPayloads)
+    RemoteCopy *copy, QString *error, const std::function<bool()> &cancelled, bool verifyPayloads,
+    const QJsonObject *knownControl = nullptr)
 {
     QString setRoot, setId, snapshotId;
     if (!copy || !IncrementalRestore::snapshotLocation(root, &setRoot, &setId, &snapshotId)
         || (!expectedSetId.isEmpty() && setId != expectedSetId)) return fail(error, "Invalid selected shared snapshot location.");
     QJsonObject control, manifest;
     if (cancelled && cancelled()) return false;
-    if (!anchor(provider, setRoot, setId, &control, error)
-        || !read(provider, root + "/manifest.json", &manifest, error)) return false;
+    if (verifyPayloads && !knownControl && provider.supportsBatchDownload()) {
+        QTemporaryDir temporary;
+        if (!temporary.isValid() || !provider.downloadFiles({setRoot + "/repository.json", root + "/manifest.json"}, temporary.path(), error)) return false;
+        if (cancelled && cancelled()) return false;
+        if (!readObject(temporary.filePath("repository.json"), &control, error) || !validateAnchor(control, setId, error)
+            || !readObject(temporary.filePath("manifest.json"), &manifest, error)) return false;
+    } else {
+        if (knownControl) control = *knownControl;
+        else if (!anchor(provider, setRoot, setId, &control, error)) return false;
+        if (cancelled && cancelled()) return false;
+        if (!read(provider, root + "/manifest.json", &manifest, error)) return false;
+    }
     if (!IncrementalManifest::validate(QJsonDocument(manifest).toJson(), setId, snapshotId, error)) return false;
     if (manifest.value("origin_computer_id") != control.value("origin_computer_id")
         || manifest.value("ownership_epoch").toInteger() > control.value("ownership_epoch").toInteger()
@@ -92,6 +113,7 @@ static bool loadCopy(BackupProvider &provider, const QString &root, const QStrin
     copy->manifestVersion = 4;
     if (cancelled && cancelled()) return false;
     if (!verifyPayloads) return true;
+    RemoteMetadataCache directoryMetadata(provider);
     QHash<QString, BackupArchive> archives;
     QSet<QString> unavailable;
     for (const auto &value : manifest.value("archives").toArray()) {
@@ -109,9 +131,13 @@ static bool loadCopy(BackupProvider &provider, const QString &root, const QStrin
                 QByteArray::fromHex(member.value("sha256").toString().toLatin1())});
         }
         RemoteFile metadata;
-        if (!provider.inspect(archive.remotePath, &metadata, error) || metadata.path != archive.remotePath
+        if (directoryMetadata.loadDirectory(QFileInfo(archive.remotePath).path(), error) && cancelled && cancelled()) return false;
+        const bool listed = directoryMetadata.lookup(archive.remotePath, &metadata)
+            && (!provider.trustworthyContentChecksums() || !metadata.checksum.isEmpty());
+        if (!(listed || provider.inspect(archive.remotePath, &metadata, error)) || metadata.path != archive.remotePath
             || metadata.size != archive.size || (provider.trustworthyContentChecksums() && metadata.checksum != archive.checksum))
             unavailable.insert(archive.id);
+        if (cancelled && cancelled()) return false;
         archives.insert(archive.id, archive);
     }
     for (const auto &value : manifest.value("entries").toArray()) {
@@ -136,6 +162,71 @@ bool IncrementalRestore::describeCopy(BackupProvider &provider, const QString &r
     RemoteCopy *copy, QString *error, const std::function<bool()> &cancelled)
 {
     return loadCopy(provider, root, expectedSetId, copy, error, cancelled, false);
+}
+
+static bool snapshotFolders(BackupProvider &provider, const QString &remoteRoot, const QString &setId,
+    QString *setRoot, QVector<RemoteItem> *snapshots, QString *error, const std::function<bool()> &cancelled)
+{
+    if (remoteRoot.trimmed().isEmpty() || remoteRoot != QDir::cleanPath(remoteRoot)
+        || remoteRoot.split('/').contains("..") || remoteRoot.contains('\\') || remoteRoot.contains(QChar::Null)
+        || !IncrementalManifest::validId(setId)) return fail(error, "An exact remote root and shared set ID are required.");
+    if (cancelled && cancelled()) return false;
+    *setRoot = QDir(remoteRoot).filePath("sets/" + setId);
+    if (!children(provider, *setRoot + "/snapshots", snapshots, error)) return false;
+    for (const auto &snapshot : *snapshots) {
+        if (!snapshot.directory || !IncrementalManifest::validId(snapshot.name))
+            return fail(error, "Unexpected snapshot namespace entry.");
+    }
+    if (cancelled && cancelled()) return false;
+    return true;
+}
+
+bool IncrementalRestore::listSnapshotCandidates(BackupProvider &provider, const QString &remoteRoot, const QString &setId,
+    QVector<RemoteCopy> *copies, QString *error, const std::function<bool()> &cancelled)
+{
+    if (!copies) return fail(error, "A destination for snapshot candidates is required.");
+    copies->clear();
+    QString setRoot;
+    QVector<RemoteItem> snapshots;
+    if (!snapshotFolders(provider, remoteRoot, setId, &setRoot, &snapshots, error, cancelled)) return false;
+    for (const auto &snapshot : snapshots) {
+        if (cancelled && cancelled()) { copies->clear(); return false; }
+        copies->append({snapshot.path, snapshot.path + "/manifest.json", {}, setId, setId,
+            snapshot.name, "not verified", snapshot.modified, {}, {}, {}});
+    }
+    if (cancelled && cancelled()) { copies->clear(); return false; }
+    std::sort(copies->begin(), copies->end(), [](const RemoteCopy &a, const RemoteCopy &b) {
+        return a.createdAt == b.createdAt ? a.rootPath < b.rootPath : a.createdAt > b.createdAt;
+    });
+    return true;
+}
+
+bool IncrementalRestore::listSnapshots(BackupProvider &provider, const QString &remoteRoot, const QString &setId,
+    QVector<RemoteCopy> *copies, QString *error, const std::function<bool()> &cancelled)
+{
+    if (!copies) return fail(error, "A destination for snapshots is required.");
+    copies->clear();
+    QString setRoot;
+    QVector<RemoteItem> snapshots;
+    if (!snapshotFolders(provider, remoteRoot, setId, &setRoot, &snapshots, error, cancelled)) return false;
+    if (snapshots.isEmpty()) return true;
+    QJsonObject control;
+    if (!anchor(provider, setRoot, setId, &control, error)) return false;
+    QVector<RemoteCopy> listed;
+    for (const auto &snapshot : snapshots) {
+        if (cancelled && cancelled()) return false;
+        RemoteCopy copy;
+        QString problem;
+        if (loadCopy(provider, snapshot.path, setId, &copy, &problem, cancelled, false, &control))
+            listed.append(copy);
+        else if (error && error->isEmpty()) *error = problem;
+    }
+    if (cancelled && cancelled()) return false;
+    std::sort(listed.begin(), listed.end(), [](const RemoteCopy &a, const RemoteCopy &b) {
+        return a.createdAt == b.createdAt ? a.rootPath < b.rootPath : a.createdAt > b.createdAt;
+    });
+    *copies = std::move(listed);
+    return true;
 }
 
 bool IncrementalRestore::verifyCopy(BackupProvider &provider, const QString &root, const QString &expectedSetId,

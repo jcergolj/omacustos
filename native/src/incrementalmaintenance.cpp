@@ -18,6 +18,7 @@ IncrementalMaintenance::IncrementalMaintenance(QString path, QObject *parent)
     connect(&watcher, &QFutureWatcher<QJsonObject>::finished, this, [this] {
         const auto result = watcher.result();
         working = false;
+        checkingSet.clear();
         emit busyChanged();
         if (!result.value("error").toString().isEmpty()) {
             pendingSet.clear(); pendingConfirmation.clear();
@@ -52,6 +53,7 @@ void IncrementalMaintenance::checkIntegrity(const QString &setId) { if (!working
 void IncrementalMaintenance::start(const QString &setId, Action action, const QString &confirmation, bool oldWriterDisabled)
 {
     working = true;
+    checkingSet = action == Action::Integrity ? setId : QString();
     stopped->store(false);
     emit busyChanged();
     const auto path = configPath;

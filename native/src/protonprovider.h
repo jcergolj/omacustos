@@ -11,6 +11,7 @@ class ProtonProvider final : public BackupProvider
 {
 public:
     bool listComplete(const QString &, QVector<RemoteItem> *, QString * = nullptr) override;
+    bool listCompleteIfPresent(const QString &, QVector<RemoteItem> *, QString * = nullptr) override;
     bool deletionIdentity(const QString &, QString *, QString * = nullptr) override;
     bool trashExact(const QString &, const QString &, QString * = nullptr) override;
     bool deleteExact(const QString &, const QString &, QString * = nullptr) override;
@@ -25,6 +26,8 @@ public:
     bool uploadDirectory(const QString &localPath, const QString &remotePath, QString *error = nullptr) override;
     bool ensureDirectory(const QString &remotePath, QString *error = nullptr) override;
     bool download(const QString &remotePath, const QString &localPath, QString *error = nullptr) override;
+    bool supportsBatchDownload() const override { return true; }
+    bool downloadFiles(const QStringList &remotePaths, const QString &localDirectory, QString *error = nullptr) override;
     bool inspect(const QString &remotePath, RemoteFile *file, QString *error = nullptr) override;
     bool inspectDirectoryFiles(const QString &remotePath, QVector<RemoteFile> *files, QString *error = nullptr) override;
     bool list(const QString &remotePath, QVector<RemoteItem> *items, QString *error = nullptr) override;
@@ -32,7 +35,8 @@ public:
     bool permanentlyDelete(const QString &remotePath, QString *error = nullptr) override;
 
 private:
-    bool containedNode(const QString &, QJsonObject *, QString *);
+    bool containedNode(const QString &, QJsonObject *, QString *, bool *missing = nullptr);
+    bool completeInventory(const QString &, QVector<RemoteItem> *, QString *, bool optional);
     bool containedChildren(const QString &, const QString &, QJsonArray *, QString *);
     bool trashTarget(const QString &, QString *, bool *, QString *);
     bool exactMutation(const QString &, const QString &, const QString &, QString *);

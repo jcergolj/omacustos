@@ -9,8 +9,9 @@ struct BackupSchedule {
     int minute = 0;
     int weekday = 1;
     int dayOfMonth = 1;
+    bool paused = false;
 
-    bool enabled() const { return frequency != QStringLiteral("disabled"); }
+    bool enabled() const { return !paused && frequency != QStringLiteral("disabled"); }
 };
 
 class BackupScheduleCalculator final

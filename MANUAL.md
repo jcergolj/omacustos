@@ -203,8 +203,9 @@ archives retain obsolete members; they are not compacted. Daily existence/size
 checks may miss same-sized remote corruption until a full integrity check or
 restore. New uploads and restores still receive full verification.
 
-Existing v1/v2 individual-file and v3 archive copies remain browsable and
-restorable. An unfinished older attempt resumes its original format and exact
+Existing v1/v2 individual-file and v3 archive copies remain stored remotely, but
+are no longer listed in the normal restore chooser. Legacy format readers remain
+in the application internals. An unfinished older attempt resumes its original format and exact
 namespace; its cleanup is deferred to a fresh baseline and exact mixed-format
 review. Settings from before ownership binding, imports, and copied settings are
 read-only until **Offline writer takeover…**. Confirm only after the previous
@@ -252,7 +253,7 @@ always uses normal system scheduling. For exact preset limits, see
 
 Choose a **daily**, **weekly**, or **monthly** schedule and press **Save**.
 OmaCustos automatically enables and starts its scheduler; no terminal setup is
-needed. Importing backup sets with enabled schedules also activates scheduling.
+needed. Imported sets retain their schedules but remain paused until explicitly resumed.
 Manual-only backup sets do not activate it.
 
 If a monthly day does not exist in the current month, the last day of that month
@@ -305,6 +306,44 @@ is invalid, the app shows an error and keeps your existing settings.
 
 The file contains sources, exclusions, schedules, and settings. Your backed-up
 files, Proton login, and this computer's global resource preset are not included.
+
+### Save settings in Proton Drive and recover on another computer
+
+After signing in, choose **⋯ → Export settings to Proton Drive…**. This manually
+exports all saved definitions in version-1 JSON format to
+`/my-files/omacustos/settings/<computer>/<UTC timestamp>-<unique ID>.json`, outside
+managed backup archives. OmaCustos downloads the uploaded JSON and compares its
+contents before reporting success. Older versions are never overwritten or
+automatically pruned. If verification fails, do not use that new version; earlier
+exports remain untouched. Settings are not automatically synchronized.
+
+On a fresh installation, sign into Proton and choose **⋯ → Import settings from
+Proton Drive…**. Select the original computer and version, then **Preview import…**.
+Review the definitions, matching IDs and missing sources before explicitly
+choosing **Merge** or **Replace**. Replace changes local definitions only: it does
+not remove remote backup files. Invalid, unsafe, ambiguous or oversized imports
+(over 4 MiB) are rejected before changing local settings.
+
+Both local-file and Proton imports retain original paths and schedule details,
+but every imported set is paused and read-only, including after restarting the
+app. Usernames and home directories are never silently rewritten. Missing source
+paths do not prevent importing or using **Restore copies…**. That button can find
+incremental snapshots and older full-copy backups from other computers without
+local run history or an initial backup attempt.
+
+To resume backing up, correct missing sources using **Edit settings**, permanently
+disable the old writer (including its login timer and any ability to restart),
+then perform **Offline writer takeover…** for each set. Takeover is an offline
+ownership agreement, not a server-enforced fence. It does not resume schedules:
+press **Resume** separately for each set. Resumption requires valid source paths
+and completed handoff. Interrupted operations, integrity work or cleanup records
+can block takeover; OmaCustos reports the blocker rather than clearing those
+records automatically. Keep recovery read-only and restore valid copies while
+the blocker is investigated.
+
+A settings export is **not a complete copy of local OmaCustos state**. Recovery
+is limited to the last successfully exported definitions. Credentials, writer
+authority, installation binding, run history and cleanup state are not exported.
 
 ### Create an import file
 
@@ -376,15 +415,22 @@ clears the configured set list, while **Merge** keeps it.
 ## Restore
 
 1. Press **Restore copies…** on a backup set's card that has a recorded run.
-2. The restore panel opens immediately and loads copies for that backup in the
-   background. Select a remote copy to load and verify its files.
+2. The restore panel opens immediately and loads incremental restore points for
+   that backup in the background. Points are initially marked **not verified**;
+   select one to validate its metadata and load its available files. An incomplete
+   or unavailable point may be listed, but cannot be restored. Before verification,
+   the displayed date is the remote folder timestamp, not a verified backup
+   timestamp.
 3. All verified files are selected by default. Untick any files or folders you
    want to leave out. A folder checkbox includes its subfolders;
    **Select all files** selects or clears the whole copy.
 4. Use **Choose folder…** to select a separate destination folder, or enter its
    full path.
 5. Press **Start restore** at the bottom. The button is available when at least
-   one file is selected and a destination folder is specified.
+    one file is selected and a destination folder is specified.
+
+The chooser skips old-format v1–v3 copies and other backups' repositories to keep
+loading focused. Skipped copies are not deleted from Proton Drive.
 
 Copy labels show a local date in `dd/mm/yy` format and a 24-hour time including
 seconds, for example `25/10/26 14:30:05`, with warnings for unverified or unavailable
@@ -404,9 +450,8 @@ several files from one archive downloads that archive only once. Only selected
 files are restored, but downloading even one small file requires downloading its
 entire containing compressed archive. This is the selective-restore download
 amplification shown by **Required download**; it is not a transfer-time estimate.
-Each archive's temporary workspace is
-released before the next archive is downloaded. Older individual-file copies
-show the total bytes of the selected files. No download-time estimate is shown.
+Each archive's temporary workspace is released before the next archive is
+downloaded. No download-time estimate is shown.
 
 Incomplete copies expose only verified entries. Missing, failed, malformed, or
 unverifiable items are not presented as successful restores.
@@ -442,8 +487,8 @@ Default v4 shared-archive repositories can also be discovered and restored witho
 any original local configuration.
 See [shared-archive recovery](docs/incremental-restore.md) for the read-only CLI
 commands and explicit offline ownership handoff. These commands do not recreate
-schedules or grant writes automatically. The normal history browser includes
-legacy copies and shared snapshots; imported/copied settings do not grant writes.
+schedules or grant writes automatically. The normal history browser lists only
+the selected backup's incremental snapshots; imported/copied settings do not grant writes.
 
 V4 runs also advance full integrity checks every 30 days. Use **⋯ → Run full
 integrity check** to check now or resume, or use
@@ -452,6 +497,10 @@ check now or resume; see [integrity and health reporting](docs/incremental-integ
 for budgets, coverage and recovery. Daily existence/size-only checks can miss
 same-sized corruption. Corruption reports name affected historical snapshots;
 new replacement uploads do not repair those snapshots.
+
+While a full check runs, its backup card shows **Checking backup integrity…** and
+an animated activity bar, without a percentage or time estimate. A notification
+reports completion or errors. The check does not create a new backup.
 
 ## Manage copies
 

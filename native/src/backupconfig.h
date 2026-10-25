@@ -37,6 +37,8 @@ public:
     bool save(const BackupConfig &config, QString *error = nullptr) const;
     // Merge only verified authority into fresh settings under the configuration write lock.
     bool grantWriteAuthority(const QString &setId, const QString &expectedRemoteRoot, QString *error = nullptr) const;
+    bool resumeImportedSet(const QString &setId, QString *error = nullptr) const;
+    static constexpr qint64 MaximumImportBytes = 4 * 1024 * 1024;
     bool exportSets(const BackupConfig &config, QString *error = nullptr) const;
     bool importSets(BackupConfig *config, QString *error = nullptr) const;
     QString filePath() const;
