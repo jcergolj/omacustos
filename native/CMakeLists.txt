@@ -109,6 +109,7 @@ qt_add_qml_module(omacustos
         qml/PreviewGroup.qml
         qml/UiStyle.qml
         qml/LocalPaths.js
+        qml/DownloadCost.js
 )
 
 enable_testing()

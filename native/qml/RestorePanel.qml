@@ -1,4 +1,5 @@
 import QtQuick
+import "DownloadCost.js" as DownloadCost
 import QtQuick.Controls
 import QtQuick.Dialogs
 import QtQuick.Layouts
@@ -427,11 +428,7 @@ FormCard {
 
         Label {
             objectName: "restoreDownloadCost"
-            text: panel.downloadCost.archiveCount > 0
-                ? (panel.downloadCost.archiveCount === 1
-                    ? qsTr("Required download: %1 bytes · 1 archive (compressed)").arg(panel.downloadCost.bytes)
-                    : qsTr("Required download: %1 bytes · %2 archives (compressed)").arg(panel.downloadCost.bytes).arg(panel.downloadCost.archiveCount))
-                : qsTr("Required download: %1 bytes").arg(panel.downloadCost.bytes)
+            text: DownloadCost.describe(panel.downloadCost)
             color: panel.style.mutedColor
             wrapMode: Text.WordWrap
             Layout.fillWidth: true

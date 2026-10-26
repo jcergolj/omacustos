@@ -1053,6 +1053,9 @@ TestCase {
         compare(label.text, "Required download: 10 bytes")
         restoreController.downloadObjects = [{ archive: "a", size: 123 }, { archive: "a", size: 123 }]
         compare(label.text, "Required download: 123 bytes · 1 archive (compressed)")
+        restoreController.downloadObjects = [{ archive: "a", size: 152932000 }, { archive: "a", size: 152932000 }]
+        compare(label.text, "Required download: 153 MB · 1 archive (compressed)")
+        restoreController.downloadObjects = [{ archive: "a", size: 123 }, { archive: "a", size: 123 }]
         panel.selection.toggleFile(1, false)
         compare(label.text, "Required download: 123 bytes · 1 archive (compressed)")
         compare(control("restoreFile-0").checked, true)
