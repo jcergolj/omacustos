@@ -43,20 +43,18 @@ markdown_extensions:
           format: !!python/name:pymdownx.superfences.fence_code_format
 nav:
   - Overview: index.md
-  - Get started:
-      - Install and sign in: guides/install.md
-      - Your first backup: guides/first-backup.md
-      - Restore files: guides/restore.md
-      - Save and recover settings: guides/settings.md
+  - 1. Install and sign in: guides/install.md
+  - 2. Create your first backup set: guides/first-backup.md
+  - 3. Restore your files: guides/restore.md
+  - 4. Back up your backup-set settings: guides/settings.md
+  - 5. Make backups automatic: guides/schedules.md
+  - 6. Check backup integrity: guides/integrity.md
+  - 7. Manage history and free space: guides/history.md
+  - 8. Other controls and settings: guides/controls.md
+  - 9. Troubleshooting: guides/troubleshooting.md
+  - More guides:
       - Recover on another computer: guides/recovery.md
-  - Everyday use:
-      - Automatic backups: guides/schedules.md
-      - Integrity checks: guides/integrity.md
-      - History and cleanup: guides/history.md
       - Understand results: guides/results.md
-      - Troubleshooting: guides/troubleshooting.md
-  - Configure and manage:
-      - Controls overview: guides/controls.md
       - Choose files and rules: guides/selection.md
       - Pause, resume, or cancel: guides/backup-controls.md
       - Storage, power, and resources: guides/advanced.md
