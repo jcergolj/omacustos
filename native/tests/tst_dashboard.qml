@@ -1515,8 +1515,8 @@ TestCase {
     }
 
     function test_importAndExportUseChosenLocalFiles() {
-        compare(control("importSetsButton").text, "Import")
-        compare(control("exportSetsButton").text, "Export")
+        compare(control("importSetsButton").text, "Import backup sets from file…")
+        compare(control("exportSetsButton").text, "Export backup sets to file…")
         const exportDialog = control("exportSetsDialog")
         compare(exportDialog.fileMode, FileDialog.SaveFile)
         exportDialog.selectedFile = "file:///tmp/backup%20sets.json"
