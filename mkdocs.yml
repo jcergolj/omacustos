@@ -1,0 +1,71 @@
+site_name: OmaCustos documentation
+site_description: Back up and restore personal files with OmaCustos for Proton Drive.
+site_url: https://jcergolj.github.io/omacustos/
+repo_url: https://github.com/jcergolj/omacustos
+repo_name: jcergolj/omacustos
+edit_uri: ''
+docs_dir: .pages-docs
+site_dir: site
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: teal
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - scheme: slate
+      primary: teal
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.footer
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+plugins:
+  - search
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+nav:
+  - Overview: index.md
+  - Get started:
+      - Install and sign in: guides/install.md
+      - Your first backup: guides/first-backup.md
+      - Restore files: guides/restore.md
+      - Save and recover settings: guides/settings.md
+      - Recover on another computer: guides/recovery.md
+  - Everyday use:
+      - Automatic backups: guides/schedules.md
+      - Integrity checks: guides/integrity.md
+      - History and cleanup: guides/history.md
+      - Understand results: guides/results.md
+      - Troubleshooting: guides/troubleshooting.md
+  - Configure and manage:
+      - Controls overview: guides/controls.md
+      - Choose files and rules: guides/selection.md
+      - Pause, resume, or cancel: guides/backup-controls.md
+      - Storage, power, and resources: guides/advanced.md
+      - Move backup work: guides/handoff.md
+      - Templates and uninstalling: guides/extras.md
+  - Reference:
+      - Full user manual: MANUAL.md
+      - Technical notes: TECHNICAL.md
+      - Recovery without settings: docs/incremental-restore.md
+      - Integrity protocol: docs/incremental-integrity.md
+      - Cleanup rules: docs/incremental-cleanup.md
+      - Publishing these docs: docs/github-pages.md

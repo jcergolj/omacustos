@@ -3,3 +3,5 @@
 build/
 *.o
 /custos-backup/
+/.pages-docs/
+/site/
