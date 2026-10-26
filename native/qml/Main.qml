@@ -376,7 +376,7 @@ ApplicationWindow {
         }
         function onExported(remotePath) {
             cloudSettingsDialog.close()
-            root.setStatus(qsTr("Settings export uploaded and downloaded for verification: %1").arg(remotePath))
+            root.setStatus(qsTr("Backup sets export uploaded and downloaded for verification: %1").arg(remotePath))
         }
     }
 
@@ -386,7 +386,7 @@ ApplicationWindow {
         style: uiStyle
         anchors.centerIn: parent
         property bool exportMode: false
-        title: exportMode ? qsTr("Export settings to Proton Drive") : qsTr("Import settings from Proton Drive")
+        title: exportMode ? qsTr("Export backup sets to Proton Drive") : qsTr("Import backup sets from Proton Drive")
         width: Math.min(root.width - 2 * root.contentPadding, 640)
         modal: true
         standardButtons: Dialog.Cancel
@@ -405,8 +405,8 @@ ApplicationWindow {
             spacing: 12
             Label {
                 text: cloudSettingsDialog.exportMode
-                    ? qsTr("Uploading saved definitions as a new version, then downloading to verify. Earlier exports are kept. This is not automatic synchronization.")
-                    : qsTr("Choose a computer and timestamped settings version. This restores definitions only, not credentials or local history.")
+                    ? qsTr("Uploading saved backup sets as a new version, then downloading to verify. Earlier exports are kept. This is not automatic synchronization.")
+                    : qsTr("Choose a computer and timestamped backup sets version. This imports backup set definitions only, not credentials or local history.")
                 wrapMode: Text.WordWrap
                 Layout.fillWidth: true
             }
@@ -435,8 +435,8 @@ ApplicationWindow {
                 Layout.fillWidth: true
             }
             Label {
-                text: cloudSettingsDialog.archive && cloudSettingsDialog.archive.busy ? qsTr("Loading settings…")
-                    : !cloudSettingsDialog.exportMode && !cloudSettingsDialog.computers.length ? qsTr("No settings exports found.") : ""
+                text: cloudSettingsDialog.archive && cloudSettingsDialog.archive.busy ? qsTr("Loading backup sets…")
+                    : !cloudSettingsDialog.exportMode && !cloudSettingsDialog.computers.length ? qsTr("No backup set exports found.") : ""
                 Layout.fillWidth: true
             }
             ActionButton {
@@ -805,27 +805,27 @@ ApplicationWindow {
 
                     MenuItem {
                         objectName: "importSetsButton"
-                        text: qsTr("Import")
+                        text: qsTr("Import backup sets from file…")
                         enabled: !recentBackupCopies.busy
                         onTriggered: importSetsDialog.open()
                     }
 
                     MenuItem {
                         objectName: "exportSetsButton"
-                        text: qsTr("Export")
+                        text: qsTr("Export backup sets to file…")
                         enabled: backupSetController.setNames.length > 0
                         onTriggered: exportSetsDialog.open()
                     }
 
                     MenuItem {
                         objectName: "importCloudSettingsButton"
-                        text: qsTr("Import settings from Proton Drive…")
+                        text: qsTr("Import backup sets from Proton Drive…")
                         enabled: protonAuth.authenticated && typeof cloudSettings !== "undefined" && !cloudSettings.busy && !recentBackupCopies.busy
                         onTriggered: { cloudSettingsDialog.exportMode = false; cloudSettingsDialog.open(); cloudSettings.browse() }
                     }
                     MenuItem {
                         objectName: "exportCloudSettingsButton"
-                        text: qsTr("Export settings to Proton Drive…")
+                        text: qsTr("Export backup sets to Proton Drive…")
                         enabled: protonAuth.authenticated && backupSetController.setNames.length > 0 && typeof cloudSettings !== "undefined" && !cloudSettings.busy
                         onTriggered: { cloudSettingsDialog.exportMode = true; cloudSettingsDialog.open(); cloudSettings.exportSettings() }
                     }
