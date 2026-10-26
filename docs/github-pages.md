@@ -6,11 +6,15 @@ GitHub and is the single source for the task instructions.
 
 ## Enable publishing once
 
-1. Commit and push the documentation configuration to `master`.
+1. Build and publish locally using the commands below. This creates or updates
+   the `gh-pages` branch with the generated site, not the Markdown sources.
 2. In the repository, open **Settings → Pages**.
-3. Under **Build and deployment → Source**, select **GitHub Actions**.
-4. In **Actions → Documentation**, run the workflow if it has not already run.
+3. Under **Build and deployment → Source**, select **Deploy from a branch**.
+4. Select **gh-pages**, folder **/ (root)**, and save.
 5. After deployment succeeds, visit <https://jcergolj.github.io/omacustos/>.
+
+There is no custom Actions workflow. GitHub still handles the branch-based Pages
+deployment internally.
 
 See GitHub's [Pages setup instructions](https://docs.github.com/en/pages/getting-started-with-github-pages/creating-a-github-pages-site).
 The site is public; do not put private configuration or credentials in the docs.
@@ -29,9 +33,18 @@ It updates links and adapts GitHub alerts and expandable sections. Other reposit
 GitHub. It only stages documentation and the settings template, never binaries
 or local configuration. Do not edit the generated `.pages-docs/` or `site/` files.
 
-Pushes to `master` affecting documentation rebuild and deploy the site. Pull
-requests build it without deployment. An Actions deployment failure does not
-replace the last successfully published site.
+Pushing Markdown to `master` does **not** update the live site. After editing,
+commit and push the source changes, then publish the built documentation:
+
+```bash
+python tools/prepare-pages.py
+/tmp/opencode/omacustos-docs-venv/bin/mkdocs gh-deploy --strict
+```
+
+Install the preview environment below before the first publication. The deploy
+command builds the site and pushes the generated HTML to `origin/gh-pages`;
+it does not switch your working branch or commit source changes. It also creates
+`.nojekyll` so GitHub serves the generated site without processing it with Jekyll.
 
 ## Preview locally
 
