@@ -1,0 +1,54 @@
+{
+  "_comment": [
+    "OmaCustos backup-set import template and instructions for an LLM.",
+    "Generate one valid JSON object using this structure. Keep application as omacustos and version as 1.",
+    "Replace the example paths with the user's folders and files. Ask for the absolute paths if they are missing; do not invent paths or assume a username.",
+    "Create one set for the supplied paths unless the user requests separate sets. For multiple sets, duplicate the set object and give each a unique id.",
+    "Follow the user's requested schedule, exclusions, retention, and AC-power requirement. If no schedule is requested, use disabled. The example below is daily at 02:00.",
+    "Return only JSON, without Markdown fences or surrounding prose. These _comment fields may be kept or removed; OmaCustos ignores them.",
+    "Use double quotes, JSON booleans, and no trailing commas. Do not use // or /* */ comments.",
+    "OmaCustos validates the file automatically before importing. Merge keeps other sets and updates matching IDs; Replace uses only this file's sets. Enabled schedules activate automatic scheduling. Review the generated file before importing."
+  ],
+  "application": "omacustos",
+  "version": 1,
+  "sets": [
+    {
+      "_comment": {
+        "id": "Required nonempty string, unique within sets. A readable id such as personal-files is valid; keep an existing id when editing an exported set.",
+        "name": "Required nonempty display name for this backup set.",
+        "remote_root": "Proton Drive destination root. Use /my-files/backups unless the user requests another remote folder. OmaCustos adds computer and backup-set folders automatically.",
+        "source_directories": "Required nonempty array of absolute local paths. Both folders and individual files are supported. Replace /home/you with the user's actual home path; do not use ~ or environment variables.",
+        "exclusions": "Array of exclusions, or [] for none. A name such as node_modules excludes matching folders at any depth; an absolute path excludes only that file or folder. Do not invent glob patterns. Hidden files and folders are included unless excluded.",
+        "inclusions": "Optional array of include-only rules; [] or omitted includes everything. Names such as .env match files or folders at any depth inside each source. Paths are absolute or relative to each source folder. Matching folders include their contents. Wildcards * and ? are supported within a path segment; .env* also includes .env.local. Exclusions always win. Select a parent folder as a source and use [\".env\"] to back up only its .env files recursively.",
+        "retention": "Positive whole number of verified successful copies to keep. Default: 3.",
+        "only_on_ac_power": "Boolean: true waits for AC power; false allows backups on battery. Default: false."
+      },
+      "id": "personal-files",
+      "name": "Personal files",
+      "remote_root": "/my-files/backups",
+      "source_directories": [
+        "/home/you/Documents",
+        "/home/you/projects",
+        "/home/you/.config/hypr/hyprland.conf"
+      ],
+      "exclusions": [],
+      "inclusions": [],
+      "schedule": {
+        "_comment": {
+          "frequency": "One of disabled, daily, weekly, monthly. Use disabled for manual-only backups. Daily at 2 means daily at 02:00 unless the user specifies 2 pm; ask if ambiguous.",
+          "hour": "Whole number 0–23 in this computer's local time. 2 is 02:00; 14 is 14:00.",
+          "minute": "Whole number 0–59. Use 0 for a schedule on the hour.",
+          "weekday": "Whole number 1–7: Monday=1, Sunday=7. Used only for weekly schedules; keep a valid value for other frequencies.",
+          "day_of_month": "Whole number 1–31. Used only for monthly schedules; keep a valid value for other frequencies. If the day does not exist, the last day of that month is used."
+        },
+        "frequency": "daily",
+        "hour": 2,
+        "minute": 0,
+        "weekday": 1,
+        "day_of_month": 1
+      },
+      "retention": 3,
+      "only_on_ac_power": false
+    }
+  ]
+}

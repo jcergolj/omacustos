@@ -1,0 +1,1373 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Back up and restore personal files with OmaCustos for Proton Drive.">
+      
+      
+      
+        <link rel="canonical" href="https://jcergolj.github.io/omacustos/docs/incremental-execution/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.0">
+    
+    
+      
+        <title>Shared uploads and crash-safe publication (#58) - OmaCustos documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#shared-uploads-and-crash-safe-publication-58" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="OmaCustos documentation" class="md-header__button md-logo" aria-label="OmaCustos documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            OmaCustos documentation
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Shared uploads and crash-safe publication (#58)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jcergolj/omacustos" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jcergolj/omacustos
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="OmaCustos documentation" class="md-nav__button md-logo" aria-label="OmaCustos documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    OmaCustos documentation
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jcergolj/omacustos" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jcergolj/omacustos
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1. Install and sign in
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/first-backup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2. Create your first backup set
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3. Restore your files
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4. Back up your backup-set settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/schedules/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5. Make backups automatic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/integrity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    6. Check backup integrity
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/history/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7. Manage history and free space
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/controls/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    8. Other controls and settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    9. Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_11" >
+        
+          
+          <label class="md-nav__link" for="__nav_11" id="__nav_11_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    More guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_11_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_11">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    More guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/recovery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Recover on another computer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Understand results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/selection/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Choose files and rules
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/backup-controls/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pause, resume, or cancel
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/advanced/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Storage, power, and resources
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/handoff/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Move backup work
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/extras/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Templates and uninstalling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_12" >
+        
+          
+          <label class="md-nav__link" for="__nav_12" id="__nav_12_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_12_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_12">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../MANUAL/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Full user manual
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../TECHNICAL/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Technical notes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../incremental-restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Recovery without settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../incremental-integrity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrity protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../incremental-cleanup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cleanup rules
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../github-pages/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Publishing these docs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#approved-ownership-change" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Approved ownership change
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#advanced-cli-use" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Advanced CLI use
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#durable-continuation-protocol" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Durable continuation protocol
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#publication-and-cleanup-protection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Publication and cleanup protection
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#automated-coverage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Automated coverage
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Automated coverage">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#validation-record-2026-10-20" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validation record (2026-10-20)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="shared-uploads-and-crash-safe-publication-58">Shared uploads and crash-safe publication (#58)<a class="headerlink" href="#shared-uploads-and-crash-safe-publication-58" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p>Historical component delivery record. Its rollout-status statements are
+superseded by <a href="../incremental-default-rollout/">the default-worker integration</a>.</p>
+</blockquote>
+<p><code>IncrementalRepository</code> executes v4 plans through <code>BackupProvider</code>, including the
+Proton CLI adapter. <code>build/omacustos-incremental</code> is a real, explicitly invoked
+entry point, not a cloud-test stub. The ordinary worker still makes v3 full copies;
+incremental default rollout waits for restore/discovery (#59), GC/full integrity
+maintenance (#60), and release validation. The new executable is built but is not
+added to the packaged default launchers or schedules.</p>
+<h2 id="approved-ownership-change">Approved ownership change<a class="headerlink" href="#approved-ownership-change" title="Permanent link">&para;</a></h2>
+<p>The user explicitly approved the manual offline handoff model on 2026-10-20 after
+the installed <code>cli-drive@0.8.0</code> help and official source showed no remote per-set
+fencing API. The installed CLI also reports 0.9.0 available; no claim is made that
+a CLI upgrade supplies a fence. Current upload commands expose conflict choices,
+not an expected-owner token. The SDK's revision precondition is narrower than
+repository-wide fencing across upload/trash/delete.</p>
+<p>The <a href="../incremental-repository/#ownership-and-operational-coordination">amended contract</a>
+requires one owning computer, disabled old writers before handoff, and one shared
+local coordination directory. Every execution/provisioning operation holds a
+<code>QLockFile</code> keyed by <strong>set UUID</strong>, even if paths/configurations differ. Its default
+location is <code>~/.config/omacustos/incremental</code>. Supplying a different state directory
+is for isolated tests/controlled deployments, not a way to run parallel writers.
+The anchor is downloaded and exactly checked before every remote write. Wrong
+computer/epoch/origin, stale continuation identity or malformed history stops work.
+An unfinished remote operation prevents starting a different operation in that set.</p>
+<p>These checks <strong>cannot remotely fence a stale process</strong> between check and mutation.
+Do not clone an active identity, run on two computers, use two coordination roots,
+or hand off while the old machine could restart. No expiring remote lock is used.
+The manual handoff procedure is specified by #56; user-facing takeover tooling is
+part of #59. Do not edit the anchor as a substitute for disabling the old writer.</p>
+<h2 id="advanced-cli-use">Advanced CLI use<a class="headerlink" href="#advanced-cli-use" title="Permanent link">&para;</a></h2>
+<p>This is a non-default development/advanced-user seam. Provision a <strong>new empty</strong>
+set namespace; do not point it at legacy copy folders. Generate and preserve a
+computer UUID once and a set UUID once. Generate fresh operation/snapshot UUIDs for
+each new logical run; retries/resume use the <strong>same</strong> pair. Use canonical UUIDv4
+strings. Keep the request file private and outside the selected sources.</p>
+<p>Example request (replace paths, IDs and sources deliberately):</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">"remote_set_root"</span><span class="p">:</span><span class="w"> </span><span class="s2">"/my-files/backups/sets/10000000-0000-4000-8000-000000000001"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"set_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"10000000-0000-4000-8000-000000000001"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"computer_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"20000000-0000-4000-8000-000000000001"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"origin_computer_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"20000000-0000-4000-8000-000000000001"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"ownership_epoch"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"operation_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"50000000-0000-4000-8000-000000000001"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"snapshot_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"30000000-0000-4000-8000-000000000001"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"staging_directory"</span><span class="p">:</span><span class="w"> </span><span class="s2">"/home/USER/.local/share/omacustos/staging"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"staging_budget_bytes"</span><span class="p">:</span><span class="w"> </span><span class="mi">1000000000</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"archive_target_bytes"</span><span class="p">:</span><span class="w"> </span><span class="mi">1000000000</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"batch_file_limit"</span><span class="p">:</span><span class="w"> </span><span class="mi">1000</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"sources"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="nt">"source"</span><span class="p">:</span><span class="w"> </span><span class="s2">"/home/USER/project/main.cpp"</span><span class="p">,</span><span class="w"> </span><span class="nt">"restore"</span><span class="p">:</span><span class="w"> </span><span class="s2">"project/main.cpp"</span><span class="p">}]</span>
+<span class="p">}</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code>build/omacustos-incremental<span class="w"> </span>--request<span class="w"> </span>request.json<span class="w"> </span>--initialize<span class="w"> </span>--acknowledge-single-writer
+build/omacustos-incremental<span class="w"> </span>--request<span class="w"> </span>request.json<span class="w"> </span>--acknowledge-single-writer
+</code></pre></div>
+<p><code>sources</code> is an explicit completed selection with stable restore mappings, not
+directories to recursively expand. Missing files, symlinks, unsafe/colliding mappings
+or unreadable sources fail. The library also accepts scanner issues, which fail the
+whole plan. Use the existing scanner's inclusion/exclusion/mapping rules when
+integrating into the eventual default worker. No local previous manifest is needed:
+the executor validates all published snapshot manifests and selects the latest by
+creation time/UUID. A supplied previous snapshot must agree with that discovery.</p>
+<p>SIGINT/SIGTERM cooperatively pause and stop owned CLI children; rerun the same
+request to resume. <code>--cancel</code> durably abandons that operation without deleting its
+objects. A prepared publication can still be cancelled; an already committed
+manifest wins a late cancel. An immutable terminal operation is idempotent: rerunning
+it reports its original completion/check timestamp, not a new check. Generate fresh
+operation/snapshot IDs for the next check. JSON output exposes saved/unchanged/
+paused/cancelled/waiting/retrying/failed, committed manifest path, separate check
+and saved-change timestamps, issues, damaged object IDs and affected snapshots.</p>
+<h2 id="durable-continuation-protocol">Durable continuation protocol<a class="headerlink" href="#durable-continuation-protocol" title="Permanent link">&para;</a></h2>
+<p>This is a separate payload-format-4 continuation namespace; the copy-scoped
+<code>BackupContinuation</code> v2/v3 journals are neither migrated nor reinterpreted.
+Local journals live below <code>&lt;shared-state&gt;/&lt;sha256(exact-set-root)&gt;/&lt;operation-id&gt;</code>;
+remote recovery uses the following immutable records:</p>
+<div class="highlight"><pre><span></span><code>operations/&lt;operation-id&gt;/
+  identity.json                 # version 1, payload_format 4, all IDs/root/epoch/time
+  reuse-&lt;uuid&gt;.json              # version 1, protected complete archive descriptors
+  prepared-&lt;object-id&gt;.json      # version 1, archive descriptor without receipt
+  verified-&lt;object-id&gt;.json      # version 1, same descriptor plus original receipt
+  publication.json              # exact complete v4 manifest, immutable final intent
+  complete.json                 # version 1, saved/unchanged, timestamps and snapshot
+  cancelled.json                # version 1, explicit terminal abandonment
+</code></pre></div>
+<p>Local prepared checkpoints use <code>QSaveFile</code> without direct-write fallback, syncing
+directory links/renames. Remote preparation is uploaded and read back before its
+object. Source capture uses the planner's no-follow descriptor walk, bounded reads,
+stat consistency and exact hash/mode/nanosecond-mtime comparison with the plan.
+Captured files are private/read-only; gzip level 3 packing rehashes them. Archives
+are read-only before upload, with new random IDs and complete physical inventories.</p>
+<p>The normal working-space bound includes raw captures, conservative tar/gzip output,
+<strong>and a second compressed download for full verification</strong>, plus the existing
+filesystem metadata reserve. Batches obey both byte and file-count limits. One
+whole oversized file may exceed the soft budget after free-space preflight and an
+explicit oversized-file checkpoint; no file is split. Multi-member recovery
+downloads exceeding a lowered budget enter Waiting. Actual quota/write/flush/
+checkpoint failures stop without releasing any retention authority.</p>
+<p>Objects and control records never use upload replace/rename/new-revision. Proton
+JSON-mode unresolved conflicts fail; its automatic identical-content skip is
+accepted only after mandatory verification. Every newly uploaded or merely
+prepared-but-recovered object is <strong>downloaded</strong>, checked for compressed size/SHA-256,
+complete gzip/tar structure and exact full physical membership/size/SHA-256. This
+uses a validation-only archive reader; v3 extraction's existing strict behavior
+is unchanged. Current Proton metadata is conservatively not declared a trustworthy
+SHA-256 authority. A provider can explicitly certify its content-checksum semantics;
+the local test provider computes current file bytes.</p>
+<p>After full verification: remote original-evidence record → readback → local synced
+verified checkpoint → release staging. Normal source snapshots and compressed output
+remain through that checkpoint. Pause/failure unwinds private staging as existing
+backup recovery does; <strong>remote protection remains</strong>. A prepared descriptor alone
+never authorizes reuse. Resume inspects exact object IDs and re-verifies prepared
+uploads, rather than overwriting or trusting their size. Remote verified evidence
+and complete inventories reconstruct continuation after local journals are lost.
+Re-scan current selection until the immutable publication intent exists. After that
+point, recovery finishes that captured state, not newly changed local source bytes.</p>
+<p>Daily reuse requires the durable original receipt, fresh existence/content size,
+and a matching trustworthy checksum where supported. It does not download all
+reused archives. <strong>Size-only checks can miss same-sized corruption until full
+integrity maintenance or restore.</strong> An unchanged successful check creates only a
+terminal operation/check record, not another snapshot or retention slot.</p>
+<p>The executor now runs <a href="../incremental-integrity/">scheduled full integrity slices</a>
+before backups and cleanup; <code>--check-integrity</code> explicitly starts/resumes a cycle.
+The JSON <code>integrity</code> report distinguishes coverage and corruption from daily checks.</p>
+<p>For confirmed missing/corrupt reused data, current local files are repacked into
+fresh objects. Report all saved snapshot IDs referencing each damaged object and
+preserve their manifests; no historical repair is claimed. Network/authentication,
+malformed or ambiguous listing/metadata and unreadable history are unknown health,
+not absence. They stop execution without guessed replacements or cleanup. Conflicting
+immutable descriptors are corruption and stop work.</p>
+<h2 id="publication-and-cleanup-protection">Publication and cleanup protection<a class="headerlink" href="#publication-and-cleanup-protection" title="Permanent link">&para;</a></h2>
+<p>All new verified and reused healthy references must pass before publication intent
+is prepared, synced locally, uploaded and read back remotely. The complete v4
+<code>snapshots/&lt;snapshot-id&gt;/manifest.json</code> is uploaded <strong>last</strong>. Readback must match the
+prepared document and schema before durable local success, then remote completion.
+A lost upload response is reconciled by exact identity/content on resume. Never
+rewrite a published snapshot or broaden an immutable publication intent. If intent
+references subsequently damaged data, cancel/start a new operation rather than
+silently changing what was committed.</p>
+<p>All operation/reuse/prepared/verified/publication records protect their object
+references while unfinished. Pause has no age expiry. Cancel needs a durable marker;
+a lost cancellation response is retried, not assumed successful. Completed snapshots
+take over their own live references; terminal leftover objects become candidates
+only for the separately authorized reference-aware cleanup phase.</p>
+<p>The write phase never makes room by deleting history. Local/remote quota exhaustion
+preserves all old states. A successful saved result can now propose opt-in
+<a href="../incremental-cleanup/">reference-aware retention</a>, with exact-scope confirmation
+and the same set UUID mutation lock. Do not point legacy cleanup at <code>sets/&lt;UUID&gt;</code>.
+Incremental uploads are still not the default worker behavior.</p>
+<h2 id="automated-coverage">Automated coverage<a class="headerlink" href="#automated-coverage" title="Permanent link">&para;</a></h2>
+<p><code>incrementalrepository-test</code> injects interruption at preparation, protection,
+upload, verification, remote/local checkpoint and publication boundaries. It tests
+lost responses, remote evidence recovery after local-state loss, current-source
+changes versus frozen publication, exact subset inventory retention, changed-only
+uploads, no-download daily checks, the deliberate same-size-corruption limitation,
+fresh-ID damage replacement and affected history, quota failures, cancel, owner/
+epoch changes, local exclusion, protected work and empty states. A complete offline
+Proton-adapter run uses the CLI filesystem fixture, including noninteractive
+conflict-failing uploads. No cloud mutation is needed for these tests.</p>
+<p>Review-driven regressions also cover an identity upload failing <strong>before</strong> remote
+creation with a changed retry/check time (resume and cancel), strict terminal
+record fields/timestamps/snapshot consistency, and lowered-budget recovery. Reuse
+matching builds previous logical-reference and recovered-object hash sets once;
+it does not scan all logical entries for each physical archive member.</p>
+<p>Completed cleanup proposals retain expired manifests for validating historical
+completion records without treating them as live object references. Missing or
+mismatched history without a validated completed proposal still fails closed.</p>
+<h3 id="validation-record-2026-10-20">Validation record (2026-10-20)<a class="headerlink" href="#validation-record-2026-10-20" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>cmake -S native -B build</code> and <code>cmake --build build -j 4</code>: passed; existing
+  optional Vulkan/QML-policy and legacy Qt-deprecation warnings only.</li>
+<li><code>build/incrementalrepository-test</code>: <strong>41 passed, 0 failed</strong>, including the
+  offline Proton adapter and all review-driven recovery regressions.</li>
+<li>After resolving review findings, <code>ctest --test-dir build --output-on-failure
+  -j 4 -E '^workerrecovery-test$'</code>: <strong>26/26 targets passed</strong>, 85.16 seconds.</li>
+<li><code>build/workerrecovery-test</code> with a 360-second external allowance: <strong>139 passed,
+  0 failed</strong>, 182.567 seconds. The previously documented 180-second CTest limit
+  was not changed; this suite was run separately to allow it to complete.</li>
+<li>Independent pre-commit review of the staged scope against <code>2fc1ec6</code>:
+  <strong>Standards: no violations; Spec/safety: all three findings resolved and
+  re-reviewed, no remaining blockers</strong>. Fixes cover pre-upload identity recovery,
+  strict terminal record validation, and quadratic reuse matching. Both reviewers
+  reran the four relevant provider/schema/planner/repository CTest targets: <strong>4/4
+  passed</strong>. <code>git diff --cached --check</code> passed.</li>
+<li><code>build/omacustos-incremental --help</code> passed. No live cloud mutation was performed;
+  the offline provider/CLI fixtures are not a claim of cloud certification.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.footer", "navigation.top", "search.suggest", "search.highlight", "content.code.copy"], "search": "../../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.c21346df.min.js"></script>
+      
+    
+  </body>
+</html>

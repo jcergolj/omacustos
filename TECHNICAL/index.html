@@ -1,0 +1,2191 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Back up and restore personal files with OmaCustos for Proton Drive.">
+      
+      
+      
+        <link rel="canonical" href="https://jcergolj.github.io/omacustos/TECHNICAL/">
+      
+      
+        <link rel="prev" href="../MANUAL/">
+      
+      
+        <link rel="next" href="../docs/incremental-restore/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.0">
+    
+    
+      
+        <title>Technical notes - OmaCustos documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#technical-notes" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="OmaCustos documentation" class="md-header__button md-logo" aria-label="OmaCustos documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            OmaCustos documentation
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Technical notes
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jcergolj/omacustos" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jcergolj/omacustos
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="OmaCustos documentation" class="md-nav__button md-logo" aria-label="OmaCustos documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    OmaCustos documentation
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jcergolj/omacustos" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jcergolj/omacustos
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1. Install and sign in
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/first-backup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2. Create your first backup set
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3. Restore your files
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4. Back up your backup-set settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/schedules/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5. Make backups automatic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/integrity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    6. Check backup integrity
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/history/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7. Manage history and free space
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/controls/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    8. Other controls and settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    9. Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_11" >
+        
+          
+          <label class="md-nav__link" for="__nav_11" id="__nav_11_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    More guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_11_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_11">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    More guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/recovery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Recover on another computer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Understand results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/selection/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Choose files and rules
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/backup-controls/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pause, resume, or cancel
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/advanced/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Storage, power, and resources
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/handoff/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Move backup work
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/extras/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Templates and uninstalling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_12" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_12" id="__nav_12_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_12_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_12">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../MANUAL/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Full user manual
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Technical notes
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Technical notes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#native-and-qml-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Native And QML Structure
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#local-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Local State
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#remote-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Remote Layout
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Remote Layout">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#historical-v1-v3-copy-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Historical v1-v3 copy layout
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#provider-behavior" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provider Behavior
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Provider Behavior">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#internal-single-archive-slice-46" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Internal Single-Archive Slice (#46)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#transfer-timeout-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Transfer Timeout Configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#browser-links-and-copy-management" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Browser Links And Copy Management
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#backup-progress-and-remaining-time" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backup Progress And Remaining Time
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#retention-and-cleanup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Retention And Cleanup
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#restore-safety" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Restore Safety
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#desktop-theme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Desktop Theme
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#services-and-packaging" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Services And Packaging
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#development" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Development
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#manual-cloud-settings-recovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Manual cloud settings recovery
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../docs/incremental-restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Recovery without settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../docs/incremental-integrity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrity protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../docs/incremental-cleanup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cleanup rules
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../docs/github-pages/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Publishing these docs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#native-and-qml-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Native And QML Structure
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#local-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Local State
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#remote-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Remote Layout
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Remote Layout">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#historical-v1-v3-copy-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Historical v1-v3 copy layout
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#provider-behavior" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provider Behavior
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Provider Behavior">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#internal-single-archive-slice-46" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Internal Single-Archive Slice (#46)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#transfer-timeout-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Transfer Timeout Configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#browser-links-and-copy-management" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Browser Links And Copy Management
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#backup-progress-and-remaining-time" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backup Progress And Remaining Time
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#retention-and-cleanup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Retention And Cleanup
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#restore-safety" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Restore Safety
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#desktop-theme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Desktop Theme
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#services-and-packaging" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Services And Packaging
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#development" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Development
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#manual-cloud-settings-recovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Manual cloud settings recovery
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="technical-notes">Technical Notes<a class="headerlink" href="#technical-notes" title="Permanent link">&para;</a></h1>
+<p>This document records implementation details that are useful for maintainers
+and advanced users but are not needed for the quick start.</p>
+<p>For everyday instructions, see the <a href="../">README</a> and <a href="../MANUAL/">user manual</a>.</p>
+<h2 id="native-and-qml-structure">Native And QML Structure<a class="headerlink" href="#native-and-qml-structure" title="Permanent link">&para;</a></h2>
+<p>CMake compiles shared implementations once into three static targets:</p>
+<ul>
+<li><code>omacustos-core</code>: storage, providers, configuration, execution, and systemd
+  helpers, linked only to Qt Core. The worker and installer use this target.</li>
+<li><code>omacustos-controllers</code>: UI-facing controllers and asynchronous operations,
+  linked to the core target and Qt Concurrent.</li>
+<li><code>omacustos-theme</code>: desktop palette integration, linked to Qt Gui.</li>
+</ul>
+<p>The application and native tests link these same targets instead of compiling
+separate copies of their sources. Add shared implementations to their library
+target; <code>omacustos_add_test</code> registers tests against the appropriate target.</p>
+<p><code>Main.qml</code> composes the window, navigation, dialogs, and notifications.
+<code>Dashboard.qml</code> presents saved sets and recent runs and emits navigation requests.
+<code>BackupEditor.qml</code> owns its draft fields and controller synchronization.
+<code>RestoreSelection.qml</code> owns restore selection arrays, lookup, counts, folder
+ancestry/counts, default/customization flags, copy identity, and selection snapshots.
+Its operations reconcile refreshed paths, toggle files, select folders/all files,
+clear, and save/restore snapshots. <code>RestorePanel.qml</code> owns destination, focus,
+scrolling, and per-context presentation state, and forwards controller changes to
+the selection owner. Restore opens in a dedicated scrollable screen, like the
+backup editor; closing it preserves its state, and completion resets the panel
+and returns to the dashboard. The top-right three-dot menu contains backup-set
+import and export actions.
+These components receive controllers and <code>UiStyle</code> explicitly. <code>FormCard</code> gives
+backup and restore forms the same surface, padding, and typography.
+<code>TransferProgress</code> shares the status, file-count text, and progress bar between
+backup cards and the active restore card. Restore progress counts successfully
+restored files, and remains visible across navigation. <code>ActionButton</code>
+and <code>PreviewGroup</code> also provide shared presentation, inheriting the window's live
+palette. Window state aliases and existing object/accessibility identifiers keep
+the dashboard test interface usable across the extraction.</p>
+<h2 id="local-state">Local State<a class="headerlink" href="#local-state" title="Permanent link">&para;</a></h2>
+<p>OmaCustos stores user state under <code>~/.config/omacustos</code>:</p>
+<div class="highlight"><pre><span></span><code>omacustos-backup.json
+omacustos-backup-runs.json
+omacustos-backup-cleanup.json
+omacustos-browser-links.json
+continuations/&lt;sha256-of-exact-copy-path&gt;/
+incremental-writers/&lt;sha256-of-remote-set-root&gt;.json
+</code></pre></div>
+<p>The first file contains named backup configurations. Run history and pending
+cleanup decisions are stored separately. Discovered remote backups are not written into
+the local schedule or backup queue, so reinstall discovery never reactivates an
+old schedule.</p>
+<p>Configurations carry an installation binding derived from the OS machine ID and
+the fixed absolute configuration directory. Imports, copied bindings, and old
+unbound settings are read-only until explicit offline ownership enrollment or
+takeover. Writer UUID/epoch intent is durable before remote mutation.
+Incremental operation journals live under the validated, disk-backed staging
+base's <code>incremental-journals/&lt;installation-binding&gt;/</code>, outside selected roots.
+Application coordination files, locks, and private journals are intentionally
+excluded (and shown excluded in preview), while the actual settings file remains
+eligible for backup. Do not treat live coordination files as user documents.
+Browser links are an optional, bounded cache of private Proton Drive folder URLs,
+keyed by the exact copy path. Losing this cache only requires resolving links again.</p>
+<p>Backup sets are the sole in-memory source/destination representation. Legacy
+<code>source_directory</code>/<code>remote_root</code> configuration is converted to the <code>default</code> set
+on load. Every save writes the modern <code>sets</code> array, including an explicit empty
+array, while preserving <code>proton_binary</code>. This migration only changes local state.</p>
+<p>Run-state and cleanup-state stores parse supplied JSON bytes transactionally:
+malformed documents or failed reads retain the entire last-good snapshot.
+Dashboard polling reads each file once, compares the captured contents, and only
+parses changed bytes. Missing files clear their snapshots; present empty files
+are malformed. Refresh errors remain visible until a successful retry, while
+remaining-time countdowns continue independently of state changes.</p>
+<p><code>BackupRunStore</code> owns durable manual enqueue, schedule catch-up, interrupted-run
+recovery, prerequisite deferral, running publication, progress, and outcome
+updates. Each mutation briefly locks <code>omacustos-backup-runs.json.lock</code>, reloads
+the latest queue, and atomically saves the changed state. Waiting transitions
+are saved before the worker skips that backup, even when every ready backup waits.
+Progress and final outcomes update only the matching running attempt (backup ID,
+copy path, attempt count, and scheduled time), preserving other queued work.</p>
+<p>The worker separately holds <code>&lt;config-path&gt;.worker.lock</code> and
+<code>omacustos-backup-runs.json.worker.lock</code> throughout execution. The latter excludes
+workers using different config files in the same state directory without blocking
+manual enqueue during transfers. It reloads the queue between backups to pick up
+new requests, attempting each backup at most once per invocation. The progress
+writer is joined before outcome publication, so pending samples cannot overwrite
+a finished attempt. Executable setup supplies the system prerequisite probe;
+the battery fixture exercises the same worker execution path with deterministic
+AC-power state.</p>
+<p>Modern running records carry <code>unfinished</code>, <code>control_request</code>, cancelled-copy
+history, and staging-root history. Retry count is separate from copy identity.
+Recovery/Resume retain the exact unfinished copy path; fresh requests after a
+terminal outcome allocate a new namespace. Older records/configurations remain
+readable. Pause/cancel decisions are merged under the run-store lock, are checked
+cooperatively during scan/copy work and approximately every 100 ms during CLI
+commands, and dominate late progress/final-result writes. Linux CLI children have
+a parent-death signal; Pause/Cancel kill their process group. User-paused work is
+never scheduler-ready. Authentication defers for 60 seconds; transient transfer
+failures retain the copy and use exponential retry delay, capped at one hour.</p>
+<p><code>BackupContinuation</code> stores a versioned copy/root-identity header and atomic,
+sequenced batch journals. Prepared mapping records are committed before transfer
+and never authorize reuse. Verified records are committed after remote verification
+and before payload release. Commits use <code>QSaveFile</code> without direct-write fallback
+and sync the containing directory. Journal writes scale with a batch, rather than
+rewriting every verified item at each checkpoint. Source/remote/restore mappings
+remain stable across root reordering, additions, reserved names, and file/directory
+changes. Rescan creates a new final manifest from the current selection; stale
+remote bytes outside that manifest are not restore entries.</p>
+<p>Copy management and import acquire <code>omacustos-backup-runs.json.management.lock</code>
+before worker exclusion and release it last. A newly launched worker waits at
+that gate, then acquires worker exclusion and releases the gate before running.
+Thus requests queued during management execute after it finishes, including
+manual-only backups with no timer. A competing worker still exits immediately
+when another worker holds exclusion.</p>
+<h2 id="remote-layout">Remote Layout<a class="headerlink" href="#remote-layout" title="Permanent link">&para;</a></h2>
+<p>Fresh normal-worker runs now use the <a href="../docs/incremental-repository/">v4 repository contract</a>,
+<a href="../docs/incremental-planner/">planner</a>, <a href="../docs/incremental-execution/">executor</a>,
+and <a href="../docs/incremental-cleanup/">reference-aware cleanup</a>. The integration and
+release evidence are documented in <a href="../docs/incremental-default-rollout/">default incremental rollout</a>.
+Each set owns <code>sets/&lt;set UUID&gt;/repository.json</code>, immutable <code>objects/</code>, complete
+<code>snapshots/&lt;snapshot UUID&gt;/manifest.json</code>, and recovery/maintenance records.
+Daily reuse checks are deliberately lighter than scheduled full integrity checks;
+they can miss same-size corruption. Shared-object deletion always requires an
+individually confirmed exact scope. Manual-offline single ownership is not a
+server-side fencing guarantee.</p>
+<h3 id="historical-v1-v3-copy-layout">Historical v1-v3 copy layout<a class="headerlink" href="#historical-v1-v3-copy-layout" title="Permanent link">&para;</a></h3>
+<p>Old copies remain independently readable. An unfinished old copy resumes its
+durable format and namespace, but retention waits for a fresh incremental baseline
+and exact mixed-format review. The historical layout is:</p>
+<div class="highlight"><pre><span></span><code>&lt;remote-root&gt;/&lt;computer&gt;/&lt;backup-name&gt;/&lt;copy-id&gt;/
+</code></pre></div>
+<p>Every copy has a manifest containing its computer, backup identity and name,
+copy, timestamp, completion state, expected items, failed items, paths, sizes,
+and checksums.
+New manifests also preserve an <code>issues</code> array containing each failed source path,
+phase, and reason. The existing <code>failed</code> path list remains compatible with older
+readers. An incomplete manifest can list an attempted path in both <code>expected</code>
+and <code>failed</code>; a verified entry cannot also be listed as failed.
+This provenance keeps similarly named backups on different computers distinct.</p>
+<p><code>BackupManifest</code> owns persisted entry and provenance types, version selection,
+completion rules, serialization, and validation. Execution passes a
+<code>BackupManifestDraft</code> containing verified payload observations, expected/failed
+items, and issues; it does not construct JSON or claim a persisted completion
+state. Writes pass through the same validation boundary as loads before atomic
+replacement. Complete version-2 copies must contain exactly the expected entries
+and have neither failed items nor issues. Incomplete copies retain only verified
+entries, including when a folder transfer reports failure after transferring all
+payloads. Older version-1/version-2 manifests remain readable, including those
+without an <code>issues</code> field. Failed loads expose no partial entries or provenance.</p>
+<p>The interface calls each saved configuration a <strong>backup</strong> and each run's output
+a <strong>copy</strong>. Internal <code>BackupSet</code> types and persisted <code>sets</code>, <code>set_id</code>, and
+<code>set_name</code> fields retain their existing names for compatibility with saved
+configurations, run history, cleanup decisions, and remote manifests.</p>
+<p>Legacy <code>required_volumes</code> settings are ignored on load and omitted on save;
+backups no longer wait for external drives to be mounted.</p>
+<p>Backup-set exports use a version-1 JSON document with <code>application: "omacustos"</code>
+and a <code>sets</code> array. They contain the saved set definitions, without the CLI
+executable, run history, cleanup decisions, files, or credentials. Import validates
+the whole document before replacing the set list and preserves the local CLI
+executable setting. Import is blocked while a worker or queue update is active.</p>
+<p>Exclusions containing a path separator match that path and its descendants.
+Bare names such as <code>node_modules</code> match directory names at every depth; regular
+files with the same name remain included. Matching is exact and case-sensitive.
+Excluded symbolic links and unreadable paths do not mark a copy incomplete.
+Rules are normalized once per scan. Backup selection prunes excluded directory
+subtrees; the interactive preview still traverses them to report individual
+excluded files.</p>
+<p>Optional per-set <code>inclusions</code> rules narrow the selected sources without changing
+their restore layout. Empty/absent rules preserve full-folder selection. Bare
+names match at every depth within each source, paths match absolutely or relative
+to each selected folder, and matched folders include descendants. Case-sensitive
+wildcards match within path segments. Exclusions take precedence; unmatched
+directories remain traversable to find matching descendants. Preview reports
+nonmatching files as excluded. The same scanner applies captured inclusion rules
+to preview, individual-file execution, archives, and continuation rescans. Rules
+are persisted and exported/imported with the set; malformed inclusion arrays are
+rejected rather than silently turning a narrow backup into a full-folder backup.</p>
+<p>Folder traversal includes hidden regular files and hidden subdirectories, whether
+the selected root itself is hidden or visible. The same exclusion rules apply to
+hidden content. Symbolic links are never followed; hidden links are reported as
+skipped unless excluded. Restore verification reads payload paths from the
+manifest directly, so hidden payloads do not depend on provider directory listings.</p>
+<h2 id="provider-behavior">Provider Behavior<a class="headerlink" href="#provider-behavior" title="Permanent link">&para;</a></h2>
+<h3 id="internal-single-archive-slice-46">Internal Single-Archive Slice (#46)<a class="headerlink" href="#internal-single-archive-slice-46" title="Permanent link">&para;</a></h3>
+<p><code>BackupOptions::singleArchive</code> enables the small-copy archive execution seam.
+The worker exposes it through <code>OMACUSTOS_INTERNAL_SINGLE_ARCHIVE=1</code> for integration
+fixtures and development. Default rollout is reserved for #52; it is not a saved
+storage-mode preference. The slice prepares one archive for a small selection,
+using the existing source scan, collision mappings, exclusions, private disk
+staging, progress publication, provider operations, and final-index verification.
+Selections beyond the conservative single-archive working allowance enter Waiting;
+bounded multi-archive grouping and oversized-file handling follow in dependent work.</p>
+<p>The working allowance includes immutable source snapshots, compressed output,
+tar/gzip overhead, and the existing filesystem metadata reserve. Snapshot hashes
+are checked again while packing, so logical sizes and SHA-256 values describe the
+archived bytes even when source contents or pathnames change during preparation.
+Packing uses linked <strong>libarchive</strong> and <strong>zlib</strong>, with gzip level <strong>3</strong>. Both are
+explicit CMake and Arch package dependencies; scheduled execution requires no
+external tar/gzip installation.</p>
+<p>Version-3 manifests retain version-2 provenance and completion rules, add an
+<code>archives</code> table (<code>id</code>, <code>remote</code>, compressed <code>size</code>, <code>sha256</code>), and map each logical
+entry to an <code>archive</code> and relative <code>member</code>, alongside its source, restore path,
+logical size, and SHA-256. The table is authoritative; full member sets are derived
+from the validated entries rather than persisted as a competing index. Validation
+rejects missing/unused/ambiguous references, duplicate source/member/destination
+identities, file/directory conflicts, unsafe mappings, and payload/index name
+collisions before publishing any entries or provenance. Loads remain transactional.
+Version-1 and version-2 manifests retain their existing loading and restore paths.</p>
+<p>Catalog verification dispatches from the loaded entry format and verifies each
+archive's content metadata once. It downloads only the index for browsing, never
+the archive body. Fresh archive uploads retain the existing content-size/checksum
+policy; encrypted storage size is not evidence, and a body download is not a new
+unconditional requirement. Both the archive and final index must pass verification
+before success. Source failures can produce a verified, restorable Incomplete copy.</p>
+<p>Restore groups the captured selection by archive identity, downloads each required
+archive once, checks its compressed size/SHA-256, validates the complete gzip stream
+(including CRC and trailer) and tar end blocks, and streams selected regular members
+into private staging. Unselected members are read for structural validation, never
+extracted. Unsafe, duplicate, linked, unindexed, or missing members fail before
+destination placement. Selected sizes/hashes must pass before the existing
+symlink-checked <code>QSaveFile</code> atomic replacement path commits bytes. Downloading one
+small file can therefore require the <strong>whole compressed archive</strong>; no permanent
+archive cache is implied for historical copies. Fresh legacy-format fixture runs remain full
+copies. Completed earlier files retain the existing partial-restore semantics.</p>
+<p>The continuation identity records <code>payload_format</code>, defaulting to 2 for older
+journals, so changing the internal seam cannot mix payload formats in an unfinished
+namespace. A replacement worker follows the recorded format even when its internal
+archive flags differ. Archive journals preserve whole archive identities, compressed
+size/SHA-256, source/member mappings, and prepared versus verified state. Each atomic
+batch record contains only the current group, never a rewritten checkpoint history.
+Verified checkpoints are committed before releasing snapshots and compressed bytes.</p>
+<p>Pause, worker death, transfer/authentication failures, and staging Waiting preserve
+the exact unfinished copy namespace. Resume re-hashes every selected source in a
+verified group and validates the whole remote archive before reusing it. Size-only
+providers require a download and SHA-256 check on the selected staging disk; this
+download respects the staging budget, with the established whole oversized-file
+exception. Actual download quota failures enter actionable Waiting as well. Prepared
+records survive upload-before-checkpoint crashes but do not count as verified work
+or authorize reuse; this slice retries their unfinished content from source snapshots.
+Prepared-upload reconciliation and source/remote-change reconciliation follow in #51.</p>
+<p>Controls are checked during snapshots, compression callbacks, verification,
+checkpoint publication, finalization, and owned CLI execution. Paused work is not
+scheduler-ready; Cancel is terminal and a subsequent request gets a new namespace.
+Interrupted attempts never authorize retention. See
+<a href="../native/tests/archiverecovery/">archive recovery acceptance coverage</a>.</p>
+<p>The UI checks the CLI connection asynchronously with
+<code>filesystem info /my-files --json</code> at startup, when the window becomes active,
+and every 30 seconds.
+When disconnected, <strong>Sign in to Proton</strong> launches the configured CLI's <code>auth login</code>
+through <code>xdg-terminal-exec</code>. Credentials remain managed by Proton's CLI.
+Connection failures also expose a retry button and the CLI error in the sign-in
+button's tooltip.</p>
+<p>The Proton Drive provider uses the official CLI for:</p>
+<ul>
+<li>uploads with a parent folder, file replacement, and folder merge for recursive transfers;</li>
+<li>downloads with remove conflict handling;</li>
+<li>discovery through <code>filesystem list</code>;</li>
+<li>cleanup through per-item <code>trash</code> followed by <code>delete</code>.</li>
+</ul>
+<p>OmaCustos never calls <code>empty-trash</code>. Remote content size is verified after upload and
+download using <code>size</code> or <code>activeRevision.claimedSize</code>, not encrypted storage size.
+Each payload is copied into a private temporary folder and hashed while copying.
+The engine's private <code>stagePayload</code> operation opens the source, creates the mapped
+snapshot, copies and hashes it, makes it read-only, and removes partial snapshots
+on failure. It returns only the staged path, size, and SHA-256; the orchestrator
+owns the temporary directories and controls their lifetime through upload/retry.
+The resulting read-only staged file is uploaded under the requested remote
+basename, so source edits or pathname replacement cannot invalidate the recorded
+SHA-256. Worker backups use <code>backupBatches</code>: at most 1000000000 payload bytes and
+1000 files per prepared batch by default. A larger file is staged alone after a
+free-space check, including a 16 MiB metadata reserve. Actual writes and flushes
+can still fail under a user quota; those failures produce a waiting state with
+verified work preserved. Source-read failures instead continue other files and
+finalize an Incomplete manifest containing only verified entries.</p>
+<p><code>BackupStaging</code> selects <code>~/.local/share/omacustos/staging</code> outside sources, or a
+private <code>/var/tmp/omacustos-&lt;uid&gt;/staging</code> fallback. Explicit <code>staging_directory</code>
+and positive <code>staging_budget_bytes</code> settings are persisted/exported per set.
+Locations resolve existing ancestors and reject source overlap, symlinks at the
+chosen directory, RAM-backed/read-only/unusable filesystems. There is no <code>/tmp</code>
+fallback. Private workspaces have a durable ownership marker and lifetime lock.
+Startup recovery considers recorded staging roots even when all work is paused;
+only same-user marked, unlocked children outside selected sources are removed.
+Existing user-chosen base-directory permissions are preserved.</p>
+<p>Folder sources upload each mapped prepared tree with CLI folder <code>merge</code>. A retry
+uses the same read-only bytes. File-only sources/providers without recursive
+upload transfer individual snapshots inside the batch. Staging remains through
+verification and checkpoint publication and is released before preparing the
+next batch. Production final manifests also live inside owned disk staging, so
+crash recovery covers finalization payloads.</p>
+<p>A provider SHA-256 field is used when the CLI exposes one. Existing remote payloads
+are reused only after re-hashing current local content and verifying remote content.
+When metadata lacks SHA-256, continuation downloads and hashes the remote payload
+instead of trusting same-sized content. This also reconciles transfers completed
+before verified checkpoint publication. A failed merge cannot use size-only
+metadata to certify old unmodified remote content: checksum evidence is required.
+New copy namespaces skip pre-upload payload lookup. Each batch obtains one fresh
+content-metadata listing per payload directory, falling back to individual
+inspection for missing, malformed, or ambiguous entries. Unsupported/failed or
+storage-only listings disable further bulk attempts for that pass. Only verified
+payloads enter the manifest or verified progress counts; manifest verification still
+applies. Directory caches have batch lifetime, and payloads are released only after
+the verified batch commit. Engine callers
+reusing a namespace retain checksum-based reuse checks and immediate individual
+post-upload verification by default.
+Within a backup operation, each payload parent directory is ensured once, and the
+Proton provider also caches its existing/created ancestors. A failed upload
+invalidates the provider's ancestor cache and the engine's parent result, then
+rechecks the full parent chain before one retry of the same staged bytes. Caches
+are cleared at operation entry and exit, including early failures.</p>
+<p>Copy verification can use one folder listing per payload directory when it supplies
+valid content sizes (<code>size</code> or <code>activeRevision.claimedSize</code>) and optional SHA-256.
+Encrypted <code>totalStorageSize</code> is never accepted for verification. Missing, malformed,
+or ambiguous listed entries fall back to individual metadata inspection. An
+unsupported, failed, or storage-only listing disables further bulk attempts for
+that verification. Directory metadata is cached only for the current copy check;
+each subsequent selection or retention discovery obtains fresh metadata.
+Backup finalization and catalog checks share the same operation-local metadata cache.
+Manifest validation uses a failed-path set rather than scanning the failed list for
+each verified entry, keeping membership checks linear in the total item count.</p>
+<p><code>QProcessRunner</code> uses a five-minute total runtime limit for metadata and other
+commands, and a separate 24-hour limit for <code>filesystem upload</code> and
+<code>filesystem download</code>, including manifest transfers. A positive integer
+<code>OMACUSTOS_TRANSFER_TIMEOUT_SECONDS</code> overrides the transfer limit (maximum
+2147483 seconds); invalid values fall back to the default. Worker and GUI
+environments are independent, so configuring only the service changes backups,
+while restores use the app's environment.</p>
+<p>These are wall-clock limits, not inactivity detection: CLI output is not treated
+as proof of byte progress and cannot extend the deadline. Process startup is
+bounded to 30 seconds or the operation's limit, whichever is shorter. Startup,
+timeout, abnormal exit, and nonzero-exit diagnostics remain distinct and preserve
+CLI stderr. Timed-out commands are killed and return a failure even if partial
+remote content exists. The normal manifest verification and success-only
+retention gates still apply. Tests inject millisecond timeout policies and use
+a local subprocess fixture for progressing, silent, and failing commands.</p>
+<h3 id="transfer-timeout-configuration">Transfer Timeout Configuration<a class="headerlink" href="#transfer-timeout-configuration" title="Permanent link">&para;</a></h3>
+<p>To change the transfer limit, set <code>OMACUSTOS_TRANSFER_TIMEOUT_SECONDS</code> to a positive
+whole number of seconds in the app's environment. For manual and scheduled backups,
+set it in the worker service using <code>systemctl --user edit omacustos.service</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="k">[Service]</span>
+<span class="na">Environment</span><span class="o">=</span><span class="s">OMACUSTOS_TRANSFER_TIMEOUT_SECONDS=172800</span>
+</code></pre></div>
+<p>Run <code>systemctl --user daemon-reload</code> afterward; the setting applies to the next
+worker. For restores, launch the app with the variable, for example
+<code>OMACUSTOS_TRANSFER_TIMEOUT_SECONDS=172800 omacustos</code>. This example allows 48 hours
+per transfer. Empty, invalid, nonpositive, or values above 2147483 seconds use the
+24-hour default.</p>
+<h3 id="browser-links-and-copy-management">Browser Links And Copy Management<a class="headerlink" href="#browser-links-and-copy-management" title="Permanent link">&para;</a></h3>
+<p>Recent-backup browser links open the copy recorded for that run in
+the signed-in Proton Drive web app. Browsing a recorded copy uses its locally saved
+path directly, without downloading its manifest or acquiring worker/run-state locks.
+The worker prepares and caches the private browser URL for manifest-verified copies
+before publishing their final result; a link-lookup failure never changes the backup
+result. The app also prefetches uncached recorded-copy URLs in the background at
+startup and as recent backups change, without opening the browser or showing errors.
+Reconnecting to Proton retries previously failed prefetches.
+Cached links are emitted immediately without a CLI request, including after restart.
+An uncached click joins prefetch for that exact copy or starts its own lookup without
+waiting for another copy's prefetch.</p>
+<p>Link resolution uses the folder's node ID and a share ID obtained through read-only
+CLI metadata requests. For the usual <code>/my-files</code> layout, it inspects the target and
+the top-level folder directly (at most two commands), rather than walking every
+parent. An ancestor fallback handles metadata that exposes the share only on a
+nearer parent. No public sharing links are created. The cache retains at most 200
+URLs and is merged atomically under a separate lock shared by the GUI and worker.</p>
+<p>Runs persist the exact copy folder as <code>remote_copy_path</code>. For older run records,
+OmaCustos identifies the newest matching manifest inside that backup's folder and
+remembers its path through a fresh coordinated run-store update. This legacy fallback still
+downloads manifests. Browsing and manual deletion use the same recorded copy.
+Manual deletion requires confirmation of the exact path, rechecks its OmaCustos
+manifest and identity, and moves that copy to Proton Drive Trash. Older copies
+and the backup set remain; the deleted entry disappears from Recent backups.
+Config-specific and shared queue-worker locks prevent deletion during a backup.
+Discovery and deletion release queue coordination between durable mutations, so
+manual requests can be saved during remote calls. Copy-pointer and deletion
+updates merge fresh state; deleting an old copy preserves a new manual request
+for the same backup instead of replacing its pending status with <code>copy_deleted</code>.</p>
+<h2 id="backup-progress-and-remaining-time">Backup Progress And Remaining Time<a class="headerlink" href="#backup-progress-and-remaining-time" title="Permanent link">&para;</a></h2>
+<p>The engine reports planned file sizes, processed files and bytes, and a finalizing
+phase, along with verified file/byte counts, failed-item counts, current file and
+size, and reading/checking/uploading/verifying phases. The worker persists these
+progress samples in run state, throttled to approximately once per second except
+for initial progress, completion of the planned file attempts, and finalization.
+File and phase changes coalesce into the latest sample. A serialized progress
+writer also publishes pending samples during synchronous long-running transfers,
+and is joined before durable success/failure state is saved.
+Processed counts include failed attempts; they describe work done, not verified
+backup contents. Manifest verification remains the authority for successful files.</p>
+<p>Modern worker attempts show their current phase and verified byte/file counts
+instead of estimating throughput or ETA from the CLI's final JSON summary.
+Historical elapsed/count fields and the old estimator remain readable for record
+compatibility, but do not drive the new continuation UI.</p>
+<p>The UI polls once per second while a backup is running and every five seconds
+otherwise. Unchanged state contents skip JSON parsing and model notifications;
+phase/progress presentation updates independently of the recent-backup model. Ordering, summaries,
+and transfer display data are cached once per refresh. Detailed issue lists are
+converted only when requested, including while the details dialog is open.
+Manifest upload/verification show <strong>Finalizing backup…</strong>. Success is durably
+published before retention runs; a concurrent pause/cancel cannot authorize
+older-copy deletion.</p>
+<p>The work-progress bar measures processed file attempts rather than upload bytes
+or verified contents. The CLI has no documented live byte-progress feed; the
+current path, planned size, and phase remain visible during single-file transfers.
+Folder backups show separate preparation and batch-folder upload phases with an
+indeterminate work-progress bar. Staging a file does not count as uploading it;
+processed counts advance only after the folder command finishes, and verification
+counts advance after remote verification and durable checkpoint publication.</p>
+<p>Run state also stores a structured <code>result</code> with verified payload counts, issues,
+and whether the remote manifest passed verification. Only a verified manifest with
+some verified entries can produce an <strong>Incomplete</strong> result. Source failures with
+no verified entries produce <strong>Failed</strong>. Transfer, verification, manifest, and
+checkpoint interruptions instead keep the copy unfinished in <strong>Retrying</strong> or an
+actionable <strong>Waiting</strong> / <strong>Sign-in required</strong> state. Only <strong>Successful</strong> runs
+trigger retention cleanup. Older run records without these fields remain readable
+and do not display invented verified-file counts.</p>
+<p>Payload batching does not bound all metadata. Selection paths, collision maps,
+manifest entries, continuation identities, and provider listings still scale with
+file count; provider listings can include more than the current batch. Batch
+journals avoid quadratic full-checkpoint rewrites, and verification caches are
+discarded between batches. The opt-in <a href="../native/tests/largebackup-benchmark/">large-backup resource benchmark</a>
+records selection/checkpoint, execution, and final-manifest RSS separately for
+877172 files / 95323650798 selected bytes. The high-water mark is measured for the
+process, not an invented constant-memory guarantee or a live CLI throughput estimate.</p>
+<h2 id="retention-and-cleanup">Retention And Cleanup<a class="headerlink" href="#retention-and-cleanup" title="Permanent link">&para;</a></h2>
+<p>Normal workers use individually confirmed v4 reference-aware proposals across
+legacy and new saved states. They do not invoke the old automatic deletion
+executor, including after legacy continuation. The following describes the
+historical cleanup-store module retained for compatibility and regression tests;
+its saved decisions never authorize shared-object deletion. See
+<a href="../docs/incremental-cleanup/">current cleanup rules</a> and the
+<a href="../docs/incremental-default-rollout/">integration runbook</a>.</p>
+<p>Retention considers only positively identified OmaCustos copies for the
+correct computer and backup. Successful verified copies are retained according to
+the backup's limit. Failed or incomplete copies cannot cause an older successful
+copy to be removed.
+Post-backup discovery lists direct copy directories under that computer's backup
+folder and verifies their manifests and payload metadata. It does not recursively
+scan other computers, backups, or payload directories. Full-root discovery remains
+available for catalog discovery.</p>
+<p>Before the first cleanup, the exact remote paths and a proposal identifier are
+persisted and shown in the UI. Confirmation compares the displayed proposal
+with current disk state; a changed proposal is refreshed and must be reviewed
+again. No deletion occurs until the proposal is durably confirmed. Later
+cleanups use that saved decision, but persist each new exact scope before the
+first trash or permanent-delete operation. A failed state write stops cleanup
+and reports a retryable error.</p>
+<p>The cleanup module coordinates all updates with a shared file lock and reloads
+fresh state before writing. The lock remains held through deletion and phase
+persistence, so stale UI or worker snapshots cannot overwrite another set's
+progress. An unfinished authorized scope is never replaced by newly discovered
+targets. Retries resume its persisted phases, including when a remote operation
+succeeded but its phase write failed. Targets must be strictly below the backup
+set's configured root; the root itself cannot be deleted.</p>
+<h2 id="restore-safety">Restore Safety<a class="headerlink" href="#restore-safety" title="Permanent link">&para;</a></h2>
+<p>CLI downloads use a private staging directory so their remote-basename conflict
+handling cannot remove destination files or unrelated files and folders. Restore
+payloads stay in private staging until size and SHA-256 verification passes.
+Verified bytes replace the destination atomically with <code>QSaveFile</code>, with direct
+write fallback disabled. Hashing and writing the atomic replacement share one
+payload read, and commit occurs only after size/checksum verification. The Proton
+provider moves completed downloads into unused private staging paths on the same
+filesystem instead of making an additional copy; existing provider destinations
+retain atomic replacement. Download, verification, or placement failures preserve
+existing destination content, and staging is cleaned up on every return path.
+Destination and parent symlink checks are repeated after the transfer before
+writing the replacement and again immediately before committing it.</p>
+<p>The internal direct-folder browsing interface lists only direct copy folders,
+without traversing payload directories, downloading manifests, or inspecting files.
+The normal Restore screen instead uses selected-backup history browsing below.
+Both list asynchronously and require an explicit copy selection. Selecting a copy
+downloads its manifest and verifies only that copy's files in the background.
+Loading indicators distinguish listing from verification; conflicting restore
+actions are disabled while either task runs. Each selection rechecks remote files,
+and manifest backup/copy identity must match the selection. Full verified catalog
+discovery remains available internally for retention.</p>
+<p>The normal selected-backup history chooser lists only that set's incremental
+snapshot candidates directly with one directory-listing request. Candidate paths
+and UUIDs are validated, but manifests and repository identity are not downloaded
+until selection. Labels say <strong>not verified</strong>; their provisional <strong>folder date</strong>
+comes from provider metadata, not a validated manifest. Incomplete candidates can
+appear and are rejected on selection. Listing never grants restore eligibility.
+Selected-copy verification freshly downloads the identity and manifest, validates
+their provenance, and uses operation-local bulk archive metadata with individual
+inspection fallback. No archive bytes are downloaded merely to browse files;
+actual restore retains full hash and physical-inventory verification.
+Old v1–v3 copies are intentionally excluded from this chooser, not deleted;
+validated metadata history, general discovery and legacy readers remain available
+internally. See <a href="../docs/restore-dropdown-performance/">restore dropdown measurements</a>.</p>
+<p>Restores are limited to manifest entries that passed verification. Destination
+traversal and symbolic-link escapes are rejected. The UI requires users to tick
+files and specify a destination folder before enabling its single <strong>Start
+restore</strong> action. Restore metadata is not added to the local backup queue.
+The controller emits completion only after every selected file restores
+successfully. Starting replaces the selection screen with <code>RestoreProgressPanel</code>,
+using the same <code>TransferProgress</code> component as backup. Terminal summaries remain
+visible until Done or Back to selection. Done clears selection/destination after
+success; failure and stop preserve them for an explicit full-selection retry.</p>
+<p>Restore transfers retain their backup/copy identity and selected payload snapshot
+along with immutable display context, destination and download cost. Navigation
+and controller context changes are locked during a transfer. A controller-owned
+serial executor keeps its provider calls serialized. Superseded browse results,
+including errors, cannot publish into the current context.
+The controller submits the complete captured selection, destination, and copy path
+to <code>BackupEngine::restoreFiles</code> once per operation. The engine owns execution and
+reports successfully placed files and the final partial/success outcome; the
+controller bounds GUI progress notifications. Single-file engine callers delegate
+to this same operation, sharing staging, verification, and atomic placement.
+An operation-owned control token supports in-session cooperative Pause/Resume at
+safe engine checkpoints. A condition variable retains the live workspace while
+paused; Stop wakes it and unwinds temporary work, retaining committed destination
+files. Stop is checked during atomic replacement copying and before commit. Active
+Proton downloads use a dedicated restore runner with a stop predicate; unrelated
+copy management and folder lookup use a separate runner. Archive verification and
+extraction finish their current phase before acknowledging controls. Window close
+requests Stop and waits for completion; controller destruction also wakes paused
+work before waiting. No durable restore continuation is written. Fail-fast restore
+results include <code>{path, phase, reason}</code> issues, shown as wrapped plain text in the
+restore issues dialog; intentional stopping is a distinct outcome, not an error.
+Superseded verification is cancelled between provider calls, including before a
+queued task starts and after manifest download. An already-running provider call
+finishes under its normal timeout before the latest browse request proceeds.</p>
+<p>The controller retains bounded last-good display snapshots for 20 backup contexts.
+Returning to a context invalidates restore eligibility until current verification;
+copy identity, destination validation, and checksums remain authoritative. The
+interface retains destination, valid file ticks, and scroll position per backup.
+File-path display lists are cached, and selection remapping builds one path index
+per refresh rather than repeatedly reconstructing or searching the 10,000-file list.
+Individual checkbox toggles mutate owned selection arrays and update an index-to-
+position lookup. Deselection swaps with the last item rather than shifting the
+remaining selection; selection order is not significant. Property notifications
+and visible checkbox state still update without rebuilding the full selection.
+Selection arrays are read-only properties of the owner; bulk replacement uses
+<code>Main.setRestoreSelection(indexes)</code> rather than separate index/path assignments.
+Both bulk changes and toggles publish array notifications after paths, lookup,
+counts, folder states, and customization flags agree. Selection snapshots include
+the entry list so returning to another backup can rebuild its folder state before
+the controller publishes refreshed entries. Cached selection does not change the
+controller's restore-eligibility gate.</p>
+<p>Source preview scans run asynchronously against captured source/inclusion/exclusion lists.
+Selection/input changes invalidate obsolete results, and repeated requests coalesce
+to the latest pending scan. Loading feedback distinguishes the previous preview
+from the pending result. Superseded scans and controller shutdown cancel traversal
+between source paths/directory entries; cancelled scans discard partial results.
+Local-state refresh failures retain last-good run/cleanup
+data and expose a persistent refresh error.</p>
+<p>See <a href="../native/tests/responsiveness/">Responsiveness measurements</a> for the benchmark
+method, separate workload results, and remaining hardware/presentation validation.</p>
+<h2 id="desktop-theme">Desktop Theme<a class="headerlink" href="#desktop-theme" title="Permanent link">&para;</a></h2>
+<p>The UI reads Omarchy's <code>colors.toml</code> from <code>$XDG_STATE_HOME/omarchy/current/theme</code>
+(default <code>~/.local/state</code>) or the legacy <code>$XDG_CONFIG_HOME/omarchy/current/theme</code>
+(default <code>~/.config</code>). File and directory watches pick up palette edits and
+whole-directory replacements during theme switches. Missing or invalid palettes
+fall back to the system Qt palette. UI surfaces, text, controls, selections, and
+disabled colors share these live palette roles.</p>
+<h2 id="services-and-packaging">Services And Packaging<a class="headerlink" href="#services-and-packaging" title="Permanent link">&para;</a></h2>
+<p>The package installs these user units:</p>
+<div class="highlight"><pre><span></span><code>/usr/lib/systemd/user/omacustos.service
+/usr/lib/systemd/user/omacustos.timer
+</code></pre></div>
+<p>By default, the worker and its Proton CLI subprocesses use normal system
+scheduling with no CPU quota. Packaged and generated base service units do not
+set CPU or I/O resource limits. <strong>Use system defaults</strong> is checked unless an
+explicit resource preset has been saved. Previously selected presets remain
+selected after an upgrade.</p>
+<p>The <strong>Resource usage (all backups)</strong> control offers five opt-in global presets:
+very low (10%, nice 19), low (25%, nice 15), medium (50%, nice 10), high (100%,
+nice 5), and very high (200%, nice 0). Very low and low use idle I/O scheduling;
+medium, high, and very high use best-effort I/O with priorities 7, 5, and 4.</p>
+<p>Saving a changed preset writes a managed drop-in at
+<code>$XDG_CONFIG_HOME/systemd/user/omacustos.service.d/50-omacustos-resources.conf</code>
+(default <code>~/.config/systemd/user/...</code>) and asynchronously runs
+<code>systemctl --user daemon-reload</code>. Reload failures restore the previous file and
+report an error. No root privileges are required. The drop-in is also the
+persistent preset store; backup-set import/export does not change it.
+Returning to <strong>Use system defaults</strong> clears <code>CPUQuota</code>, sets <code>Nice=0</code>, and
+restores normal I/O scheduling (<code>IOSchedulingClass=none</code>, priority 0). These
+explicit resets also override limits in older base service units. The default
+selection is represented internally by preset index -1; indices 0–4 remain the
+five optional presets.
+Both manual and scheduled backups start the same service, so the limits apply
+to the worker and its CLI subprocesses from the next worker start. A running
+backup is not restarted. Quotas are measured against one CPU core, so 200%
+permits up to two cores. Priorities never exceed normal (<code>nice=0</code>).</p>
+<p>The package installs the timer without enabling it. After a successful backup
+configuration save with any enabled, unpaused schedule, the UI asynchronously
+runs <code>systemctl --user daemon-reload</code>, then
+<code>systemctl --user enable --now omacustos.timer</code>. Activation waits for any
+resource-preset update to finish, so an immediately due backup starts with the
+saved limits. Invalid or failed saves,
+preview, and manual-only configurations do not enable the timer.</p>
+<p>The scheduler checks the timer's <code>LoadState</code>, <code>ActiveState</code>, and <code>UnitFileState</code>
+at startup, after activation, on window focus, and every 30 seconds. It reports
+active, paused, session-only, and unavailable states in the UI. Activation errors
+leave the saved schedules intact and provide an in-app retry. Opening the app
+does not automatically resume an externally paused timer. Disabling a backup's
+schedule stops future scheduled runs for that set; the shared timer may remain
+active to process queued work and retries.</p>
+<p>The full project and desktop launcher name is <strong>OmaCustos for Proton Drive</strong>;
+the interface uses <strong>OmaCustos</strong>. The package is <code>omacustos-git</code>, the executables
+are <code>omacustos</code>, <code>omacustos-worker</code>, and <code>omacustos-install</code>, and the user units
+are <code>omacustos.service</code> and <code>omacustos.timer</code>. The QML module is <code>OmaCustos</code>.
+<code>OMACUSTOS_PROTON_BIN</code> overrides the default Proton CLI executable when creating
+a configuration; saved configurations retain their <code>proton_binary</code> setting.</p>
+<h2 id="development">Development<a class="headerlink" href="#development" title="Permanent link">&para;</a></h2>
+<p>Build and test the native app from the repository root:</p>
+<div class="highlight"><pre><span></span><code>cmake<span class="w"> </span>-S<span class="w"> </span>native<span class="w"> </span>-B<span class="w"> </span>build
+cmake<span class="w"> </span>--build<span class="w"> </span>build
+ctest<span class="w"> </span>--test-dir<span class="w"> </span>build<span class="w"> </span>--output-on-failure
+</code></pre></div>
+<p>The main binaries are <code>build/omacustos</code> and <code>build/omacustos-worker</code>. The Arch package
+recipe is in <code>pkgbuild/</code>.</p>
+<p><code>dashboard-test</code> has a 180-second whole-suite CTest timeout. The offscreen UI
+correctness suite was observed to take about 82 seconds; the budget leaves
+headroom for slower runs while still terminating hangs. It is not an application
+responsiveness threshold.</p>
+<p>Validation for #54 on 2026-10-19 (Linux x86_64, Omarchy 4.0.5, Qt 6.12.0,
+GCC 16.2.1): the documented CTest command completed <code>dashboard-test</code> with 93
+passing cases in 86.60 seconds, using its configured offscreen/software/Fusion
+environment. Overall, 23 of 24 targets passed; the separate <code>workerrecovery-test</code>
+hit its unchanged 180-second timeout. That timeout is not addressed by #54.</p>
+<p>See <a href="../native/tests/responsiveness/">Responsiveness measurements</a> for the opt-in
+on-screen benchmark, before/after results, and outstanding target-hardware checks.</p>
+<h2 id="manual-cloud-settings-recovery">Manual cloud settings recovery<a class="headerlink" href="#manual-cloud-settings-recovery" title="Permanent link">&para;</a></h2>
+<p><code>SettingsArchive</code> owns the append-only version-1 settings archive under
+<code>/my-files/omacustos/settings/&lt;computer&gt;</code>. It uses conflict-failing immutable
+uploads and full JSON readback comparison. <code>CloudSettingsController</code> executes
+manual browse/export/download operations asynchronously with a dedicated Proton
+runner; it neither schedules work nor transfers writer authority. Listings are
+checked for exact parent/child containment, duplicate selections and bounded
+entry counts. Selected documents have a 4 MiB metadata/read/parse limit and pass
+the same complete configuration validation as local imports before preview/apply.</p>
+<p>Imported <code>schedule.paused</code> is persisted independently of its original frequency
+and time. Scheduler calculations exclude paused schedules, and worker prerequisites
+block queued writes for paused imports. Handoff grants authority without clearing
+the pause; explicit per-set resume checks authority and source existence. Local
+and cloud imports use identical Merge/Replace behavior and read-only defaults.
+No remote operation, integrity or cleanup ledger is cleared to enable recovery.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../MANUAL/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Full user manual">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Full user manual
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../docs/incremental-restore/" class="md-footer__link md-footer__link--next" aria-label="Next: Recovery without settings">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Recovery without settings
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.footer", "navigation.top", "search.suggest", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.c21346df.min.js"></script>
+      
+    
+  </body>
+</html>

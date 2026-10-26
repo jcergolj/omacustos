@@ -1,0 +1,1724 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Back up and restore personal files with OmaCustos for Proton Drive.">
+      
+      
+      
+        <link rel="canonical" href="https://jcergolj.github.io/omacustos/docs/restore-dropdown-performance/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.0">
+    
+    
+      
+        <title>Why the Restore dropdown takes so long - OmaCustos documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#why-the-restore-dropdown-takes-so-long" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="OmaCustos documentation" class="md-header__button md-logo" aria-label="OmaCustos documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            OmaCustos documentation
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Why the Restore dropdown takes so long
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jcergolj/omacustos" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jcergolj/omacustos
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="OmaCustos documentation" class="md-nav__button md-logo" aria-label="OmaCustos documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    OmaCustos documentation
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jcergolj/omacustos" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jcergolj/omacustos
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1. Install and sign in
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/first-backup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2. Create your first backup set
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3. Restore your files
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4. Back up your backup-set settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/schedules/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5. Make backups automatic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/integrity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    6. Check backup integrity
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/history/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7. Manage history and free space
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/controls/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    8. Other controls and settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    9. Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_11" >
+        
+          
+          <label class="md-nav__link" for="__nav_11" id="__nav_11_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    More guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_11_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_11">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    More guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/recovery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Recover on another computer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Understand results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/selection/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Choose files and rules
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/backup-controls/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pause, resume, or cancel
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/advanced/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Storage, power, and resources
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/handoff/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Move backup work
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/extras/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Templates and uninstalling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_12" >
+        
+          
+          <label class="md-nav__link" for="__nav_12" id="__nav_12_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_12_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_12">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../MANUAL/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Full user manual
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../TECHNICAL/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Technical notes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../incremental-restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Recovery without settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../incremental-integrity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrity protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../incremental-cleanup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cleanup rules
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../github-pages/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Publishing these docs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#current-result-batch-selected-copy-metadata-in-one-cli-process" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Current result: batch selected-copy metadata in one CLI process
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Current result: batch selected-copy metadata in one CLI process">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#rejected-experiment-concurrent-cli-processes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rejected experiment: concurrent CLI processes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#regression-evidence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Regression evidence
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#previous-result-candidates-first-bulk-archive-verification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Previous result: candidates first, bulk archive verification
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#previous-result-validated-manifests-before-listing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Previous result: validated manifests before listing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#original-investigation-before-this-implementation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Original investigation (before this implementation)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#finding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Finding
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#original-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Original flow
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#measured-evidence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Measured evidence
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Measured evidence">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#where-the-original-27457-seconds-of-cli-time-went" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where the original 27.457 seconds of CLI time went
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#code-locations-responsible" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Code locations responsible
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#changes-considered-during-diagnosis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changes considered during diagnosis
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#validation-and-diagnostic-artifacts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validation and diagnostic artifacts
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="why-the-restore-dropdown-takes-so-long">Why the Restore dropdown takes so long<a class="headerlink" href="#why-the-restore-dropdown-takes-so-long" title="Permanent link">&para;</a></h1>
+<h2 id="current-result-batch-selected-copy-metadata-in-one-cli-process">Current result: batch selected-copy metadata in one CLI process<a class="headerlink" href="#current-result-batch-selected-copy-metadata-in-one-cli-process" title="Permanent link">&para;</a></h2>
+<p>The selected-copy delay still came from remote calls, not file-tree processing.
+A fresh read-only trace measured <strong>5,431 ms</strong> for three serial metadata calls and
+<strong>2 ms</strong> for exact-response local replay. A later unchanged-binary baseline took
+<strong>8,077 ms</strong>, illustrating the cloud latency variation behind the reported wait.</p>
+<p><code>IncrementalRestore::verifyCopy</code> now downloads the selected repository's
+<code>repository.json</code> and snapshot's <code>manifest.json</code> together using the documented
+multi-source <code>filesystem download path... localFolder</code> command. Both records
+still undergo fresh identity, schema and provenance validation before archive
+metadata is accepted or any entries are published. Providers without batch
+support retain their existing serial path. The chooser remains one request;
+selection with complete bulk archive metadata falls from <strong>three CLI calls to
+two</strong>, independent of the number of referenced archives.</p>
+<p>Three live traces of the same 28-file point measured <strong>4,053 ms</strong>, <strong>4,804 ms</strong>
+and <strong>5,280 ms</strong> for selection, with two calls and <strong>2 ms</strong> local replay each. These are individual
+observations, not a percentile or guaranteed speedup. The two-second diagnostic
+budget <strong>still fails</strong>: batching removes one process/authentication/path-setup
+boundary but does not eliminate the remaining cloud work. No persistent cache,
+stale verification shortcut, remote writes or background prefetch was added.</p>
+<h3 id="rejected-experiment-concurrent-cli-processes">Rejected experiment: concurrent CLI processes<a class="headerlink" href="#rejected-experiment-concurrent-cli-processes" title="Permanent link">&para;</a></h3>
+<p>Three independently owned runners reduced some selections to 2,642–3,734 ms,
+but live testing also reproduced early failures containing database/lock errors.
+One failed bulk listing then triggered individual metadata fallbacks and took
+6,216 ms. The parallel experiment was removed; the final implementation keeps
+the existing single-operation, single-CLI-process execution model. Offline
+overlap tests alone were not sufficient evidence of real CLI compatibility.</p>
+<h3 id="regression-evidence">Regression evidence<a class="headerlink" href="#regression-evidence" title="Permanent link">&para;</a></h3>
+<p>The request-count regression first failed with <strong>three calls instead of two</strong>.
+Coverage now asserts the exact paired metadata paths, cancellation immediately
+after the batch, bulk-list fallback, missing/changed archives, fresh verification
+gating, metadata/provenance rejection, one-command download output, partial
+transfer cleanup, basename collisions and preservation of existing local files.
+The paired-read/cancellation regression passed <strong>20/20 repeated offline runs</strong>.
+The subprocess worker fixture previously handled only the final download source;
+it now accepts the CLI's multi-source contract too. Both manual and scheduled
+worker/restore integration rows passed after that fixture correction.</p>
+<p>Final validation: <code>cmake --build build -j2</code> succeeded, and
+<code>env TMPDIR=/tmp/opencode ctest --test-dir build --output-on-failure -j2</code>
+passed <strong>41/41 targets</strong> in <strong>361.21 seconds</strong>. <code>git diff --check</code> passed.</p>
+<p>The read-only probe is <code>/tmp/opencode/restore-batch-latency-probe.cpp</code> (and its
+matching executable). Responses stay in memory; output contains roles/counts
+and timings rather than names, remote paths, IDs or credentials.</p>
+<h2 id="previous-result-candidates-first-bulk-archive-verification">Previous result: candidates first, bulk archive verification<a class="headerlink" href="#previous-result-candidates-first-bulk-archive-verification" title="Permanent link">&para;</a></h2>
+<p>The user approved showing unverified restore-point candidates before downloading
+their manifests. Normal selected-backup browsing now uses
+<code>IncrementalRestore::listSnapshotCandidates</code>: one safe, scoped directory listing.
+Candidates are labelled <strong>not verified</strong> and use a provisional <strong>folder date</strong>.
+Missing/incomplete points can appear, but listing never makes them restorable.
+Selection still freshly validates repository identity, manifest schema/provenance
+and archive metadata before enabling Restore. The validated <code>listSnapshots</code> and
+<code>BackupCatalog::listHistory</code> APIs remain available internally.</p>
+<p>Archive metadata checks now reuse the existing operation-local
+<code>RemoteMetadataCache</code>, obtaining content sizes in one directory listing where
+supported. Missing, ambiguous or storage-only metadata falls back to individual
+inspection; trusted checksum requirements remain unchanged. No archive bytes are
+downloaded for browsing, and actual restores retain full hash/inventory checks.</p>
+<p>A read-only trace of two points, 3,933 files and 14 referenced archives measured:</p>
+<table>
+<thead>
+<tr>
+<th>Boundary</th>
+<th style="text-align: right;">Before</th>
+<th style="text-align: right;">After</th>
+<th style="text-align: right;">Requests before → after</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Initial point list</td>
+<td style="text-align: right;">11,321 ms</td>
+<td style="text-align: right;">1,248 ms</td>
+<td style="text-align: right;">4 → 1</td>
+</tr>
+<tr>
+<td>Selected point's verified file list</td>
+<td style="text-align: right;">37,987 ms</td>
+<td style="text-align: right;">7,545 ms</td>
+<td style="text-align: right;">16 → 3</td>
+</tr>
+</tbody>
+</table>
+<p>Cloud timings are individual observations, not percentile guarantees. File loading
+still exceeds the diagnostic two-second budget because its three fresh metadata
+requests remain serial. Exact-response replay after the change took 0 ms for the
+candidate list and 255 ms for selection at millisecond resolution. An offscreen
+Qt Quick probe displaying the captured file paths built 5,147 tree rows in 117 ms
+synchronously and reached its next rendered frame in 125 ms. It measures Qt's
+offscreen rendering, not physical display latency; rendering was not the observed
+multi-second bottleneck.</p>
+<p>The controller regression first failed at four calls instead of one, and shared
+archive verification failed at five calls instead of three for a three-archive
+fixture. Coverage also checks incomplete/malformed candidates, foreign identities,
+restore-eligibility gating, bulk fallback, unavailable archives, cancellation and
+preserved internal validated-history behavior.</p>
+<p>Validation after rebuilding all targets: <strong>41/41 CTest targets passed</strong> in
+238.53 seconds. The controller target has 55 passing cases and incremental restore
+has 46; the candidate UI and captured-tree rendering probes also passed.</p>
+<p>Temporary diagnostic sources are <code>/tmp/opencode/restore-selection-latency-probe.cpp</code>
+and <code>/tmp/opencode/restore-ui-probe/tst_restore_render.qml</code>. They are not installed
+application commands. The network probe permits only read-only filesystem calls;
+raw responses remain in memory and paths/credentials are not printed.</p>
+<h2 id="previous-result-validated-manifests-before-listing">Previous result: validated manifests before listing<a class="headerlink" href="#previous-result-validated-manifests-before-listing" title="Permanent link">&para;</a></h2>
+<p>Selected-backup history now reads only that backup's incremental snapshots.
+Old-format copies are intentionally excluded from the chooser, as agreed; no
+remote copies are deleted. General discovery, legacy readers, retention, and
+selected-copy verification remain available internally.</p>
+<pre class="mermaid"><code>flowchart TD
+    A[Open selected backup's Restore screen] --&gt; B[List its snapshots directory: 1 CLI call]
+    B --&gt; C[Download and validate repository identity: 1 CLI call]
+    C --&gt; D[Download and validate each snapshot manifest: N CLI calls]
+    D --&gt; E[Publish dropdown: N + 2 calls total]
+    E --&gt; F[On selection: freshly verify only the selected copy]</code></pre>
+<p>For the same two live restore points, the updated diagnostic measured:</p>
+<table>
+<thead>
+<tr>
+<th>Work</th>
+<th style="text-align: right;">Time</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>List selected set's snapshots</td>
+<td style="text-align: right;">1,128 ms</td>
+</tr>
+<tr>
+<td>Download repository identity once</td>
+<td style="text-align: right;">2,030 ms</td>
+</tr>
+<tr>
+<td>Download first manifest</td>
+<td style="text-align: right;">2,777 ms</td>
+</tr>
+<tr>
+<td>Download second manifest</td>
+<td style="text-align: right;">2,071 ms</td>
+</tr>
+<tr>
+<td><strong>Controller listing total</strong></td>
+<td style="text-align: right;"><strong>8,012 ms</strong></td>
+</tr>
+</tbody>
+</table>
+<p>Exactly <strong>4 CLI calls</strong>, <strong>2 restore points</strong>, <strong>0 errors</strong>. Replaying the same
+responses locally took <strong>4 ms</strong>; reopening the loaded context took <strong>0 ms</strong> at
+millisecond resolution with no requests. The original trace below took 27,472 ms.
+These are individual cloud traces, not a guaranteed latency reduction; the updated
+path still exceeds the diagnostic two-second budget. No persistent local cache
+or new remote index was introduced.</p>
+<p>The offline CLI regression initially failed with <strong>15 calls instead of 4</strong> on a
+mixed-history fixture, then passed with four after the implementation. It also
+checks fresh verification on selection, zero-request same-context reopening,
+four-request refresh, and that ignored legacy copies remain on disk.</p>
+<p>The implementation lives in <code>IncrementalRestore::listSnapshots</code>, reached through
+<code>BackupCatalog::listHistory</code> when the controller supplies a shared set ID. It
+reuses the private manifest/provenance loader, with the validated identity scoped
+to this single operation. Independent Standards and Spec reviews reported no
+findings. Regression coverage includes malformed repository identities and
+manifests, unsafe roots and snapshot entries, cancellation, identity refresh,
+missing snapshot manifests, and preserved legacy-format compatibility readers.</p>
+<p>Final validation: <code>cmake --build build -j2</code> passed.
+<code>env TMPDIR=/tmp/opencode ctest --test-dir build --output-on-failure -j2</code>
+passed <strong>all 41 test targets</strong> in <strong>396.48 seconds</strong>, including the dashboard,
+worker recovery, legacy compatibility, incremental restore, and four-call
+controller regression suites. <code>git diff --check</code> also passed.</p>
+<h2 id="original-investigation-before-this-implementation">Original investigation (before this implementation)<a class="headerlink" href="#original-investigation-before-this-implementation" title="Permanent link">&para;</a></h2>
+<h2 id="finding">Finding<a class="headerlink" href="#finding" title="Permanent link">&para;</a></h2>
+<p><strong>The bottleneck is serial Proton CLI work during history discovery, not dropdown
+rendering or C++ container processing.</strong> On 2026-10-24, listing two restore points
+for the first locally configured backup took <strong>27.472 seconds</strong>. Its 14 CLI calls
+accounted for <strong>27.457 seconds</strong>, or approximately <strong>99.95%</strong> of the measured time.</p>
+<p>The original investigation measured the working tree including its pre-existing
+uncommitted restore optimizations, before the implementation summarized above.
+Backup names, remote paths, identifiers, credentials, and raw CLI responses are
+omitted from this report.</p>
+<h2 id="original-flow">Original flow<a class="headerlink" href="#original-flow" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>sequenceDiagram
+    actor User
+    participant UI as Main.qml / RestorePanel.qml
+    participant Controller as BackupRestoreController
+    participant Catalog as BackupCatalog
+    participant Incremental as IncrementalRestore
+    participant CLI as ProtonProvider / proton-drive
+
+    User-&gt;&gt;UI: Restore copies…
+    UI-&gt;&gt;Controller: discover(configured root, set ID, history=true, refresh=false)
+    alt Successful list already loaded for the same context
+        Controller--&gt;&gt;UI: Reuse cached list, no CLI calls
+    else First open / refresh / different context
+        Controller-&gt;&gt;Catalog: listHistory(root, expected shared set ID)
+        Note over Controller,Catalog: Background task; only one controller operation at a time
+        Catalog-&gt;&gt;CLI: list root
+        Catalog-&gt;&gt;CLI: list sets
+        loop Repository directories, serially
+            Catalog-&gt;&gt;CLI: list repository directory
+            alt Selected repository
+                Catalog-&gt;&gt;CLI: list snapshots directory
+                loop Each saved snapshot, serially
+                    Catalog-&gt;&gt;CLI: list snapshot directory
+                    Catalog-&gt;&gt;Incremental: describeCopy(snapshot)
+                    Incremental-&gt;&gt;CLI: download repository.json
+                    Note over Incremental,CLI: Same anchor downloaded again for each snapshot
+                    Incremental-&gt;&gt;CLI: download manifest.json
+                    Incremental-&gt;&gt;Incremental: Validate manifest and provenance
+                end
+            else Other repository
+                Note over Catalog,CLI: Pruned AFTER its directory listing
+            end
+        end
+        Catalog--&gt;&gt;Controller: Entire discovered list
+        Controller--&gt;&gt;UI: copiesChanged; populate ComboBox
+    end
+    User-&gt;&gt;UI: Select a restore point
+    UI-&gt;&gt;Controller: selectCopy(index)
+    Note over Controller,CLI: Separate phase: reload metadata and verify selected copy payloads</code></pre>
+<p>The dropdown is bound to <code>controller.copies</code>. There is no incremental publication
+while discovery is running: first-open options arrive when the complete task
+finishes. Moving work to a background thread keeps the UI responsive, but does
+not shorten the wait for those options.</p>
+<h2 id="measured-evidence">Measured evidence<a class="headerlink" href="#measured-evidence" title="Permanent link">&para;</a></h2>
+<p>A temporary, read-only C++ harness links the same <code>omacustos-controllers</code> and
+<code>omacustos-core</code> libraries as the application. It invokes the real controller
+without QML, using the configured Proton binary and the first configured backup.
+Its runner permits only <code>filesystem list</code>, <code>info</code>, and <code>download</code>.</p>
+<p>The harness records CLI duration and keeps responses and downloaded metadata in
+memory. A fresh controller then replays exactly the same requests and bytes
+without launching the CLI. Replay still executes provider JSON parsing, manifest
+validation, catalog traversal, sorting, and controller publication.</p>
+<table>
+<thead>
+<tr>
+<th>Scenario</th>
+<th style="text-align: right;">CLI calls</th>
+<th style="text-align: right;">Restore points</th>
+<th style="text-align: right;">Time</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Normal configured-root discovery</td>
+<td style="text-align: right;">14</td>
+<td style="text-align: right;">2</td>
+<td style="text-align: right;">27,472 ms</td>
+</tr>
+<tr>
+<td>Exact-response local replay of normal discovery</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">2</td>
+<td style="text-align: right;">5 ms</td>
+</tr>
+<tr>
+<td>Same-context reopen after normal discovery</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">2</td>
+<td style="text-align: right;">0 ms at millisecond resolution</td>
+</tr>
+<tr>
+<td>Discovery rooted at this set's <code>snapshots</code> directory</td>
+<td style="text-align: right;">7</td>
+<td style="text-align: right;">2</td>
+<td style="text-align: right;">17,294 ms</td>
+</tr>
+<tr>
+<td>Exact-response local replay of narrowed discovery</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">2</td>
+<td style="text-align: right;">5 ms</td>
+</tr>
+<tr>
+<td>Same-context reopen after narrowed discovery</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">2</td>
+<td style="text-align: right;">0 ms at millisecond resolution</td>
+</tr>
+</tbody>
+</table>
+<p>The narrowed experiment changes only the discovery root supplied to the
+controller; production code is unchanged. It proves seven calls can be avoided
+for these two incremental snapshots. It is <strong>not</strong> a complete replacement for
+mixed legacy/incremental history discovery.</p>
+<p>Both cloud runs exceeded a diagnostic 2,000 ms dropdown-loading budget. This is a
+diagnostic threshold, not an existing project requirement. Cloud latency varies;
+these are individual traces, not a percentile benchmark. Do not interpret the
+10.178-second difference as a guaranteed optimization speedup.</p>
+<h3 id="where-the-original-27457-seconds-of-cli-time-went">Where the original 27.457 seconds of CLI time went<a class="headerlink" href="#where-the-original-27457-seconds-of-cli-time-went" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Work</th>
+<th style="text-align: right;">Calls</th>
+<th style="text-align: right;">Total</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>List configured root and <code>sets</code></td>
+<td style="text-align: right;">2</td>
+<td style="text-align: right;">3,037 ms</td>
+</tr>
+<tr>
+<td>List selected repository and its <code>snapshots</code> directory</td>
+<td style="text-align: right;">2</td>
+<td style="text-align: right;">3,124 ms</td>
+</tr>
+<tr>
+<td>List the two snapshot directories</td>
+<td style="text-align: right;">2</td>
+<td style="text-align: right;">2,290 ms</td>
+</tr>
+<tr>
+<td>Download the same <code>repository.json</code> twice</td>
+<td style="text-align: right;">2</td>
+<td style="text-align: right;">5,877 ms</td>
+</tr>
+<tr>
+<td>Download the two snapshot manifests</td>
+<td style="text-align: right;">2</td>
+<td style="text-align: right;">4,951 ms</td>
+</tr>
+<tr>
+<td>List four unrelated repository directories</td>
+<td style="text-align: right;">4</td>
+<td style="text-align: right;">8,178 ms</td>
+</tr>
+<tr>
+<td><strong>Total</strong></td>
+<td style="text-align: right;"><strong>14</strong></td>
+<td style="text-align: right;"><strong>27,457 ms</strong></td>
+</tr>
+</tbody>
+</table>
+<p>Both restore points had already been described before the final four unrelated
+repository listings. The controller nevertheless waited another <strong>8.178 seconds</strong>
+before publishing the dropdown list.</p>
+<p>The anchor was only <strong>261 bytes</strong>; the manifests were <strong>10,554</strong> and <strong>11,038
+bytes</strong>. Small metadata downloads still took seconds. These timings include CLI
+startup and everything the CLI does internally; they do <strong>not</strong> isolate network,
+authentication, cryptography, or process startup from one another.</p>
+<p>No archive payload was downloaded or inspected to fill the dropdown. Archive
+verification after selecting a restore point is a different latency boundary.
+The probe does not measure QML painting or physical screen presentation, but it
+reproduces the long wait before the UI can receive its model.</p>
+<h2 id="code-locations-responsible">Code locations responsible<a class="headerlink" href="#code-locations-responsible" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Location</th>
+<th>Responsibility</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="https://github.com/jcergolj/omacustos/blob/master/native/qml/Main.qml#L127"><code>Main.qml:127–151</code></a></td>
+<td>Opens restore with history mode and navigation-cache reuse.</td>
+</tr>
+<tr>
+<td><a href="https://github.com/jcergolj/omacustos/blob/master/native/src/backupsetcontroller.cpp#L607"><code>backupsetcontroller.cpp:607–615</code></a></td>
+<td>Supplies the entire configured remote root, not the selected set's snapshot directory.</td>
+</tr>
+<tr>
+<td><a href="https://github.com/jcergolj/omacustos/blob/master/native/src/backuprestorecontroller.cpp#L321"><code>backuprestorecontroller.cpp:321–381</code></a></td>
+<td>Same-context cache check and discovery setup.</td>
+</tr>
+<tr>
+<td><a href="https://github.com/jcergolj/omacustos/blob/master/native/src/backuprestorecontroller.cpp#L421"><code>backuprestorecontroller.cpp:421–458</code></a></td>
+<td>Runs <code>listHistory</code>, then filters returned copy identities.</td>
+</tr>
+<tr>
+<td><a href="https://github.com/jcergolj/omacustos/blob/master/native/src/backupcatalog.cpp#L43"><code>backupcatalog.cpp:43–93</code></a></td>
+<td>Recursive serial traversal; another repository is recognized and pruned only after listing it.</td>
+</tr>
+<tr>
+<td><a href="https://github.com/jcergolj/omacustos/blob/master/native/src/backupcatalog.cpp#L129"><code>backupcatalog.cpp:129–136</code></a></td>
+<td>Dispatches incremental snapshots to metadata-only <code>describeCopy</code>.</td>
+</tr>
+<tr>
+<td><a href="https://github.com/jcergolj/omacustos/blob/master/native/src/incrementalrestore.cpp#L74"><code>incrementalrestore.cpp:74–94</code></a></td>
+<td>Downloads and validates the repository anchor and manifest for every snapshot.</td>
+</tr>
+<tr>
+<td><a href="https://github.com/jcergolj/omacustos/blob/master/native/src/backuprestorecontroller.cpp#L39"><code>backuprestorecontroller.cpp:39–90</code></a></td>
+<td>Publishes copies only when the complete background task finishes.</td>
+</tr>
+<tr>
+<td><a href="https://github.com/jcergolj/omacustos/blob/master/native/src/protonprovider.cpp#L352"><code>protonprovider.cpp:352–356</code></a></td>
+<td>Each directory listing invokes the CLI.</td>
+</tr>
+<tr>
+<td><a href="https://github.com/jcergolj/omacustos/blob/master/native/src/qprocessrunner.cpp#L41"><code>qprocessrunner.cpp:41–76</code></a></td>
+<td>Starts a fresh subprocess and waits for it on the background thread.</td>
+</tr>
+<tr>
+<td><a href="https://github.com/jcergolj/omacustos/blob/master/native/qml/RestorePanel.qml#L143"><code>RestorePanel.qml:143–157</code></a></td>
+<td>Binds the dropdown to the controller list; activation starts separate verification.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="changes-considered-during-diagnosis">Changes considered during diagnosis<a class="headerlink" href="#changes-considered-during-diagnosis" title="Permanent link">&para;</a></h2>
+<p>Items 1–3 informed the implementation. The user chose to skip old-format copies
+in the normal chooser rather than add separate legacy discovery. Items 4–5 were
+not implemented.</p>
+<ol>
+<li><strong>Separate selected-set browsing from full-root discovery.</strong> Derive the known
+   incremental repository from the selected set ID and list its snapshots
+   directly. Preserve historical v1–v3 copies through a scoped legacy path or
+   explicit broader discovery. Do not silently drop historical copies.</li>
+<li><strong>Read the repository anchor once per listing operation.</strong> Reuse that validated
+   identity across snapshots of the same repository, while validating each
+   snapshot against it. Do not make ownership metadata permanently trusted or
+   reuse listing metadata as authorization to restore or delete.</li>
+<li><strong>Avoid listing inside every snapshot just to find its manifest.</strong> The snapshot
+   directory listing already gives candidate snapshot paths; read each exact
+   <code>manifest.json</code> and handle missing/incomplete candidates safely. Preserve the
+   existing provenance, identity, and path validation.</li>
+<li><strong>Publish usable results before unrelated discovery finishes.</strong> If broad legacy
+   discovery remains necessary, show validated selected-set results first and
+   merge subsequent results by stable copy path. Keep restore eligibility behind
+   fresh selected-copy verification.</li>
+<li><strong>Only then consider bounded concurrent metadata fetches.</strong> The existing
+   controller intentionally serializes provider calls. Increasing its thread
+   count blindly risks shared state and navigation/restore correctness. Any
+   concurrency needs independently owned runners/providers, cancellation, and
+   generation-safe publication.</li>
+</ol>
+<p>For this two-snapshot incremental example, direct snapshot listing, one shared
+anchor read, and two manifest downloads would require <strong>4 CLI calls instead of
+14</strong>, excluding any separate legacy discovery or existence probes. This is a
+request-count estimate, not a measured implementation or a promise of subsecond
+loading: even four serial CLI calls may still take several seconds.</p>
+<p>The existing working-tree changes already avoid descending into object and
+bookkeeping trees and reuse a loaded list when reopening the same context.
+They do not eliminate the first-open scan measured here. Switching contexts or
+restarting is not equivalent to the measured same-context cache hit.</p>
+<h2 id="validation-and-diagnostic-artifacts">Validation and diagnostic artifacts<a class="headerlink" href="#validation-and-diagnostic-artifacts" title="Permanent link">&para;</a></h2>
+<p>Session-local harness source and executable:
+<code>/tmp/opencode/restore-browse-probe.cpp</code> and
+<code>/tmp/opencode/restore-browse-probe</code>. These are temporary diagnostic artifacts,
+not installed application commands. They retain no raw response capture on disk.</p>
+<div class="highlight"><pre><span></span><code>env<span class="w"> </span><span class="nv">TMPDIR</span><span class="o">=</span>/tmp/opencode<span class="w"> </span>/tmp/opencode/restore-browse-probe<span class="w"> </span><span class="m">0</span>
+<span class="c1"># SUMMARY ... cloud_ms=27472 cli_ms=27457 calls=14 copies=2 failed=0</span>
+<span class="c1"># ... reopen_ms=0 reopen_calls=0 replay_ms=5 replay_copies=2 replay_failed=0</span>
+<span class="c1"># DROPDOWN_BUDGET_2000MS=FAIL (exit 2)</span>
+
+env<span class="w"> </span><span class="nv">TMPDIR</span><span class="o">=</span>/tmp/opencode<span class="w"> </span>/tmp/opencode/restore-browse-probe<span class="w"> </span><span class="m">0</span><span class="w"> </span>snapshots
+<span class="c1"># SUMMARY ... cloud_ms=17294 cli_ms=17284 calls=7 copies=2 failed=0</span>
+<span class="c1"># ... reopen_ms=0 reopen_calls=0 replay_ms=5 replay_copies=2 replay_failed=0</span>
+<span class="c1"># DROPDOWN_BUDGET_2000MS=FAIL (exit 2)</span>
+
+env<span class="w"> </span><span class="nv">TMPDIR</span><span class="o">=</span>/tmp/opencode<span class="w"> </span><span class="nv">QT_QPA_PLATFORM</span><span class="o">=</span>offscreen<span class="w"> </span>build/backuprestorecontroller-test
+<span class="c1"># Totals: 49 passed, 0 failed; 6988 ms</span>
+</code></pre></div>
+<p>The initial tests established listing/verification separation, safe supersession,
+and cache behavior; they did not impose a cloud-loading performance budget.
+The implementation adds a deterministic four-CLI-call regression, not a cloud
+timing guarantee.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.footer", "navigation.top", "search.suggest", "search.highlight", "content.code.copy"], "search": "../../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.c21346df.min.js"></script>
+      
+    
+  </body>
+</html>

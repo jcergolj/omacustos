@@ -1,0 +1,1802 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Back up and restore personal files with OmaCustos for Proton Drive.">
+      
+      
+      
+        <link rel="canonical" href="https://jcergolj.github.io/omacustos/docs/incremental-default-rollout/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.0">
+    
+    
+      
+        <title>Default incremental backups (#62) - OmaCustos documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#default-incremental-backups-62" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="OmaCustos documentation" class="md-header__button md-logo" aria-label="OmaCustos documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            OmaCustos documentation
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Default incremental backups (#62)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jcergolj/omacustos" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jcergolj/omacustos
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="OmaCustos documentation" class="md-nav__button md-logo" aria-label="OmaCustos documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    OmaCustos documentation
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jcergolj/omacustos" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jcergolj/omacustos
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1. Install and sign in
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/first-backup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2. Create your first backup set
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3. Restore your files
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4. Back up your backup-set settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/schedules/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5. Make backups automatic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/integrity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    6. Check backup integrity
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/history/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7. Manage history and free space
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/controls/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    8. Other controls and settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    9. Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_11" >
+        
+          
+          <label class="md-nav__link" for="__nav_11" id="__nav_11_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    More guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_11_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_11">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    More guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/recovery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Recover on another computer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Understand results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/selection/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Choose files and rules
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/backup-controls/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pause, resume, or cancel
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/advanced/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Storage, power, and resources
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/handoff/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Move backup work
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/extras/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Templates and uninstalling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_12" >
+        
+          
+          <label class="md-nav__link" for="__nav_12" id="__nav_12_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_12_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_12">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../MANUAL/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Full user manual
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../TECHNICAL/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Technical notes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../incremental-restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Recovery without settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../incremental-integrity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrity protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../incremental-cleanup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cleanup rules
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../github-pages/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Publishing these docs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#ownership-and-upgrade" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ownership and upgrade
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#saved-states-checks-and-integrity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Saved states, checks, and integrity
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cleanup-and-mixed-history" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cleanup and mixed history
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#validation-map" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validation map
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#local-performance-evidence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Local performance evidence
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#final-local-execution-evidence-2026-10-21" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Final local execution evidence — 2026-10-21
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Final local execution evidence — 2026-10-21">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#inputs-and-repeat-consistency" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Inputs and repeat consistency
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#backup-timings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backup timings
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#restore-and-cleanup-timings-at-the-retained-1000-mb-requested-target" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Restore and cleanup timings at the retained 1000 MB requested target
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#transfer-operation-and-private-staging-observations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Transfer, operation, and private staging observations
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#archive-target-decision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Archive-target decision
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pre-commit-review-record" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pre-commit review record
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="default-incremental-backups-62">Default incremental backups (#62)<a class="headerlink" href="#default-incremental-backups-62" title="Permanent link">&para;</a></h1>
+<p>Validation status: <strong>local correctness, measurement, Standards, and Spec gates
+passed; accepted for commit</strong>. The source now
+routes fresh normal-worker runs to v4 incremental storage. No installed service,
+cloud account, package, or deployment has been changed by this work.</p>
+<p>The earlier <a href="../incremental-validation/">validation report</a> records preparatory
+measurements and the blockers that existed before this integration. It is not the
+current implementation status or final delivery evidence.</p>
+<h2 id="ownership-and-upgrade">Ownership and upgrade<a class="headerlink" href="#ownership-and-upgrade" title="Permanent link">&para;</a></h2>
+<ul>
+<li>A locally created configuration is bound to the machine's stable OS identity
+  and the fixed absolute configuration directory. Writer UUIDs and epochs are persisted
+  before remote initialization; hostnames and editable set names are not writer
+  identity. Namespace IDs for historical non-UUID set IDs are deterministic, so
+  losing local settings cannot create an unrelated replacement namespace.</li>
+<li>A verified-empty set can be provisioned automatically by a locally bound
+  configuration. A nonempty or foreign repository is never silently adopted.</li>
+<li>Imported, copied, and old unbound configurations are read-only. For an old
+  pre-ownership configuration, use <strong>Offline writer takeover…</strong> once to enroll its
+  verified-empty v4 namespace. This is ownership enrollment, not a format opt-in:
+  there is no user-selectable full-upload mode for fresh runs.</li>
+<li>Before confirming enrollment/takeover, stop the previous writer's processes,
+  schedules, retries, and access permanently. An in-place upgrade must stop the
+  old executable; any subsequent service invocation must use the new writer.
+  The protocol is manual-offline, not a server lease or a fencing guarantee.</li>
+<li>Existing remote ownership requires an explicit epoch-changing offline takeover.
+  A durable handoff intent makes a lost response retryable. Restoring copied
+  local state does not itself restore write authority.</li>
+<li>An unfinished legacy copy resumes in its recorded format and exact namespace,
+  after ownership enrollment where needed. Only a fresh run uses the new default.</li>
+</ul>
+<p>The first v4 run uploads a fresh baseline and does not reuse legacy payloads.
+Before publication work, the worker reports selected uncompressed source bytes
+plus the discovered existing-history payload size (or explicitly unknown size).
+Compression, manifests, and metadata change actual use; these are estimates, not
+quota guarantees. No history is removed to make room for the baseline.</p>
+<h2 id="saved-states-checks-and-integrity">Saved states, checks, and integrity<a class="headerlink" href="#saved-states-checks-and-integrity" title="Permanent link">&para;</a></h2>
+<p>All selected regular files are hashed. Intentional skipped links/special nodes do
+not invalidate readable regular files. Missing roots, inaccessible directories,
+enumeration failures, and unreadable selected files are not treated as deletions.
+Execution prunes excluded trees instead of traversing them for preview data.
+Durable journals are placed outside selected roots. Volatile application queues,
+locks, and private coordination state are excluded and shown excluded in Preview;
+the actual settings file remains eligible, so configuration/home selections do
+not recursively capture a backup's own changing control state.</p>
+<p>New/changed regular files are uploaded whole. Renames and deletions reuse
+unchanged content. An unchanged check publishes no snapshot and consumes no
+retention slot. Run details distinguish the last successful check from the last
+saved change and expose integrity and historical-damage information.</p>
+<p>New uploads retain full verification and manifest-last publication. Reused
+objects retain original verification evidence and daily existence/size checks;
+those lightweight checks can miss same-sized corruption. Scheduled full integrity
+checking and verified restores remain necessary. Uploading replacement objects
+for a new state does <strong>not</strong> repair older snapshots; affected history is reported.</p>
+<p>Capture is file-by-file, not an atomic filesystem/application snapshot. Whole-file
+edits retransmit the whole file. Partially live immutable archives retain obsolete
+members; compaction and block-level deduplication remain out of scope.</p>
+<h2 id="cleanup-and-mixed-history">Cleanup and mixed history<a class="headerlink" href="#cleanup-and-mixed-history" title="Permanent link">&para;</a></h2>
+<p>The normal history browser discovers and verifies both legacy copies and shared
+snapshots without requiring a local manifest cache. Old non-UUID IDs and legacy
+computer/set-name namespaces are associated with the configured set before
+retention planning. A shared snapshot cannot be deleted with the old whole-copy
+delete action.</p>
+<p>Scheduled backups do not authorize their own cleanup. When retention needs work,
+the UI reports <strong>cleanup needs attention</strong>. Choose <strong>Review incremental cleanup…</strong>
+and review the exact proposed snapshot, legacy-folder, and unreferenced-object
+identities. Confirmation authorizes only that proposal. A changed scope requires
+a fresh review.</p>
+<p>Cancelling a preview writes a dismissal, not deletion authority. A crashed/closed
+preview is recovered similarly before the next writer runs. Already-authorized
+interrupted cleanup resumes only its durable exact scope. Dismissed proposals
+cannot retire snapshots or authorize deletion. Retained and resumable references
+still block object deletion, and unreadable history still fails closed.</p>
+<p>The newest-N policy counts saved states across old/new formats. Unchanged checks
+do not evict history. Saved snapshots survive failed cleanup. Ownership, backup,
+integrity maintenance, and cleanup continue to serialize their mutations.</p>
+<h2 id="validation-map">Validation map<a class="headerlink" href="#validation-map" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Boundary</th>
+<th>Automated coverage</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Directory open/read/permission failures</td>
+<td><code>scanerrors-test</code>, including read failure after a delivered entry, all three historical execution modes, and excluded paths</td>
+</tr>
+<tr>
+<td>Baseline/unchanged/edit/rename and independent restores</td>
+<td><code>incrementalworker-test</code>, existing planner/repository/restore suites</td>
+</tr>
+<tr>
+<td>Imported/copied/unbound settings, local state loss, enrollment/takeover</td>
+<td><code>incrementalworker-test</code> and existing takeover/remote-only restore cases</td>
+</tr>
+<tr>
+<td>Legacy fresh-baseline upgrade and mixed-format newest-N retention</td>
+<td><code>mixedFormatUpgradeAndExactRetention</code>, legacy worker recovery suites</td>
+</tr>
+<tr>
+<td>Real worker manual/scheduled runs, pause/cancel/resume, lost publication response</td>
+<td><code>incrementalworker-process-test</code>, using a local CLI subprocess fixture</td>
+</tr>
+<tr>
+<td>Real worker quota, partial/corrupt uploads, unreadable retained manifest</td>
+<td><code>incrementalworker-failures-test</code></td>
+</tr>
+<tr>
+<td>User cleanup preview/cancel/confirm and retained-state restore</td>
+<td><code>incrementalmaintenance-test</code>, using the real asynchronous controller and a local CLI fixture</td>
+</tr>
+<tr>
+<td>Abandoned previews and already-authorized cleanup restart</td>
+<td><code>incrementalworker-test</code>, existing cleanup interruption/protected-reference suites</td>
+</tr>
+<tr>
+<td>Source mutation, missing objects, same-size corruption, scheduled full checks, protected resumable work</td>
+<td>Existing <code>incrementalrepository-test</code> / <code>incrementalrestore-test</code>; the adapter uses the same executor without weakening these gates</td>
+</tr>
+</tbody>
+</table>
+<p>The data-heavy legacy worker suite is registered in two CTest groups instead of
+raising its existing 180-second hang timeout. Every legacy test function remains
+registered exactly once. New worker process/failure/maintenance suites are also
+separate bounded CTest groups.</p>
+<h2 id="local-performance-evidence">Local performance evidence<a class="headerlink" href="#local-performance-evidence" title="Permanent link">&para;</a></h2>
+<p>Build Release and run the repeatable, local-only matrix from disk-backed storage:</p>
+<div class="highlight"><pre><span></span><code>cmake<span class="w"> </span>-S<span class="w"> </span>native<span class="w"> </span>-B<span class="w"> </span>/tmp/opencode/omacustos-62-release<span class="w"> </span>-DCMAKE_BUILD_TYPE<span class="o">=</span>Release
+cmake<span class="w"> </span>--build<span class="w"> </span>/tmp/opencode/omacustos-62-release<span class="w"> </span>--target<span class="w"> </span>incremental-benchmark<span class="w"> </span>staging-observer<span class="w"> </span>-j<span class="w"> </span><span class="m">4</span>
+python3<span class="w"> </span>native/tests/run_incremental_benchmarks.py<span class="w"> </span>/tmp/opencode/omacustos-62-release/incremental-benchmark<span class="w"> </span>/tmp/opencode/issue62-measurements<span class="w"> </span>--bytes<span class="w"> </span><span class="m">536870912</span><span class="w"> </span>--files<span class="w"> </span><span class="m">2048</span><span class="w"> </span>--observer<span class="w"> </span>/tmp/opencode/omacustos-62-release/libstaging-observer.so
+</code></pre></div>
+<p>The matrix separately compares v3 full uploads and v4 first/unchanged/small-edit
+runs, full/selective restores, cleanup, and retained-state restore. Profiles are
+unmodified current-repository source/QML/docs, an explicitly <strong>amplified</strong> version
+of that corpus, and deterministic mixed compressible/pseudorandom data. None is a
+customer workload or a cloud throughput measurement. Generated fixture contents
+are independently hashed and restored files/counts are checked.</p>
+<p>JSON evidence includes provider operation counts/times, transfer bytes, boundary
+intervals, dedicated local-plan/hash, capture, compression, publication and
+verification measurements, boundary samples, and event-observed private staging
+peaks. The observer accounts for regular-file write growth, truncation, removal,
+and open unlinked writers; provider-boundary synchronization covers kernel
+copies/reflinks. The successful serial fixtures do not release bytes between a
+provider copy and that observation. A unit test checks its accounting and a smoke
+case requires that it never underreport known boundary samples.
+Provider times overlap phase times and must not be added to them. Staging samples
+are logical file bytes, not allocated filesystem bytes or a universal process
+high-water mark. Restore temporary workspaces are disk-backed; destination trees
+and their final atomic-placement temporary files are outside the reported private
+workspace scope. Diagnostic observer overhead is included in these local timings.
+The matrix uses the production 1 GB staging budget and 1,000-file cap, not the
+unconstrained budgets of the earlier sizing probes.</p>
+<p>Approximately 106 GB was available before the matrix. The conservative fixture
+guard alone needs 160 GB for a 20 GB input; 20/50/100/500 GB fixtures are therefore
+not practical here. No cloud measurements were authorized or performed.</p>
+<h2 id="final-local-execution-evidence-2026-10-21">Final local execution evidence — 2026-10-21<a class="headerlink" href="#final-local-execution-evidence-2026-10-21" title="Permanent link">&para;</a></h2>
+<p><code>cmake --build build -j 4</code> succeeded. A clean, single invocation of
+<code>ctest --test-dir build --output-on-failure -j 2</code> passed <strong>41/41 suites in
+427.15 seconds</strong>. Existing timeouts were not increased and no cases were dropped.
+An earlier full invocation exposed historical CLI fixtures that still assumed
+the old default. Explicitly selecting their historical test seam fixed those
+fixtures; all their assertions remain intact. New default-process tests never
+use that override.</p>
+<p>Release benchmark smoke validation passed <strong>3/3</strong>. The controlled matrix above
+then completed <strong>18/18 invocations</strong>, two repeats for each profile/target, with
+no concurrent build/test load. Every invocation checked old/new and selective
+restored bytes/file counts, unchanged no-payload/no-snapshot behavior, exactly one
+edited-file archive, preview-without-deletion, exact cleanup confirmation, and a
+byte-verified retained restore. The v4 first-run timing includes initialization;
+all v4 runs include source enumeration and full local planning/hashing.</p>
+<p>Environment: local disk-backed Btrfs, Intel i5-9600K (6 cores), GCC 16.2.1,
+Qt 6.12.0, libarchive 3.8.10, zlib 1.3.2, Release optimizations. All remote
+operations used private <code>LocalProvider</code> fixtures. Its metadata inspection hashes
+files internally even when the exposed checksum is withheld. No CLI startup,
+network, encryption, service quota, cloud throughput, or production speedup is
+being measured. The small real repository corpus is <strong>slower</strong> with v4's fixed
+control/verification overhead; the larger profiles reduce repeated payload work
+but have a slower, more thoroughly verified first baseline than v3.</p>
+<h3 id="inputs-and-repeat-consistency">Inputs and repeat consistency<a class="headerlink" href="#inputs-and-repeat-consistency" title="Permanent link">&para;</a></h3>
+<p>Both repeats and all three targets used identical independently hashed fixture
+contents within each profile. <code>repository-files</code> copied the current source/QML
+files and README/TECHNICAL documents without amplification. <code>repository-code</code>
+explicitly repeated those contents; it is not a 512 MiB customer corpus.</p>
+<table>
+<thead>
+<tr>
+<th>Profile</th>
+<th style="text-align: right;">Selected bytes</th>
+<th style="text-align: right;">Files</th>
+<th>SHA-256 of sorted logical names + independent content hashes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Repository files</td>
+<td style="text-align: right;">859,545</td>
+<td style="text-align: right;">96</td>
+<td><code>2f36754131929551c52c29ac53e3f010010363addbbb205b7340d31593bf0e64</code></td>
+</tr>
+<tr>
+<td>Amplified repository code</td>
+<td style="text-align: right;">536,870,912</td>
+<td style="text-align: right;">2,048</td>
+<td><code>a274c4573b39a3141a7e2f8e7b6f52c8b86356fdd7a34f3d61da9cc9b81e3dad</code></td>
+</tr>
+<tr>
+<td>Synthetic mixed</td>
+<td style="text-align: right;">536,870,912</td>
+<td style="text-align: right;">2,048</td>
+<td><code>9743bd810e6e4a4e9631c7d1160b13c34417663176acf058598d1aaabd42d9c8</code></td>
+</tr>
+</tbody>
+</table>
+<p>The 18 raw JSONL files contain 234 scenario records plus 18 input records
+(158,455 bytes), retained locally at <code>/tmp/opencode/issue62-final-20261021</code>.
+Receipt SHA-256 over sorted filename, NUL, then file contents:
+<code>8e14a0fe161d0919f99280aee3f7fb93839b03c3fd0117d59426e7040e84ea7e</code>.
+The tables below persist the delivery findings in the repository; the local raw
+directory is not an uploaded/cloud artifact. Corpus fingerprints describe the
+fixed measurement inputs, before the final documentation/help-text cleanup.</p>
+<h3 id="backup-timings">Backup timings<a class="headerlink" href="#backup-timings" title="Permanent link">&para;</a></h3>
+<p>Seconds, minimum–maximum of two repeats. Targets are decimal MB. <code>R</code> is the
+unmodified repository corpus, <code>A</code> its amplified contents, <code>M</code> synthetic mixed.</p>
+<table>
+<thead>
+<tr>
+<th>Profile</th>
+<th style="text-align: right;">Target</th>
+<th>v3 first</th>
+<th>v4 first</th>
+<th>v3 unchanged</th>
+<th>v4 unchanged</th>
+<th>v3 edit</th>
+<th>v4 edit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>R</td>
+<td style="text-align: right;">64</td>
+<td>0.084–0.088</td>
+<td>0.318–0.351</td>
+<td>0.075–0.078</td>
+<td>0.131–0.139</td>
+<td>0.074–0.081</td>
+<td>0.229–0.229</td>
+</tr>
+<tr>
+<td>R</td>
+<td style="text-align: right;">256</td>
+<td>0.079–0.082</td>
+<td>0.281–0.308</td>
+<td>0.077–0.077</td>
+<td>0.125–0.139</td>
+<td>0.075–0.082</td>
+<td>0.221–0.227</td>
+</tr>
+<tr>
+<td>R</td>
+<td style="text-align: right;">1000</td>
+<td>0.074–0.078</td>
+<td>0.259–0.302</td>
+<td>0.074–0.077</td>
+<td>0.120–0.138</td>
+<td>0.071–0.082</td>
+<td>0.186–0.226</td>
+</tr>
+<tr>
+<td>A</td>
+<td style="text-align: right;">64</td>
+<td>5.188–5.661</td>
+<td>11.237–11.487</td>
+<td>5.215–5.425</td>
+<td>1.889–1.900</td>
+<td>5.178–5.240</td>
+<td>2.111–2.199</td>
+</tr>
+<tr>
+<td>A</td>
+<td style="text-align: right;">256</td>
+<td>5.006–5.449</td>
+<td>10.925–11.419</td>
+<td>4.944–5.576</td>
+<td>1.857–1.940</td>
+<td>5.038–5.374</td>
+<td>2.182–2.209</td>
+</tr>
+<tr>
+<td>A</td>
+<td style="text-align: right;">1000</td>
+<td>5.089–5.559</td>
+<td>10.794–11.528</td>
+<td>5.066–5.394</td>
+<td>1.856–1.936</td>
+<td>5.027–5.484</td>
+<td>2.132–2.276</td>
+</tr>
+<tr>
+<td>M</td>
+<td style="text-align: right;">64</td>
+<td>11.857–12.603</td>
+<td>18.721–18.847</td>
+<td>11.813–11.828</td>
+<td>2.375–2.379</td>
+<td>11.757–11.775</td>
+<td>3.169–3.334</td>
+</tr>
+<tr>
+<td>M</td>
+<td style="text-align: right;">256</td>
+<td>11.132–12.598</td>
+<td>18.179–18.517</td>
+<td>11.826–12.209</td>
+<td>2.454–2.636</td>
+<td>11.513–11.598</td>
+<td>3.142–3.216</td>
+</tr>
+<tr>
+<td>M</td>
+<td style="text-align: right;">1000</td>
+<td>11.199–11.567</td>
+<td>17.061–17.843</td>
+<td>10.687–10.757</td>
+<td>2.296–2.465</td>
+<td>10.930–10.949</td>
+<td>3.091–3.112</td>
+</tr>
+</tbody>
+</table>
+<h3 id="restore-and-cleanup-timings-at-the-retained-1000-mb-requested-target">Restore and cleanup timings at the retained 1000 MB requested target<a class="headerlink" href="#restore-and-cleanup-timings-at-the-retained-1000-mb-requested-target" title="Permanent link">&para;</a></h3>
+<p>Seconds, minimum–maximum of two repeats. Each full/selective restore is measured
+separately; none is inferred from backup timing. Temporary restore storage was
+explicitly redirected to the private disk-backed fixture.</p>
+<table>
+<thead>
+<tr>
+<th>Profile</th>
+<th>v3 full</th>
+<th>v3 single</th>
+<th>Older v4 full</th>
+<th>Newer v4 full</th>
+<th>v4 single</th>
+<th>Confirmed cleanup</th>
+<th>Retained restore</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>R</td>
+<td>0.318–0.410</td>
+<td>0.014–0.016</td>
+<td>0.336–0.372</td>
+<td>0.326–0.391</td>
+<td>0.022–0.023</td>
+<td>0.381–0.451</td>
+<td>0.352–0.441</td>
+</tr>
+<tr>
+<td>A</td>
+<td>10.812–12.618</td>
+<td>1.026–1.031</td>
+<td>11.535–12.215</td>
+<td>11.911–12.290</td>
+<td>1.179–1.200</td>
+<td>3.512–3.692</td>
+<td>12.014–12.362</td>
+</tr>
+<tr>
+<td>M</td>
+<td>15.023–16.294</td>
+<td>1.873–1.891</td>
+<td>14.213–16.101</td>
+<td>14.717–17.346</td>
+<td>1.917–2.032</td>
+<td>6.071–6.848</td>
+<td>14.441–16.744</td>
+</tr>
+</tbody>
+</table>
+<h3 id="transfer-operation-and-private-staging-observations">Transfer, operation, and private staging observations<a class="headerlink" href="#transfer-operation-and-private-staging-observations" title="Permanent link">&para;</a></h3>
+<p>Representative first-repeat byte counts below; corresponding repeats had the
+same payload-object counts and staging peaks. All unchanged runs uploaded <strong>zero
+payload objects</strong>, but uploaded control metadata. Every amplified/mixed edit
+uploaded one complete 262,159-byte edited file, not merely its appended 15 bytes.</p>
+<table>
+<thead>
+<tr>
+<th>Profile</th>
+<th style="text-align: right;">Target MB</th>
+<th>v4 baseline objects / provider calls</th>
+<th style="text-align: right;">v4 baseline private peak</th>
+<th style="text-align: right;">v3 baseline private peak</th>
+<th>Unchanged uploaded/downloaded bytes</th>
+<th style="text-align: right;">v4 single-file downloaded bytes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A</td>
+<td style="text-align: right;">64</td>
+<td>9 / 230</td>
+<td style="text-align: right;">70,295,754</td>
+<td style="text-align: right;">67,132,993</td>
+<td>228,420 / 1,632,272</td>
+<td style="text-align: right;">3,866,971</td>
+</tr>
+<tr>
+<td>A</td>
+<td style="text-align: right;">256</td>
+<td>3 / 122</td>
+<td style="text-align: right;">280,660,212</td>
+<td style="text-align: right;">268,274,623</td>
+<td>226,790 / 1,628,702</td>
+<td style="text-align: right;">13,088,253</td>
+</tr>
+<tr>
+<td>A</td>
+<td style="text-align: right;">1000</td>
+<td>3 / 122</td>
+<td style="text-align: right;">287,671,712</td>
+<td style="text-align: right;">513,424,101</td>
+<td>226,837 / 1,628,939</td>
+<td style="text-align: right;">13,463,643</td>
+</tr>
+<tr>
+<td>M</td>
+<td style="text-align: right;">64</td>
+<td>9 / 230</td>
+<td style="text-align: right;">132,289,822</td>
+<td style="text-align: right;">98,121,850</td>
+<td>228,429 / 1,632,299</td>
+<td style="text-align: right;">34,812,560</td>
+</tr>
+<tr>
+<td>M</td>
+<td style="text-align: right;">256</td>
+<td>3 / 122</td>
+<td style="text-align: right;">529,003,024</td>
+<td style="text-align: right;">392,417,291</td>
+<td>226,793 / 1,628,711</td>
+<td style="text-align: right;">137,153,477</td>
+</tr>
+<tr>
+<td>M</td>
+<td style="text-align: right;">1000</td>
+<td>3 / 122</td>
+<td style="text-align: right;">542,004,148</td>
+<td style="text-align: right;">750,958,253</td>
+<td>226,840 / 1,628,948</td>
+<td style="text-align: right;">140,508,700</td>
+</tr>
+</tbody>
+</table>
+<p>At 1000 MB, A first-run uploaded/downloaded 27,894,852 / 27,900,855 bytes;
+M transferred 288,300,582 / 288,306,585. A edits transferred
+1,638,035 / 3,042,766 bytes; M edits 1,642,785 / 3,047,522. The real repository
+corpus used one object at every target, with a 1,279,703-byte v4 private peak and
+1,069,704-byte v3 peak; its unchanged run transferred 11,332 / 80,562 bytes and its
+single-file v4 restore downloaded 243,429 bytes.</p>
+<p>All amplified/mixed newest snapshots referenced 537,133,071 physical member bytes,
+including <strong>524,288 obsolete member bytes</strong>, at every target. Those obsolete
+members remained in partly live archives even after confirmed newest-one cleanup.
+The real repository trace retained 6,167 obsolete member bytes. These are not
+reclaimable compressed-byte estimates or long-term compaction predictions.</p>
+<p>First-run phase means at 1000 MB (seconds), from dedicated observations except
+the explicitly labelled ending-boundary verification/receipt interval:</p>
+<table>
+<thead>
+<tr>
+<th>Profile</th>
+<th style="text-align: right;">Enumerate</th>
+<th style="text-align: right;">Plan/hash</th>
+<th style="text-align: right;">Private capture</th>
+<th style="text-align: right;">Compression</th>
+<th style="text-align: right;">Verify/receipt interval</th>
+<th style="text-align: right;">Publish manifest</th>
+<th style="text-align: right;">Provider upload</th>
+<th style="text-align: right;">Provider download</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>R</td>
+<td style="text-align: right;">0.0005</td>
+<td style="text-align: right;">0.0073</td>
+<td style="text-align: right;">0.0107</td>
+<td style="text-align: right;">0.0148</td>
+<td style="text-align: right;">0.0291</td>
+<td style="text-align: right;">0.0134</td>
+<td style="text-align: right;">0.0201</td>
+<td style="text-align: right;">0.0383</td>
+</tr>
+<tr>
+<td>A</td>
+<td style="text-align: right;">0.0096</td>
+<td style="text-align: right;">1.1872</td>
+<td style="text-align: right;">1.4446</td>
+<td style="text-align: right;">3.0618</td>
+<td style="text-align: right;">2.3491</td>
+<td style="text-align: right;">0.0273</td>
+<td style="text-align: right;">0.0856</td>
+<td style="text-align: right;">0.0745</td>
+</tr>
+<tr>
+<td>M</td>
+<td style="text-align: right;">0.0097</td>
+<td style="text-align: right;">1.1421</td>
+<td style="text-align: right;">1.3882</td>
+<td style="text-align: right;">7.6828</td>
+<td style="text-align: right;">3.1344</td>
+<td style="text-align: right;">0.0303</td>
+<td style="text-align: right;">0.2205</td>
+<td style="text-align: right;">0.0778</td>
+</tr>
+</tbody>
+</table>
+<p>The verification interval includes receipt/journal ordering; it is not exclusive
+CPU time. Provider intervals overlap other phases, and unlisted initialization,
+local archive validation/hash, and journal work account for remaining wall time.</p>
+<h2 id="archive-target-decision">Archive-target decision<a class="headerlink" href="#archive-target-decision" title="Permanent link">&para;</a></h2>
+<p><strong>Retain the approximately 1 GB uncompressed requested target</strong>, together with
+the existing 1 GB staging budget and 1,000-file limit. This is a measured choice
+for the normal configuration, not a promise of 1 GB compressed archives:</p>
+<ul>
+<li>Production constraints already limited the amplified/mixed v4 baseline to
+  three objects at both 256 MB and 1000 MB. Moving to 256 MB saved only about
+  2.4% of mixed private-peak/selective-transfer bytes in this trace, with no
+  consistent repeat-level timing advantage.</li>
+<li>A 64 MB target reduced selective-transfer cost substantially, but raised v4
+  baseline calls from 122 to 230 and objects from three to nine. It did not reduce
+  observed obsolete member bytes in these edit/delete traces.</li>
+<li>The small unmodified repository used one object at every target. Fixed
+  verification/control overhead dominates there; no target choice made v4 faster
+  than v3 in that local case.</li>
+</ul>
+<p>The default therefore prioritizes fewer remote operations while preserving
+bounded, fully verified capture. Different latency, selection, file-size and
+change-rate distributions can favor smaller groups; users must not interpret
+these local fixtures as measured cloud throughput or a universal optimum.</p>
+<h2 id="pre-commit-review-record">Pre-commit review record<a class="headerlink" href="#pre-commit-review-record" title="Permanent link">&para;</a></h2>
+<p>Separate Standards and Spec reviewers rechecked the integration. Blocking
+findings were resolved with regressions: skipped-link handling, abandoned cleanup
+previews, takeover after legacy cleanup, configuration/journal overlap, exact
+confirmation after legacy resume, and the integrated failure matrix. Both final
+source re-reviews found no remaining verified blockers. Both final acceptance
+reviews independently verified the 18 raw evidence files and receipt, approved
+the documented scope/limitations and archive-target decision, and found no
+remaining blockers for commit/issue closure after delivery to <code>master</code>.
+This work does not authorize deployment.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.footer", "navigation.top", "search.suggest", "search.highlight", "content.code.copy"], "search": "../../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.c21346df.min.js"></script>
+      
+    
+  </body>
+</html>

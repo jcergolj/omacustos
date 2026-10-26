@@ -1,0 +1,1694 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Back up and restore personal files with OmaCustos for Proton Drive.">
+      
+      
+      
+        <link rel="canonical" href="https://jcergolj.github.io/omacustos/native/tests/responsiveness/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.0">
+    
+    
+      
+        <title>Responsiveness measurements — issue #22 - OmaCustos documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#responsiveness-measurements-issue-22" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../.." title="OmaCustos documentation" class="md-header__button md-logo" aria-label="OmaCustos documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            OmaCustos documentation
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Responsiveness measurements — issue #22
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jcergolj/omacustos" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jcergolj/omacustos
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../.." title="OmaCustos documentation" class="md-nav__button md-logo" aria-label="OmaCustos documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    OmaCustos documentation
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jcergolj/omacustos" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jcergolj/omacustos
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1. Install and sign in
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/first-backup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2. Create your first backup set
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3. Restore your files
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4. Back up your backup-set settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/schedules/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5. Make backups automatic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/integrity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    6. Check backup integrity
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/history/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7. Manage history and free space
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/controls/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    8. Other controls and settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    9. Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_11" >
+        
+          
+          <label class="md-nav__link" for="__nav_11" id="__nav_11_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    More guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_11_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_11">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    More guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/recovery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Recover on another computer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Understand results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/selection/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Choose files and rules
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/backup-controls/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pause, resume, or cancel
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/advanced/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Storage, power, and resources
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/handoff/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Move backup work
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/extras/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Templates and uninstalling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_12" >
+        
+          
+          <label class="md-nav__link" for="__nav_12" id="__nav_12_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_12_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_12">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../MANUAL/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Full user manual
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../TECHNICAL/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Technical notes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../docs/incremental-restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Recovery without settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../docs/incremental-integrity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrity protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../docs/incremental-cleanup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cleanup rules
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../docs/github-pages/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Publishing these docs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#run-the-opt-in-benchmark" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run the opt-in benchmark
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#method" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Method
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#recorded-runs-2026-10-03" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recorded runs, 2026-10-03
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Recorded runs, 2026-10-03">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#separate-after-change-two-core-memory-pressure-scenario" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Separate after-change two-core / memory-pressure scenario
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#remaining-validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Remaining validation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#follow-up-optimization-checks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Follow-up optimization checks
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#manifest-and-cli-measurements-2026-10-03" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Manifest and CLI measurements, 2026-10-03
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#restore-selection-extraction-issue-36-2026-10-04" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Restore selection extraction — issue #36, 2026-10-04
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="responsiveness-measurements-issue-22">Responsiveness measurements — issue #22<a class="headerlink" href="#responsiveness-measurements-issue-22" title="Permanent link">&para;</a></h1>
+<h2 id="run-the-opt-in-benchmark">Run the opt-in benchmark<a class="headerlink" href="#run-the-opt-in-benchmark" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code>cmake<span class="w"> </span>-S<span class="w"> </span>native<span class="w"> </span>-B<span class="w"> </span>build
+cmake<span class="w"> </span>--build<span class="w"> </span>build<span class="w"> </span>--target<span class="w"> </span>responsiveness-benchmark
+<span class="nv">TMPDIR</span><span class="o">=</span><span class="s2">"</span><span class="nv">$PWD</span><span class="s2">/build"</span><span class="w"> </span><span class="nv">QT_QPA_PLATFORM</span><span class="o">=</span>wayland<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="nv">QT_QUICK_CONTROLS_STYLE</span><span class="o">=</span>Fusion<span class="w"> </span><span class="nv">QT_QPA_PLATFORMTHEME</span><span class="o">=</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="nv">OMACUSTOS_BENCHMARK_SAMPLES</span><span class="o">=</span><span class="m">50</span><span class="w"> </span>build/responsiveness-benchmark<span class="w"> </span>-nocrashhandler
+</code></pre></div>
+<p>Run on the real desktop backend, with the window visible. <code>TMPDIR</code> must be an
+existing writable directory on the intended test filesystem. The default <code>/tmp</code>
+on this machine is <strong>tmpfs</strong>, so omitting it measures memory-backed fixtures,
+not NVMe/SATA I/O. The JSON output reports the fixture filesystem, temporary
+parent, graphics API, memory-pressure allocation, and cgroup memory events.</p>
+<p>For a separate constrained/pressure scenario on this development machine:</p>
+<div class="highlight"><pre><span></span><code>systemd-run<span class="w"> </span>--user<span class="w"> </span>--scope<span class="w"> </span>-p<span class="w"> </span><span class="nv">MemoryHigh</span><span class="o">=</span>384M<span class="w"> </span>-p<span class="w"> </span><span class="nv">MemoryMax</span><span class="o">=</span>1G<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>taskset<span class="w"> </span>-c<span class="w"> </span><span class="m">0</span>,1<span class="w"> </span>env<span class="w"> </span><span class="nv">TMPDIR</span><span class="o">=</span><span class="s2">"</span><span class="nv">$PWD</span><span class="s2">/build"</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="nv">QT_QPA_PLATFORM</span><span class="o">=</span>wayland<span class="w"> </span><span class="nv">QT_QUICK_CONTROLS_STYLE</span><span class="o">=</span>Fusion<span class="w"> </span><span class="nv">QT_QPA_PLATFORMTHEME</span><span class="o">=</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="nv">OMACUSTOS_BENCHMARK_SAMPLES</span><span class="o">=</span><span class="m">50</span><span class="w"> </span><span class="nv">OMACUSTOS_BENCHMARK_MEMORY_MB</span><span class="o">=</span><span class="m">512</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s2">"</span><span class="nv">$PWD</span><span class="s2">/build/responsiveness-benchmark"</span><span class="w"> </span>-nocrashhandler
+</code></pre></div>
+<p>Choose CPU IDs available on the test machine. These are temporary restrictions
+on the benchmark process; they do not modify application or desktop settings.
+The allocated memory is touched, then retained for the scenario. Check the
+reported <code>memory.events</code> high count to distinguish actual cgroup pressure from
+an allocation that never reaches its limit.</p>
+<p>The benchmark is intentionally not registered with CTest. Deterministic
+correctness/nonblocking regressions remain in <code>backupsetcontroller-test</code>,
+<code>backuprestorecontroller-test</code>, and <code>dashboard-test</code>.</p>
+<h2 id="method">Method<a class="headerlink" href="#method" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Dataset: 20 saved backups and 100 direct copy directories per backup. One
+  selected copy contains 10,000 real files, each with a 256-byte identical
+  payload, and a production-engine-generated manifest. Other copy directories
+  exercise listing size; they are not 2,000 full payload replicas.</li>
+<li>50 samples per interaction and workload. Report each workload separately;
+  p95 is the nearest-rank 48th value of 50 sorted observations. No warm-up
+  samples are discarded after interaction measurement starts.</li>
+<li>Real <code>Main.qml</code>, <code>BackupSetController</code>, <code>BackupRestoreController</code>,
+  <code>BackupEngine</code>, and <code>LocalProvider</code> operate on isolated temporary state.
+  Auth, systemd/scheduling, browser integration, and resource-setting services
+  are doubles. No user configuration or remote account is accessed.</li>
+<li><strong>Idle:</strong> no active transfer or scan.</li>
+<li><strong>Backup:</strong> the production backup engine repeatedly scans, stages/hashes,
+  uploads, and verifies 10,000 files in a background task. A new pass starts
+  after the preceding pass finishes. The reported pass count counts completed
+  passes, not whether work is active. A count of zero can mean the first pass
+  was still running during all interactions. The GUI run-history fixture remains
+  the last successful snapshot; this scenario does not measure live systemd
+  worker progress writes/polling or Proton CLI subprocess contention.</li>
+<li><strong>Restore:</strong> the real controller restores all 10,000 verified files. If a
+  transfer finishes between samples it is reverified and restarted before the
+  next interaction. Navigation can enqueue copy listing behind the transfer.</li>
+<li><strong>Scan:</strong> a real <code>preview()</code> request is dispatched inside the measured
+  interval, immediately before the click/key interaction. This includes scan
+  dispatch plus input feedback, so synchronous scanning cannot be hidden by
+  starting the timer after it blocks.</li>
+<li>Selection uses an actual checkbox click with 100 existing ticks in a
+  10,000-file model. The separate regression test exercises 10,000 ticks,
+  offscreen delegates, return scroll, reordered entries, and removed entries.</li>
+<li>Editor navigation starts at clicking <strong>Edit</strong>, with the overflow menu already
+  open. Restore navigation starts at clicking the dashboard <strong>Restore</strong> button.
+  Typing starts at key dispatch to the editor name field. Navigation checks
+  local visibility/focus; copy discovery and verification completion are outside
+  the navigation interval.</li>
+<li>Timings end at the next Qt <code>frameSwapped</code> after dispatch/update. QtTest input
+  is injected directly, bypassing physical input/compositor delivery. This
+  measures Qt frame submission/event processing, <strong>not compositor presentation
+  or physical visible-feedback latency</strong>. Event-loop/harness scheduling and
+  frame pacing contribute to the approximately 50 ms cluster. These timings
+  are conservative development proxies, not proof of the visible budgets.</li>
+<li>Successful restore completion can close the panel before a navigation frame.
+  The harness reports those samples separately as
+  <code>restore_navigation_completed_at_boundary</code>, and reports disabled navigation
+  attempts rather than pretending they passed a timing budget. It also reports
+  completion during selection; no such samples occurred in the disk-backed runs
+  below. Initial tmpfs probes did encounter this boundary, which is why it is
+  handled explicitly.</li>
+</ul>
+<h2 id="recorded-runs-2026-10-03">Recorded runs, 2026-10-03<a class="headerlink" href="#recorded-runs-2026-10-03" title="Permanent link">&para;</a></h2>
+<p><strong>Hardware/environment:</strong> Intel Core i5-9600K, six physical cores/six logical
+CPUs, approximately 47 GiB usable RAM, Intel UHD Graphics 630, WDS500G2X0C NVMe
+SSD, Btrfs with <code>compress=zstd:3</code>; Omarchy 4.0.4 / Hyprland / Wayland; Qt 6.11.2,
+GCC 16.2.1; Fusion controls; Qt Quick OpenGL (graphics API 3), normal graphical
+rendering, not offscreen/software. Fixtures and staging used the workspace
+<code>build</code> directory on Btrfs/NVMe. Files are small/compressible and the selected
+copy is verified before interaction sampling, so filesystem caches are warm.</p>
+<p><strong>Baseline:</strong> detached worktree at <code>daf93ff</code>, before issue #22 implementation
+changes. The same benchmark source/target was added to that worktree; its
+production controllers and QML were unchanged. To reproduce the comparison,
+copy the benchmark source and its CMake target stanza into a worktree at that
+revision and build/run it with the same environment and filesystem.</p>
+<p><strong>After:</strong> final issue #22 working-tree implementation based on <code>daf93ff</code>,
+including the dropdown binding, in-view return-focus, and time-throttled restore
+progress fixes. The final on-screen runs also asserted editor visibility and focus.
+These recorded timings predate the follow-up worker/dashboard optimizations below.</p>
+<p>All values are milliseconds, rounded to one decimal. Each row has 50 samples.</p>
+<table>
+<thead>
+<tr>
+<th>Workload</th>
+<th>Interaction</th>
+<th style="text-align: right;">Before p95</th>
+<th style="text-align: right;">Before worst</th>
+<th style="text-align: right;">After p95</th>
+<th style="text-align: right;">After worst</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Idle</td>
+<td>Checkbox selection</td>
+<td style="text-align: right;">248.4</td>
+<td style="text-align: right;">253.1</td>
+<td style="text-align: right;">50.9</td>
+<td style="text-align: right;">51.3</td>
+</tr>
+<tr>
+<td>Idle</td>
+<td>Editor navigation</td>
+<td style="text-align: right;">9.5</td>
+<td style="text-align: right;">37.6</td>
+<td style="text-align: right;">8.0</td>
+<td style="text-align: right;">12.6</td>
+</tr>
+<tr>
+<td>Idle</td>
+<td>Typing</td>
+<td style="text-align: right;">15.8</td>
+<td style="text-align: right;">16.7</td>
+<td style="text-align: right;">14.8</td>
+<td style="text-align: right;">18.0</td>
+</tr>
+<tr>
+<td>Idle</td>
+<td>Restore navigation</td>
+<td style="text-align: right;">50.9</td>
+<td style="text-align: right;">65.4</td>
+<td style="text-align: right;">49.3</td>
+<td style="text-align: right;">53.8</td>
+</tr>
+<tr>
+<td>Backup</td>
+<td>Checkbox selection</td>
+<td style="text-align: right;">280.8</td>
+<td style="text-align: right;">284.3</td>
+<td style="text-align: right;">50.8</td>
+<td style="text-align: right;">52.2</td>
+</tr>
+<tr>
+<td>Backup</td>
+<td>Editor navigation</td>
+<td style="text-align: right;">12.2</td>
+<td style="text-align: right;">50.2</td>
+<td style="text-align: right;">8.8</td>
+<td style="text-align: right;">12.4</td>
+</tr>
+<tr>
+<td>Backup</td>
+<td>Typing</td>
+<td style="text-align: right;">16.6</td>
+<td style="text-align: right;">16.9</td>
+<td style="text-align: right;">14.6</td>
+<td style="text-align: right;">17.1</td>
+</tr>
+<tr>
+<td>Backup</td>
+<td>Restore navigation</td>
+<td style="text-align: right;">51.2</td>
+<td style="text-align: right;">65.4</td>
+<td style="text-align: right;">49.6</td>
+<td style="text-align: right;">65.5</td>
+</tr>
+<tr>
+<td>Restore</td>
+<td>Checkbox selection</td>
+<td style="text-align: right;">332.8</td>
+<td style="text-align: right;">333.8</td>
+<td style="text-align: right;">50.6</td>
+<td style="text-align: right;">60.9</td>
+</tr>
+<tr>
+<td>Restore</td>
+<td>Editor navigation</td>
+<td style="text-align: right;">10.5</td>
+<td style="text-align: right;">37.8</td>
+<td style="text-align: right;">9.3</td>
+<td style="text-align: right;">12.5</td>
+</tr>
+<tr>
+<td>Restore</td>
+<td>Typing</td>
+<td style="text-align: right;">14.6</td>
+<td style="text-align: right;">14.7</td>
+<td style="text-align: right;">14.6</td>
+<td style="text-align: right;">15.4</td>
+</tr>
+<tr>
+<td>Restore</td>
+<td>Restore navigation</td>
+<td style="text-align: right;">unavailable</td>
+<td style="text-align: right;">unavailable</td>
+<td style="text-align: right;">49.8</td>
+<td style="text-align: right;">61.8</td>
+</tr>
+<tr>
+<td>Scan</td>
+<td>Checkbox selection</td>
+<td style="text-align: right;">293.6</td>
+<td style="text-align: right;">301.7</td>
+<td style="text-align: right;">50.3</td>
+<td style="text-align: right;">83.4</td>
+</tr>
+<tr>
+<td>Scan</td>
+<td>Editor navigation</td>
+<td style="text-align: right;">57.3</td>
+<td style="text-align: right;">58.9</td>
+<td style="text-align: right;">50.2</td>
+<td style="text-align: right;">63.4</td>
+</tr>
+<tr>
+<td>Scan</td>
+<td>Typing</td>
+<td style="text-align: right;">64.5</td>
+<td style="text-align: right;">105.0</td>
+<td style="text-align: right;">65.1</td>
+<td style="text-align: right;">118.0</td>
+</tr>
+<tr>
+<td>Scan</td>
+<td>Restore navigation</td>
+<td style="text-align: right;">99.4</td>
+<td style="text-align: right;">115.8</td>
+<td style="text-align: right;">65.5</td>
+<td style="text-align: right;">66.0</td>
+</tr>
+</tbody>
+</table>
+<p>Baseline Restore navigation was disabled in all 50 active-restore attempts.
+Afterward all 50 attempts opened the panel with an enabled, focused search
+control, in every workload. Backup completed two passes during baseline
+sampling; the faster after-change interaction phase ended during its first pass.</p>
+<h3 id="separate-after-change-two-core-memory-pressure-scenario">Separate after-change two-core / memory-pressure scenario<a class="headerlink" href="#separate-after-change-two-core-memory-pressure-scenario" title="Permanent link">&para;</a></h3>
+<p>Same disk-backed dataset and 50 samples, CPU affinity <code>0,1</code>, <code>MemoryHigh=384M</code>,
+<code>MemoryMax=1G</code>, and 512 MiB retained allocation. The cgroup high counts at the end
+of the four workloads were 1183, 2300, 3427, and 4770; max/OOM/OOM-kill counts
+were zero. These counts are cumulative across the process, not per-row deltas.</p>
+<p>Cells below are <strong>p95 / worst</strong>, in milliseconds.</p>
+<table>
+<thead>
+<tr>
+<th>Workload</th>
+<th style="text-align: right;">Checkbox selection</th>
+<th style="text-align: right;">Editor navigation</th>
+<th style="text-align: right;">Typing</th>
+<th style="text-align: right;">Restore navigation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Idle</td>
+<td style="text-align: right;">51.4 / 52.1</td>
+<td style="text-align: right;">9.0 / 12.8</td>
+<td style="text-align: right;">16.0 / 17.6</td>
+<td style="text-align: right;">50.2 / 65.7</td>
+</tr>
+<tr>
+<td>Backup</td>
+<td style="text-align: right;">51.5 / 52.0</td>
+<td style="text-align: right;">12.4 / 23.5</td>
+<td style="text-align: right;">18.4 / 19.4</td>
+<td style="text-align: right;">65.4 / 66.7</td>
+</tr>
+<tr>
+<td>Restore</td>
+<td style="text-align: right;">51.3 / 53.1</td>
+<td style="text-align: right;">9.8 / 12.7</td>
+<td style="text-align: right;">16.7 / 17.0</td>
+<td style="text-align: right;">49.8 / 60.6</td>
+</tr>
+<tr>
+<td>Scan</td>
+<td style="text-align: right;">51.6 / 83.6</td>
+<td style="text-align: right;">51.5 / 82.7</td>
+<td style="text-align: right;">65.5 / 65.7</td>
+<td style="text-align: right;">52.3 / 82.5</td>
+</tr>
+</tbody>
+</table>
+<p>All 50 Restore openings again had useful focus in each workload. There were no
+disabled navigation attempts or transfer completions at the measured boundary.</p>
+<h2 id="remaining-validation">Remaining validation<a class="headerlink" href="#remaining-validation" title="Permanent link">&para;</a></h2>
+<p>The measured Qt submission proxies are below the 100 ms feedback and 200 ms
+navigation p95 budgets after the changes. They demonstrate the large-selection
+improvement and navigation availability; they do not establish exact visible
+latency on the specified two-core, 4 GB RAM, integrated-graphics, SATA-SSD target.</p>
+<p>Keep #22 open for the originally proposed i5-6200U laptop run, exact target
+hardware validation, actual rendered/presented feedback measurements, and
+representative real Proton/systemd-worker contention with live progress state.
+The faster desktop, small warm-cache payloads, and temporary CPU/memory limits
+must not be presented as equivalent to that hardware or workload.</p>
+<h2 id="follow-up-optimization-checks">Follow-up optimization checks<a class="headerlink" href="#follow-up-optimization-checks" title="Permanent link">&para;</a></h2>
+<p>Deterministic regression checks cover the subsequent optimizations separately
+from the recorded frame-submission measurements:</p>
+<ul>
+<li><code>protonprovider-test</code>: backing up 100 files to <code>/backups/copy</code> uses 101 uploads
+  (payloads plus manifest). Existing-namespace mode uses two directory listings
+  and 201 metadata inspections. Fresh-copy mode with content metadata uses three
+  listings (two parent checks plus one post-upload listing) and one manifest
+  inspection. Storage-only metadata uses three listings and 101 inspections;
+  partial metadata uses individual checks only for omitted entries. Across two
+  payload folders, full metadata uses two verification listings and just the
+  manifest inspection; unsupported bulk is attempted only once. Nested sibling
+  directories share cached ancestor checks, with cache expiry after successful
+  or failed operations. Removing an ancestor during upload forces full rechecking
+  and a retry of the immutable snapshot.</li>
+<li><code>protonprovider-test</code>: fresh-copy verification rejects payloads removed, truncated,
+  or same-size corrupted after the last upload, using both bulk and individual
+  metadata. Listing failures fall back without claiming premature success. Verified
+  progress, incomplete manifests, checksums, and single-payload staging cleanup are
+  checked independently of transfer command counts.</li>
+<li><code>protonprovider-test</code>: verification of 100 files across two payload folders
+  uses two listings and zero individual inspections when valid listing content
+  metadata is available. Partial metadata needs two individual fallbacks;
+  storage-only/failed listings need one bulk attempt plus 100 individual checks.
+  Invalid/ambiguous/out-of-folder metadata, checksum mismatch, retention gates,
+  and cancellation after a bulk call are covered separately.</li>
+<li><code>protonclifixture-test</code>: empty and multi-chunk restores cover size-only and
+  SHA-256 verification, truncated/same-size-corrupt transfers, and preservation
+  of existing destination bytes and staging cleanup. Restore hashing and atomic
+  copying now share one read; downloads into unused private staging paths are moved.</li>
+<li><code>backupengine-test</code>: 100 files in one nested folder ensure only the copy root
+  and payload parent. A simulated disappearing directory causes one recheck and
+  retry, and every resulting entry retains its verified checksum. A deterministic
+  40,000-phase stream over ten simulated seconds permits ten ordinary progress
+  saves, with separate forced file-completion and finalization samples.</li>
+<li><code>workerrecovery-test</code>: a blocked upload still persists its current uploading
+  phase without another engine callback; termination/recovery and manifest-failure
+  cases continue to pass with the serialized progress writer.</li>
+<li><code>retention-discovery-test</code>: scoped discovery uses one copy-folder listing, three
+  manifest downloads (including a rejected foreign identity), and two payload
+  inspections. It does not list nested payload directories or other computers.
+  Removing the newest copy's payload prevents that copy from evicting the older
+  verified copy.</li>
+<li><code>backupsetcontroller-test</code>: repeated unchanged polls do not publish run-state,
+  cleanup, transfer, or dashboard resets. Progress changes notify transfer display
+  independently; successful completion updates the recent-backup model. Malformed
+  state retains last-good data and clears its error after recovery.</li>
+<li><code>backuprestorecontroller-test</code>: switching away from a 100-file copy while its
+  first inspection is blocked results in only that inspection and the newly
+  selected copy's inspection, rather than completing the obsolete 100-file scan.</li>
+<li>Existing engine exclusions tests continue to cover hidden content, bare-name
+  and absolute rules, and individual excluded-file reporting in the preview.</li>
+<li><code>backupengine-test</code>: cooperative preview cancellation stops traversal and
+  discards partial lists; a later uncancelled scan remains complete.</li>
+<li><code>dashboard-test</code>: toggling with 10,000 selected files retains selection-array
+  and lookup identity, keeps reactive counts current, and handles the swapped
+  final selection correctly. Offscreen selections, refreshed path order, and
+  return scroll remain covered.</li>
+</ul>
+<p>The full 22-target CTest suite passes. These regression checks establish command
+counts and behavior; they do not measure presentation latency or end-to-end cloud
+backup speed.</p>
+<h2 id="manifest-and-cli-measurements-2026-10-03">Manifest and CLI measurements, 2026-10-03<a class="headerlink" href="#manifest-and-cli-measurements-2026-10-03" title="Permanent link">&para;</a></h2>
+<p>Run the opt-in manifest loader benchmark from the repository root:</p>
+<div class="highlight"><pre><span></span><code>cmake<span class="w"> </span>--build<span class="w"> </span>build<span class="w"> </span>--target<span class="w"> </span>manifest-benchmark
+<span class="nv">QT_FORCE_STDERR_LOGGING</span><span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="nv">QT_LOGGING_RULES</span><span class="o">=</span><span class="s1">'*.info=true'</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="nv">TMPDIR</span><span class="o">=</span><span class="s2">"</span><span class="nv">$PWD</span><span class="s2">/build"</span><span class="w"> </span>build/manifest-benchmark
+</code></pre></div>
+<p>The benchmark loads valid incomplete version-2 manifests through the production
+loader. Each fixture has equal numbers of verified entries and distinct failed
+paths; its construction is outside the measured interval. Results include JSON
+parsing and validation, with one warm-up followed by five samples. The environment
+is the development desktop documented above, using the existing workspace build
+and disk-backed temporary files; these are warm-cache loader timings.</p>
+<p>The baseline uses the same build and benchmark with the entry-validation lookup
+changed back from <code>failedSet.contains(restorePath)</code> to
+<code>failedItems.contains(restorePath)</code>. Restore the set lookup and rebuild to reproduce
+the after result. All other loader work is identical.</p>
+<table>
+<thead>
+<tr>
+<th>Verified entries / failed paths</th>
+<th style="text-align: right;">Manifest bytes</th>
+<th style="text-align: right;">Before median</th>
+<th style="text-align: right;">After median</th>
+<th style="text-align: right;">Reduction</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1,000 / 1,000</td>
+<td style="text-align: right;">352,537</td>
+<td style="text-align: right;">10.6 ms</td>
+<td style="text-align: right;">10.4 ms</td>
+<td style="text-align: right;">approximately 2%</td>
+</tr>
+<tr>
+<td>10,000 / 10,000</td>
+<td style="text-align: right;">3,583,537</td>
+<td style="text-align: right;">152.4 ms</td>
+<td style="text-align: right;">107.2 ms</td>
+<td style="text-align: right;">approximately 30%</td>
+</tr>
+</tbody>
+</table>
+<p>This is about a 1.42x loader speedup for the larger incomplete fixture, not a
+prediction that every manifest or entire backup becomes 1.42x faster.</p>
+<p>Read-only measurements against the installed Proton CLI also checked the actual
+listing contract. The <code>/my-files</code> root listed five file nodes, four with content
+size metadata; omitted metadata still needs the individual fallback. After an
+initial probe, three root listings had a median of 807 ms, and three inspections
+of one file had a median of 756 ms. Initial probes were slower (approximately
+1.4 seconds for root info and 2.9 seconds for listing), showing startup/network
+variation. These small samples are not a representative payload-directory or
+end-to-end backup benchmark. No cloud uploads or deletions were performed.</p>
+<p>The deterministic fresh-copy fixture reduces verification of 100 payloads in one
+folder from 100 individual inspections to one listing when complete content
+metadata is available: 99% fewer payload-verification requests. Uploads and the
+manifest's individual verification remain. In the storage-only case, there is one
+extra attempted listing before the original individual checks; no speedup is
+claimed for that fallback.</p>
+<h2 id="restore-selection-extraction-issue-36-2026-10-04">Restore selection extraction — issue #36, 2026-10-04<a class="headerlink" href="#restore-selection-extraction-issue-36-2026-10-04" title="Permanent link">&para;</a></h2>
+<p>Compared a detached worktree at <code>d3dcadc</code> with the selection-owner extraction on
+that revision. Both used the same desktop hardware/environment described above,
+Qt 6.11.2 / GCC 16.2.1, Wayland/OpenGL (graphics API 3), Fusion controls, and
+disk-backed fixtures with <code>TMPDIR</code> set to the workspace <code>build</code> directory
+(Btrfs/NVMe). Both CMake builds used the default empty build type and C++ flags.
+There was no CPU restriction or memory-pressure allocation; cgroup high/OOM
+counts were zero. Each run completed all four workloads with 50 samples each.</p>
+<p>The existing workload and timing boundary are unchanged: an actual checkbox click
+with 100 ticks in a 10,000-file model, timed to the next Qt <code>frameSwapped</code>.
+Only selection setup changed to the coherent <code>setRestoreSelection(indexes)</code>
+operation, outside the measured interval, instead of two property assignments.
+The 10,000-tick/offscreen correctness workload remains in <code>dashboard-test</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Workload</th>
+<th style="text-align: right;">Before p95</th>
+<th style="text-align: right;">Before worst</th>
+<th style="text-align: right;">After p95</th>
+<th style="text-align: right;">After worst</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Idle</td>
+<td style="text-align: right;">50.2 ms</td>
+<td style="text-align: right;">50.2 ms</td>
+<td style="text-align: right;">50.2 ms</td>
+<td style="text-align: right;">50.2 ms</td>
+</tr>
+<tr>
+<td>Backup</td>
+<td style="text-align: right;">50.1 ms</td>
+<td style="text-align: right;">50.2 ms</td>
+<td style="text-align: right;">50.1 ms</td>
+<td style="text-align: right;">50.3 ms</td>
+</tr>
+<tr>
+<td>Restore</td>
+<td style="text-align: right;">50.3 ms</td>
+<td style="text-align: right;">50.8 ms</td>
+<td style="text-align: right;">50.1 ms</td>
+<td style="text-align: right;">50.2 ms</td>
+</tr>
+<tr>
+<td>Scan</td>
+<td style="text-align: right;">50.4 ms</td>
+<td style="text-align: right;">66.8 ms</td>
+<td style="text-align: right;">50.3 ms</td>
+<td style="text-align: right;">50.8 ms</td>
+</tr>
+</tbody>
+</table>
+<p>No material selection regression was observed; p95 remains approximately 50 ms
+in every workload. The 0.2 ms increase in Backup worst-case timing is within the
+frame-submission timing variation. Neither run had selection/completion boundary
+crossings or disabled restore navigation, and all 50 navigation samples per
+workload had useful focus. These remain Qt submission proxies rather than
+physical presentation or target-laptop validation for #22.</p>
+<p>The native build and all 24 CTest targets pass. Dashboard coverage additionally
+checks coherent array notifications, invalid/duplicate bulk indexes, independent
+default/customized/cleared context snapshots, selection becoming empty after
+removal without reselecting unrelated files, and completion resetting selection
+metadata and the cached context.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.sections", "navigation.footer", "navigation.top", "search.suggest", "search.highlight", "content.code.copy"], "search": "../../../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../../assets/javascripts/bundle.c21346df.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,1621 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Back up and restore personal files with OmaCustos for Proton Drive.">
+      
+      
+      
+        <link rel="canonical" href="https://jcergolj.github.io/omacustos/docs/incremental-repository/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.0">
+    
+    
+      
+        <title>Incremental repository contract (v4) - OmaCustos documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#incremental-repository-contract-v4" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="OmaCustos documentation" class="md-header__button md-logo" aria-label="OmaCustos documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            OmaCustos documentation
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Incremental repository contract (v4)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jcergolj/omacustos" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jcergolj/omacustos
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="OmaCustos documentation" class="md-nav__button md-logo" aria-label="OmaCustos documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    OmaCustos documentation
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jcergolj/omacustos" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jcergolj/omacustos
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1. Install and sign in
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/first-backup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2. Create your first backup set
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3. Restore your files
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4. Back up your backup-set settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/schedules/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5. Make backups automatic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/integrity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    6. Check backup integrity
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/history/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7. Manage history and free space
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/controls/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    8. Other controls and settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    9. Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_11" >
+        
+          
+          <label class="md-nav__link" for="__nav_11" id="__nav_11_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    More guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_11_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_11">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    More guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/recovery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Recover on another computer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Understand results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/selection/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Choose files and rules
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/backup-controls/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pause, resume, or cancel
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/advanced/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Storage, power, and resources
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/handoff/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Move backup work
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/extras/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Templates and uninstalling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_12" >
+        
+          
+          <label class="md-nav__link" for="__nav_12" id="__nav_12_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_12_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_12">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../MANUAL/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Full user manual
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../TECHNICAL/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Technical notes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../incremental-restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Recovery without settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../incremental-integrity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrity protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../incremental-cleanup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cleanup rules
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../github-pages/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Publishing these docs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#scope-and-trust" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scope and trust
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#stable-identity-and-namespace" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stable identity and namespace
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#manifest-schema" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Manifest schema
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Manifest schema">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#restore-metadata-and-validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Restore metadata and validation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ownership-and-operational-coordination" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ownership and operational coordination
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#verification-evidence-and-health-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verification evidence and health policy
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Verification evidence and health policy">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#scheduled-full-integrity-maintenance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scheduled full integrity maintenance
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#manifest-last-publication-and-interruption" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Manifest-last publication and interruption
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#retention-deletion-authorization-and-recovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Retention, deletion authorization, and recovery
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#implementation-and-release-gates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implementation and release gates
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="incremental-repository-contract-v4">Incremental repository contract (v4)<a class="headerlink" href="#incremental-repository-contract-v4" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p>Rollout-status statements below record this component's original delivery
+point. Current default-worker integration and validation are documented in
+<a href="../incremental-default-rollout/">the #62 delivery report</a>. The protocol's
+integrity, ownership, restore, and deletion requirements remain in force.</p>
+</blockquote>
+<p>Status: normative design for #56, not enabled in the default worker. Changed-file
+incremental backups replace full uploads only after the release gates below pass.
+The pure <code>IncrementalManifest::validate</code> boundary implements the manifest schema;
+it performs no network I/O and does not authorize publication, restore, or deletion.
+The separate <a href="../incremental-restore/">v4 restore adapter</a> validates remote identity
+and physical inventories. Existing v1/v2/v3 readers, exact v3 membership checks,
+and full uploads are unchanged.</p>
+<p><strong>Ownership amendment for #58 (2026-10-20, explicitly approved by the user):</strong>
+the CLI-backed implementation uses one operational writer with manual offline
+handoff, not server-enforced fencing. This supersedes the original fencing
+requirement; it does not relax payload verification, restore validation or deletion
+safeguards. See <a href="../incremental-execution/">executor and recovery details</a>.</p>
+<h2 id="scope-and-trust">Scope and trust<a class="headerlink" href="#scope-and-trust" title="Permanent link">&para;</a></h2>
+<p>Target documents and source code. Changed files are saved in full, in bounded
+tar.gz archives (gzip level 3). Capture is file-by-file, not filesystem-wide or
+application-consistent. No block deduplication, cross-set sharing, compaction,
+historical archive migration, or live database/VM consistency is promised.</p>
+<p>Trust the authenticated account, TLS/CLI transport, and the owning implementation
+to report verification honestly. SHA-256 protects against accidental corruption,
+not a malicious account writer replacing both data and manifests. A receipt is
+durable evidence of an observation, not a signature or a fresh remote check.
+Untrusted downloaded JSON, paths, and archives always require validation. External
+account tools can bypass coordination: concurrent manual edits/deletion are outside
+the safety model and must be warned against. Integrity checks detect such damage;
+they cannot make an account administrator obey the protocol.</p>
+<h2 id="stable-identity-and-namespace">Stable identity and namespace<a class="headerlink" href="#stable-identity-and-namespace" title="Permanent link">&para;</a></h2>
+<p>Generate cryptographically random UUIDv4 identifiers: one <code>computer_id</code> persisted
+outside editable hostnames, one <code>set_id</code> at set creation, and fresh object, snapshot,
+and operation IDs. Lowercase canonical UUID text is mandatory. Export/import on
+another installation never grants write ownership. Cloning a computer identity
+requires explicit recovery, not automatic scheduling. Renaming computer/set labels
+does not move storage or alter identity. Losing local identity makes discovery
+read-only until takeover. Preserve the original computer ID across ownership changes.</p>
+<div class="highlight"><pre><span></span><code>&lt;chosen-remote-root&gt;/sets/&lt;set_id&gt;/
+  repository.json
+  objects/&lt;object_id&gt;.tar.gz
+  snapshots/&lt;snapshot_id&gt;/manifest.json
+  operations/&lt;operation_id&gt;/...       # durable protection and recovery records
+  maintenance/...                     # integrity coverage and deletion intents
+</code></pre></div>
+<p><code>repository.json</code> is a version-1 control record: <code>application: "omacustos"</code>,
+<code>set_id</code>, immutable <code>origin_computer_id</code>, current <code>owner_computer_id</code>, positive
+<code>ownership_epoch</code>, and <code>coordination: "manual-offline-v1"</code>. Human-readable labels
+are kept outside this minimal authorization record. Provision it using a fresh,
+empty namespace with conflict-failing upload and verified readback; never adopt
+an existing conflicting ID. Anchor updates require confirmed offline handoff,
+not a claimed conditional remote write. Display labels are never authorization.
+The root is chosen
+explicitly during remote-only recovery; discover repositories below its direct
+<code>sets</code> child, not by guessing hostnames. Legacy discovery remains separate.</p>
+<p>All mutation paths must be constructed below the exact validated set root from
+typed IDs; manifests cannot supply an absolute remote path. Reject root aliases,
+parent traversal, separators in IDs, mismatched set/snapshot selections, and
+provider node identities whose resolved parent is outside that root. A set root,
+<code>objects</code> root, or <code>snapshots</code> root is never a deletion target.</p>
+<h2 id="manifest-schema">Manifest schema<a class="headerlink" href="#manifest-schema" title="Permanent link">&para;</a></h2>
+<p>Examples: <a href="https://github.com/jcergolj/omacustos/blob/master/native/tests/fixtures/incremental/baseline.json">baseline</a> and
+<a href="https://github.com/jcergolj/omacustos/blob/master/native/tests/fixtures/incremental/subset.json">later shared subset</a>.
+These are metadata-only illustrative fixtures, not downloadable archives; hashes
+and compressed size are placeholders. The latter deletes <code>b</code> and renames <code>a</code>, but
+embeds the complete original archive inventory. Neither requires the other manifest.</p>
+<p>Every object below has <strong>exactly</strong> the listed keys (no silent extensions). Arrays
+must have the indicated types. Reject unsupported versions rather than falling
+back to v3. Numbers are JSON integers in 0..2^53-1 unless narrowed below; hashes
+are 64 lowercase hex SHA-256 characters. Timestamps use valid UTC
+<code>YYYY-MM-DDTHH:mm:ss.sssZ</code>. JSON object keys must be unique at the producer; Qt's
+JSON parser resolves duplicate keys before schema validation, so do not use raw
+JSON byte equivalence or duplicate-key interpretation as an authorization signal.</p>
+<table>
+<thead>
+<tr>
+<th>Object</th>
+<th>Required fields and constraints</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Manifest</td>
+<td><code>version: 4</code>, <code>application: "omacustos"</code>, <code>set_id</code>, <code>origin_computer_id</code>, <code>owner_computer_id</code>, <code>ownership_epoch</code> (positive), <code>snapshot_id</code>, <code>created_at</code>, <code>status: "complete"</code>, <code>archives</code> array, <code>entries</code> array</td>
+</tr>
+<tr>
+<td>Archive</td>
+<td><code>id</code> (object UUID), <code>remote</code> (exactly <code>objects/&lt;id&gt;.tar.gz</code>), <code>size</code> (positive compressed bytes), <code>sha256</code> (compressed bytes), <code>members</code> (nonempty complete inventory), <code>original_verification</code></td>
+</tr>
+<tr>
+<td>Physical member</td>
+<td><code>path</code> (safe relative tar name), <code>size</code> (uncompressed bytes), <code>sha256</code> (file bytes)</td>
+</tr>
+<tr>
+<td>Original verification</td>
+<td><code>method</code> (<code>download-sha256</code> or <code>remote-sha256</code>), <code>verified_at</code>, <code>sha256</code> (must equal archive digest); embedded in the archive descriptor, binding its ID, size, complete inventory and digest</td>
+</tr>
+<tr>
+<td>Logical entry</td>
+<td><code>restore</code> (safe relative destination), <code>archive</code> (object UUID), <code>member</code> (physical path), <code>size</code>, <code>sha256</code> (both exactly match physical member), <code>mode</code> (integer 0..511, POSIX permission bits), <code>mtime_ns</code> (canonical unsigned decimal <strong>string</strong>, 0..9223372036854775807)</td>
+</tr>
+</tbody>
+</table>
+<p>All IDs use the UUIDv4 representation above. Set/snapshot IDs must match the
+selected remote location; original computer identity must match the repository
+anchor. Old snapshots may have an earlier owner/epoch; this does not prevent restore.
+The pure validator checks schema and selected set/snapshot, not the remote anchor.
+Archive IDs and physical names per archive are unique. Every archive must have at
+least one logical reference, but <strong>not every physical member need be referenced</strong>.
+Multiple destinations may reference the same physical member (identical files).
+Destinations are unique; both physical and destination sets reject file/parent-file
+conflicts. Empty entries plus empty archives represent a complete empty saved state.</p>
+<p>Relative paths reject empty components, <code>.</code>, <code>..</code>, leading/trailing <code>/</code>, backslash,
+NUL, ASCII controls and DEL. Names are case-sensitive and not Unicode-normalized.
+On filesystems with incompatible name equivalence, fail on collisions before
+placement, never merge/overwrite silently. Sources and local configuration are not
+required in the manifest. A complete manifest is the whole logical saved state,
+never a delta, ancestor pointer, or list of just changed files. Source failure
+prevents a v4 complete publication; preserve resumable work and older snapshots,
+report the failure, and do not run retention. Legacy incomplete copies stay readable.</p>
+<h3 id="restore-metadata-and-validation">Restore metadata and validation<a class="headerlink" href="#restore-metadata-and-validation" title="Permanent link">&para;</a></h3>
+<p>Support regular file bytes, relative destination, POSIX mode bits 0777 and mtime
+in nanoseconds since Unix epoch (nonnegative signed-64-bit range). Compare all of
+these for unchanged-state detection; a metadata-only change creates a new manifest
+but may reuse content. Hash every selected local file; size/mtime is no substitute.
+Reuse from the immediately previous complete snapshot by size/SHA-256, including
+renames; no search through arbitrary historical snapshots yet. Deterministically
+choose the lowest object-ID/member tuple when several matches exist.</p>
+<p>Do not preserve owners/groups, ACLs, xattrs, sparse allocation, birth/ctime,
+directory metadata or empty directories, symlinks, special files, hardlink
+identity, setuid/setgid/sticky bits. Explain these limits in the restore UI. Files
+are staged privately, then mode/mtime applied to the verified temporary file before
+atomic placement. Unsupported metadata or precision loss is reported, not silently
+claimed as exact restoration. Recheck destination symlinks before commit; no direct
+write fallback. Already committed files retain existing partial-restore semantics.</p>
+<p>For every downloaded archive, check compressed size/hash, complete gzip stream,
+CRC/trailer and tar termination. Validate <strong>all</strong> physical members, including
+unselected ones, against the full inventory (names, size and SHA-256). Reject extra,
+duplicate, missing, unsafe, nonregular or linked tar members. Do not materialize
+unselected members. Tar permission/time fields are not restore authority: use
+logical metadata, so reused content can have different mode/mtime. Never adapt the
+v3 extractor by merely allowing unexpected members. The v4 restore adapter
+explicitly passes the physical inventory and logical selection separately.</p>
+<h2 id="ownership-and-operational-coordination">Ownership and operational coordination<a class="headerlink" href="#ownership-and-operational-coordination" title="Permanent link">&para;</a></h2>
+<p>Serialize backup, full integrity maintenance, retention, and recovery mutations
+per set. Read-only discovery/restore need no write ownership. Local process/file
+locks remain useful but are insufficient across computers or cloned configurations.</p>
+<p>The installed Proton CLI 0.8.0 and inspected upstream commands do not expose
+per-set fencing tokens or caller-supplied conditional writes/deletes. The SDK's
+<code>CurrentRevisionID</code> on revision creation is not a per-set mutation fence. The
+CLI's local events PID lock is not cross-computer coordination. Do not pretend
+an advisory remote lock file or an expiring timestamp provides these guarantees.</p>
+<p><strong>Approved supported model:</strong> exactly one owning computer and one shared local
+coordination-state directory per set. Backup, integrity maintenance and cleanup
+must all hold its non-expiring process lock (keyed by stable set UUID), and re-read
+the exact owner/epoch anchor before remote mutations. Reject mismatches. Never
+schedule writes from restored/imported configurations on another computer, and do
+not clone a writer identity into active use. No remote lease is acquired or stolen.
+Unfinished operations remain protected indefinitely, regardless of their age.</p>
+<p><strong>Explicit limitation:</strong> a second computer, a second coordination-state directory,
+or an already-running old process can bypass local exclusion. Owner rechecks are
+diagnostics, not atomic fencing; a stale writer can race the next remote call.
+This model relies on the operator disabling the old writer before handoff. There
+is no safe online/automatic takeover through the CLI. Strict stale-writer rejection
+would require an enforcing service or future provider capabilities.</p>
+<p>Manual offline handoff must show the exact root/current owner/epoch and require:
+disable old schedules/services and auto-retries; stop all GUI/CLI writers and wait
+for transfers to exit; prevent the old installation from later restarting (revoke
+its access or remove/disable its writer configuration); reconcile or explicitly
+abandon protected operations/intents; then assign a fresh computer ID and increment
+the ownership epoch, upload/read back the anchor, and enable only the new writer.
+If the old machine cannot be secured against resuming, remain read-only. A local
+journal cannot resume under a changed epoch. Never infer abandonment from time.
+User-facing offline takeover tooling is documented in <a href="../incremental-restore/">recovery</a>.</p>
+<p>Payload/control creation uses fresh immutable IDs and conflict-failing JSON-mode
+uploads, with mandatory readback verification. Never use replace/rename/new-revision
+for objects or manifests. The CLI may skip identical content; verification must
+still prove the expected bytes. Final snapshot discovery validates a complete v4
+manifest; missing, draft, malformed or conflicting content is not restorable.</p>
+<h2 id="verification-evidence-and-health-policy">Verification evidence and health policy<a class="headerlink" href="#verification-evidence-and-health-policy" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Before upload, journal an immutable object descriptor and inventory to synced,
+   atomic local state, and persist a verified remote operation protection record.</li>
+<li>Upload exclusively to a fresh ID. Fully verify compressed size and SHA-256
+   against private staged bytes. A trustworthy provider checksum must describe
+   the current <strong>plaintext content revision</strong>, not encrypted storage size, ETag,
+   upload-request echo, user metadata, or a different revision. Otherwise download
+   and hash; quota/staging shortage enters Waiting, not size-only success.</li>
+<li>Only then persist <code>original_verification</code> locally and remotely in that operation
+   record, read/hash it back, sync local verified checkpoint, then release staging.
+   Copy the descriptor and original receipt unchanged into every referencing
+   manifest. Thus loss of local state does not lose the evidence. Conflicting
+   descriptors/receipts for one immutable ID are corruption: stop and investigate.</li>
+<li>On every daily reuse/check, require that evidence and matching identity; fetch
+   fresh existence and plaintext size plus trustworthy SHA-256 if available.
+   Do not refresh <code>verified_at</code> based on size. Missing evidence requires a new full
+   verification and durable receipt before reuse. Authentication/network/ambiguous
+   listing errors are unknown health, not absence: stop/retry, no cleanup.</li>
+</ol>
+<p>Without trustworthy remote hashes, daily checks can miss same-sized corruption
+until a full check or restore. Display “Existence/size checked; full integrity last
+checked <time>; next due <time>”, never “all bytes verified today”. Local hashing
+does not prove remote health. Restore always hashes downloaded bytes independently.
+Confirmed damage creates a fresh replacement object from current local bytes when
+possible, never overwrites an ID. Report every historical snapshot affected; a new
+successful backup does not repair old manifests or authorize deleting damaged history.</p>
+<h3 id="scheduled-full-integrity-maintenance">Scheduled full integrity maintenance<a class="headerlink" href="#scheduled-full-integrity-maintenance" title="Permanent link">&para;</a></h3>
+<p>Begin a full cycle at least every 30 days since the last completed cycle, and on
+explicit Check integrity. Loss of the remote coverage ledger makes it due now.
+Coverage is every live shared object reachable from <strong>all retained snapshots and
+protected operations</strong>, not just the newest copy. Validate every retained manifest
+first. Each object gets current revision size/hash verification; download/hash
+when trustworthy SHA-256 is unavailable, then validate its full physical inventory
+as for restore. Even with a remote checksum, physical structure must have been
+validated at original creation; a changed revision requires downloaded validation.</p>
+<p>Capture a sorted <code>(object ID, size, digest, inventory)</code> worklist under coordination.
+Use the existing configured staging disk/budget and one archive at a time, with
+the existing explicitly reported single-oversized-file exception. Default run
+budget: 1 hour or 10 GiB downloaded, stopping between archives (one archive can
+exceed the soft budget). Resume next daily worker invocation before cleanup; show
+coverage count/bytes, last completion, remaining work and overdue status. Never
+mark a cycle complete merely because its budget expired. Do not starve maintenance
+behind repeated backups: once due, advance its slice before the next backup.</p>
+<p>After each verified object, atomically persist remote coverage (cycle ID, expected
+descriptor, checked revision, method and timestamp) and sync the local cursor.
+Crash resumes the first uncommitted object; an uncertain commit is rechecked.
+Pause preserves the worklist; cancellation/lost ledger restarts coverage, not a
+false success. Before completion, reconcile reachability: add newly live objects
+unless full verification since cycle start already covers them, drop only proven
+unreachable ones. Bind evidence to revisions; unknown/changing revisions require
+rechecking. Completion records its exact coverage and timestamp remotely. Maintenance
+failures preserve history, expose affected snapshots, and block automatic GC until
+resolved. These are logical budgets, not a claim of bounded network-call duration.</p>
+<h2 id="manifest-last-publication-and-interruption">Manifest-last publication and interruption<a class="headerlink" href="#manifest-last-publication-and-interruption" title="Permanent link">&para;</a></h2>
+<p>An operation protection record (version 1) contains set/operation/snapshot IDs,
+owner/epoch, all prepared and reused object descriptors, verification states and
+publication intent. The v4 executor records these as immutable per-object records
+and reuse-protection batches below the operation, not a repeatedly rewritten
+whole-history document. Re-scan current selected sources until publication intent
+fixes the final logical selection. Persist and verify protection under local exclusion
+<strong>before</strong> uploading or claiming any object. Extend it durably before each new
+object; local journals alone never protect remote reachability. Never overwrite
+published objects/manifests. Unknown upload results are reconciled by exact ID and
+hash; conflicting bytes cause a new ID, never replacement.</p>
+<p>Ordering: prepared local journal → remote protection → upload → full verification
+→ remote receipt → synced verified local checkpoint → release staging → daily
+reuse checks → validate complete manifest → conflict-failing manifest upload last
+→ download/hash/schema/location verification → durable run success → operation
+completion → retention eligibility. Manifest bytes must be assembled before upload;
+the provider must not expose a partial file at its final name. A successful
+unchanged check records last successful check remotely in the operation history
+without publishing a snapshot or consuming retention; retain last saved-change time.</p>
+<p>Discovery lists only direct snapshot IDs, then reads <code>manifest.json</code>. Missing file
+means unpublished; malformed file is visible as damaged, never restorable or cleanup
+authority. A valid complete manifest at its final path is the commit point; a lost
+upload response does not make it unpublished. Remote-only discovery needs no run
+history. Invalid or unknown-version snapshots block cleanup, rather than being
+silently ignored. The app must not advertise success until readback succeeds.</p>
+<table>
+<thead>
+<tr>
+<th>Interruption</th>
+<th>Recovery under operational single-writer coordination</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Before remote protection</td>
+<td>No upload permitted; discard/rebuild local preparation</td>
+</tr>
+<tr>
+<td>After protection, before/within upload</td>
+<td>Protect named objects; inspect exact names; retry missing objects, fully hash existing objects before accepting them</td>
+</tr>
+<tr>
+<td>After upload, before receipt/checkpoint</td>
+<td>Reverify; prepared state is not verification evidence</td>
+</tr>
+<tr>
+<td>After receipt, before staging release</td>
+<td>Validate receipt/identity and current reuse health; checkpoint before release</td>
+</tr>
+<tr>
+<td>Before manifest</td>
+<td>Resume same snapshot/operation; rescan current sources, reconcile refs, and update protection before changing objects</td>
+</tr>
+<tr>
+<td>Manifest upload or readback outcome unknown</td>
+<td>Read exact path; identical valid bytes mean committed; absent means retry; conflicting/invalid bytes mean quarantine and stop</td>
+</tr>
+<tr>
+<td>After manifest, before local success</td>
+<td>Recover committed snapshot and success without uploading a duplicate; cleanup remains gated on durable success</td>
+</tr>
+<tr>
+<td>Pause/cancel/owner loss</td>
+<td>Pause retains protection indefinitely; cancel durably records abandonment under local exclusion; never infer abandonment from time alone. An already committed manifest wins a late cancel</td>
+</tr>
+</tbody>
+</table>
+<p>Protection is retired only after a verified committed snapshot takes over its
+references, or explicit abandonment by the current owner with old writers disabled.
+Lost/unreadable operation state blocks GC. Reinstall recovery enumerates remote
+operations before resuming; it never treats local journal absence as abandonment.</p>
+<h2 id="retention-deletion-authorization-and-recovery">Retention, deletion authorization, and recovery<a class="headerlink" href="#retention-deletion-authorization-and-recovery" title="Permanent link">&para;</a></h2>
+<p>Keep configurable newest-N successful saved states across positively identified
+legacy copies and v4 snapshots, sorted by creation time then snapshot/copy identity.
+Unchanged checks consume no slot. Preserve incomplete/damaged/unknown states unless
+separately and explicitly authorized for removal; they never evict good history.
+Upload the fresh baseline without referencing legacy archives. Check capacity and
+warn about coexistence with old full history; insufficient capacity stops the run,
+never deletes retained history to make room.</p>
+<p>Only a durably successful, verified publication can initiate automatic retention.
+Hold shared local exclusion throughout planning and mutations, with all other
+computers' writers disabled. Read <strong>all</strong> manifests,
+protection records, unresolved maintenance/deletion intents, and repository anchor
+freshly. Any unreadable, ambiguous, malformed, foreign or unsupported record stops
+GC. Do not use a possibly incomplete listing: provider must guarantee complete
+enumeration or a revision-consistent inventory. No age-only orphan collection.</p>
+<p>Persist/readback a deletion intent (version 1): proposal UUID, set/owner/epoch,
+exact snapshot paths and manifest hashes, legacy copy paths/identities, exact
+object IDs/paths/digests/sizes, reachability generation, confirmation and per-target
+phases. First cleanup requires exact-scope user confirmation, matching current
+proposal bytes; changed scope requires fresh confirmation. Later cleanup uses the
+saved policy but still durably records each exact scope before mutations. Existing
+local cleanup locks and run coordination remain required. They do not provide
+remote fencing; the operational single-writer assumption applies to cleanup too.</p>
+<p>Order: authorize intent → remove only approved snapshot manifests/copy folders →
+persist each result → freshly recompute retained/protected reachability → trash
+only whole unreferenced objects → persist phase → recheck reachability immediately
+before permanent deletion → persist completion. No object may be trashed while a
+retained or published-not-yet-removed snapshot, resumable operation or unresolved
+intent protects it. The current intent's deletion candidates are not themselves
+live references; other unresolved intents are protection until reconciled. New
+writers cannot reuse objects already in a trash/delete intent; finish/reconcile it
+first. Never delete partially live archives or guess compressed reclaim from member
+sizes. Track logical live/obsolete bytes only as estimates.</p>
+<p>Snapshot deletion first ensures a crash leaves extra objects, not dangling retained
+references. After an uncertain trash/delete response, inspect exact identity and
+trash state, then idempotently resume the persisted phase; never broaden targets
+or replace an unfinished proposal. New epoch takeover revalidates every target and
+requires renewed authorization. A transient failure stops the phase, retains intent
+and reports retryable cleanup attention. Backup success remains success: “Backup
+saved; cleanup needs attention”. No empty-trash command or deletion of other sets.
+Legacy folder deletion retains existing containment/identity checks and never
+authorizes deleting shared objects. Integrity errors cannot authorize retention.</p>
+<h2 id="implementation-and-release-gates">Implementation and release gates<a class="headerlink" href="#implementation-and-release-gates" title="Permanent link">&para;</a></h2>
+<h1 id="56-delivered-schema-tests-and-this-contract-58-adds-the-cli-compatible-executor">56 delivered schema tests and this contract. #58 adds the CLI-compatible executor<a class="headerlink" href="#56-delivered-schema-tests-and-this-contract-58-adds-the-cli-compatible-executor" title="Permanent link">&para;</a></h1>
+<p>under the explicitly approved manual-offline ownership amendment. The full default
+rollout still requires inventory-aware restore/discovery (#59), safe GC/integrity
+maintenance (#60) and the remaining release validation; no provider fence is claimed.
+V4 stays outside <code>BackupManifest</code>; #59 adds inventory-aware restore, catalog,
+remote-only discovery and explicit offline takeover together.</p>
+<p>Test planner changes/renames/unchanged metadata, subset restore without ancestors,
+legacy restore, exact tar validation, original evidence after local-state loss,
+same-size corruption (daily limitation/full detection), missing objects, uncertain
+network outcomes, quotas, pauses, owner/epoch mismatch rejection, publication boundaries,
+and deletion crash phases. Prove no retained/protected reference is deleted, including
+unknown manifests and unfinished operations. Supply safe GC in the first usable
+release. Benchmark baseline/unchanged/edit/full and single-file restore on documents
+and code before choosing archive sizing (initial target approximately 1 GB).</p>
+<p>Automated schema coverage runs via <code>incrementalmanifest-test</code> with real C++/Qt
+validation, including shared subsets, location mismatches, unsafe references,
+incompatible versions, missing/duplicate/conflicting inventory and receipt failures.
+Protocol failure-injection tests belong with the later provider/writer/GC features;
+schema acceptance is not evidence those remote protocols already work.</p>
+<h3 id="validation-record-56-2026-10-20">Validation record (#56, 2026-10-20)<a class="headerlink" href="#validation-record-56-2026-10-20" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>cmake -S native -B build</code> and <code>cmake --build build -j 4</code>: passed
+  (existing optional Vulkan/QML-policy warnings only).</li>
+<li><code>ctest --test-dir build --output-on-failure -j 4</code>: 24/25 targets passed;
+  <code>workerrecovery-test</code> exceeded its existing 180-second CTest timeout, as already
+  documented for #54 in <code>TECHNICAL.md</code>; no assertion failure was reported.</li>
+<li>Direct rerun <code>build/workerrecovery-test</code> with a 360-second external allowance:
+  <strong>139 passed, 0 failed</strong>, 184.277 seconds. The CTest limit was not changed.</li>
+<li>After the final validator rebuild, targeted CTest for <code>incrementalmanifest</code>,
+  <code>backupmanifest</code>, <code>backuprestorecontroller</code>, and <code>retention-discovery</code>: <strong>4/4
+  passed</strong>. This covers the isolated schema and unchanged legacy boundaries.</li>
+<li>Pre-commit independent review of the staged scope against the original HEAD
+  <code>7485d32b1220d37370164f93e0f9a1154b2320f9</code>: <strong>Standards: no blockers;
+  Spec (#56): no blockers</strong>. Optional additional scalar-boundary test coverage
+  was suggested; no documented-standard violation or requirement gap was found.</li>
+<li><code>git diff --cached --check</code>: passed. No remote mutation or cloud test was run.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.footer", "navigation.top", "search.suggest", "search.highlight", "content.code.copy"], "search": "../../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.c21346df.min.js"></script>
+      
+    
+  </body>
+</html>
