@@ -23,6 +23,12 @@ TestCase {
         backupSetController.resumedImportedId = ""
         incrementalMaintenance.busy = false
         incrementalMaintenance.previewSet = ""
+        incrementalMaintenance.deleteSet = ""
+        incrementalMaintenance.deleteSnapshot = ""
+        incrementalMaintenance.deleteSnapshots = []
+        incrementalMaintenance.versionsSet = ""
+        incrementalMaintenance.activeSetId = ""
+        incrementalMaintenance.activityText = ""
         incrementalMaintenance.takeoverSet = ""
         incrementalMaintenance.takeoverAcknowledged = false
         incrementalMaintenance.integritySet = ""
@@ -285,25 +291,34 @@ TestCase {
 
     function test_incrementalCleanupRequiresPresentedProposalAndExplicitConfirmation() {
         openMenu(0)
-        mouseClick(control("reviewCleanup-0"))
+        mouseClick(control("backupVersions-0"))
+        compare(incrementalMaintenance.versionsSet, "documents-id")
+        incrementalMaintenance.versionsReady("documents-id", [])
+        tryCompare(control("backupVersionsDialog"), "opened", true)
+        verify(control("noSavedBackupsLabel").visible)
+        mouseClick(control("reviewBackupCleanupButton"))
+        tryCompare(control("backupVersionsDialog"), "opened", false)
         compare(incrementalMaintenance.previewSet, "documents-id")
         compare(incrementalMaintenance.confirmationCount, 0)
         const dialog = control("incrementalCleanupDialog")
         verify(!dialog.opened)
-        incrementalMaintenance.cleanupReady("documents-id", '{"snapshots":["exact-id"],"objects":[]}')
+        incrementalMaintenance.cleanupReady("documents-id", "Backups to delete: 1\n• 01/10/2026 10:00:00 — exact-id\nEstimated Proton storage recovered: 1.50 MiB")
         tryCompare(dialog, "opened", true)
         verify(dialog.proposal.indexOf("exact-id") >= 0)
+        verify(control("backupDeletionSummary").text.indexOf("Estimated Proton storage recovered: 1.50 MiB") >= 0)
+        compare(dialog.standardButton(Dialog.Ok).text, "Delete permanently")
         dialog.reject()
         compare(incrementalMaintenance.dismissalCount, 1)
         compare(incrementalMaintenance.confirmationCount, 0)
         tryCompare(dialog, "opened", false)
-        incrementalMaintenance.cleanupReady("documents-id", '{"snapshots":["fresh-id"],"objects":[]}')
+        incrementalMaintenance.cleanupReady("documents-id", "Backups to delete: 1\n• fresh-id\nEstimated Proton storage recovered: 0 bytes")
         tryCompare(dialog, "opened", true)
         dialog.accept()
         compare(incrementalMaintenance.confirmationCount, 1)
     }
 
     function test_writerTakeoverRequiresOfflineAcknowledgement() {
+        backupSetController.setSummaries = { "documents-id": {readOnly: true, importPaused: true} }
         openMenu(0)
         mouseClick(control("takeoverWriter-0"))
         const dialog = control("writerTakeoverDialog")
@@ -323,7 +338,7 @@ TestCase {
     function test_repositoryMaintenanceSerializesAndOffersFullIntegrityCheck() {
         incrementalMaintenance.busy = true
         openMenu(0)
-        verify(!control("reviewCleanup-0").enabled)
+        verify(!control("backupVersions-0").enabled)
         verify(!control("takeoverWriter-0").enabled)
         verify(!control("checkIntegrity-0").enabled)
         control("setMenu-0").close()
@@ -382,13 +397,149 @@ TestCase {
         verify(!control("setIntegrityStatus-1").visible)
     }
 
-    function test_sharedSnapshotsCannotUseLegacyWholeCopyDeletion() {
+    function test_slowMaintenanceShowsProgressAndDisabledActionReasons_data() {
+        return [
+            {tag: "deletion preview", action: "delete", text: "Preparing backup deletion…"},
+            {tag: "delete confirmed", action: "confirm", text: "Deleting confirmed backups and unused data…"},
+            {tag: "cleanup preview", action: "preview", text: "Reviewing old backups and unused data…"},
+            {tag: "version loading", action: "versions", text: "Loading saved backup versions…"},
+            {tag: "takeover", action: "takeover", text: "Moving backup responsibility to this computer…"}
+        ]
+    }
+
+    function test_slowMaintenanceShowsProgressAndDisabledActionReasons(data) {
+        if (data.action === "delete") incrementalMaintenance.previewDelete("documents-id")
+        if (data.action === "preview") incrementalMaintenance.previewCleanup("documents-id")
+        if (data.action === "versions") incrementalMaintenance.listVersions("documents-id")
+        if (data.action === "takeover") incrementalMaintenance.takeover("documents-id", true)
+        if (data.action === "confirm") {
+            incrementalMaintenance.activeSetId = "documents-id"
+            incrementalMaintenance.confirmCleanup()
+        }
+        const progress = control("setMaintenanceProgress-0")
+        verify(progress.visible)
+        verify(progress.indeterminate)
+        compare(progress.Accessible.name, data.text)
+        compare(control("setMaintenanceStatus-0").text, data.text)
+        verify(!control("setMaintenanceProgress-1").visible)
+        verify(!control("backUpNow-0").enabled)
+        verify(control("backUpNow-0-disabledIndicator").visible)
+        verify(control("backUpNow-0-disabledSurface").visible)
+        compare(control("backUpNow-0").contentItem.opacity, 0.65)
+        verify(!control("backUpNow-1-disabledSurface").visible)
+        verify(control("backUpNow-0").Accessible.description.indexOf("finish") >= 0)
+        verify(!control("restore-0").enabled)
+        verify(control("setDisabledActionsReason-0").visible)
+        openMenu(0)
+        const deletion = control("backupVersions-0")
+        verify(!deletion.enabled)
+        compare(deletion.Accessible.description, "Wait for this action to finish.")
+        if (data.action === "confirm" && dashboardScreenshotPath.length > 0) {
+            waitForRendering(app.contentItem)
+            grabImage(app.contentItem).save(dashboardScreenshotPath + ".maintenance.png")
+        }
+        control("setMenu-0").close()
+        if (data.action === "confirm" && dashboardScreenshotPath.length > 0) {
+            waitForRendering(app.contentItem)
+            grabImage(app.contentItem).save(dashboardScreenshotPath + ".disabled-buttons.png")
+        }
+        incrementalMaintenance.completed("Action completed.")
+        verify(!progress.visible)
+        verify(control("backUpNow-0").enabled)
+        verify(!control("backUpNow-0-disabledIndicator").visible)
+        verify(!control("backUpNow-0-disabledSurface").visible)
+        compare(control("backUpNow-0").contentItem.opacity, 1)
+        verify(!control("setDisabledActionsReason-0").visible)
+    }
+
+    function test_maintenanceFailureStopsProgressAndReenablesActions() {
+        incrementalMaintenance.previewDelete("documents-id")
+        verify(control("setMaintenanceProgress-0").visible)
+        incrementalMaintenance.failed("Unable to contact Proton Drive.")
+        verify(!control("setMaintenanceProgress-0").visible)
+        verify(control("backUpNow-0").enabled)
+        compare(app.notificationMessage, "Unable to contact Proton Drive.")
+    }
+
+    function test_cardsOfferSingleBackupManagementEntry() {
         backupSetController.runDetails = {
             "documents-id": {statusCode: "success", status: "Successful", hasLatestCopy: true, sharedSnapshot: true}
         }
         openMenu(0)
-        verify(!control("deleteLatestCopy-0").enabled)
-        verify(control("reviewCleanup-0").enabled)
+        compare(findChild(app, "deleteLatestCopy-0"), null)
+        verify(control("backupVersions-0").enabled)
+        compare(findChild(app, "reviewCleanup-0"), null)
+        compare(control("backupVersions-0").text, "Manage saved backups…")
+        compare(recentBackupCopies.deleteRequestedId, "")
+    }
+
+    function test_writerTakeoverOnlyShownForReadOnlySets() {
+        openMenu(0)
+        verify(!control("takeoverWriter-0").visible)
+        control("setMenu-0").close()
+        backupSetController.setSummaries = { "documents-id": {readOnly: true} }
+        openMenu(0)
+        verify(control("takeoverWriter-0").visible)
+        verify(!control("backupVersions-0").enabled)
+    }
+
+    function test_datedVersionListReviewsExactSelectedVersions() {
+        backupSetController.runDetails = {
+            "documents-id": {statusCode: "success", status: "Successful", hasLatestCopy: true, sharedSnapshot: true}
+        }
+        openMenu(0)
+        mouseClick(control("backupVersions-0"))
+        compare(incrementalMaintenance.versionsSet, "documents-id")
+        const versions = [
+            {id: "older-id", date: "01/10/2026 10:00:00", fileSize: "1.50 MiB"},
+            {id: "other-id", date: "02/10/2026 10:00:00", fileSize: "2.00 MiB"},
+            {id: "retained-id", date: "03/10/2026 10:00:00"}
+        ]
+        incrementalMaintenance.versionsReady("documents-id", versions)
+        const dialog = control("backupVersionsDialog")
+        tryCompare(dialog, "opened", true)
+        compare(dialog.title, "Manage saved backups")
+        verify(!control("noSavedBackupsLabel").visible)
+        compare(dialog.versions[0].id, "older-id")
+        const rows = control("backupVersionRows")
+        tryCompare(rows, "count", 3)
+        compare(findChild(rows.itemAt(0), "backupVersionSummary-older-id").text,
+            "01/10/2026 10:00:00\nolder-id\nFile size: 1.50 MiB")
+        compare(findChild(rows.itemAt(2), "backupVersionSummary-retained-id").text,
+            "03/10/2026 10:00:00\nretained-id\nFile size unavailable")
+        const review = control("reviewSelectedBackupDeletionButton")
+        const older = findChild(rows.itemAt(0), "selectBackupVersion-older-id")
+        const other = findChild(rows.itemAt(1), "selectBackupVersion-other-id")
+        verify(older !== null)
+        verify(other !== null)
+        function toggleVersion(checkbox) {
+            const flickable = control("backupVersionsScrollView").contentItem
+            flickable.contentY = Math.max(0, Math.min(flickable.contentHeight - flickable.height,
+                checkbox.mapToItem(flickable.contentItem, 0, 0).y - 12))
+            waitForRendering(app.contentItem)
+            mouseClick(checkbox)
+        }
+        verify(!review.enabled)
+        verify(control("largeFileBackupGuidance").text.indexOf("Exclude it") >= 0)
+        toggleVersion(older)
+        verify(review.enabled)
+        toggleVersion(other)
+        toggleVersion(older)
+        compare(dialog.selectedIds, ["other-id"])
+        toggleVersion(older)
+        compare(dialog.selectedIds, ["other-id", "older-id"])
+        restoreController.restoring = true
+        verify(!review.enabled)
+        verify(!control("reviewBackupCleanupButton").enabled)
+        restoreController.restoring = false
+        mouseClick(review)
+        compare(incrementalMaintenance.deleteSet, "documents-id")
+        compare(incrementalMaintenance.deleteSnapshots, ["other-id", "older-id"])
+        compare(incrementalMaintenance.confirmationCount, 0)
+        incrementalMaintenance.versionsReady("documents-id", versions)
+        tryCompare(dialog, "opened", true)
+        compare(dialog.selectedIds, [])
+        verify(!review.enabled)
     }
 
     function createNewSet() {
@@ -730,7 +881,7 @@ TestCase {
         compare(control("setStatus-0").text, "Latest copy deleted")
         compare(control("restore-0").enabled, true)
         const menu = openMenu(0)
-        compare(menu.itemAt(3).enabled, false)
+        compare(findChild(app, "deleteLatestCopy-0"), null)
         menu.close()
         mouseClick(control("restore-0"))
         compare(restoreController.discoveredSetId, "documents-id")
@@ -1384,29 +1535,18 @@ TestCase {
         compare(control("startRestoreButton").enabled, true)
     }
 
-    function test_folderLinkUsesCardSetAndRequiresLatestCopy() {
-        const emptyMenu = openMenu(1)
-        compare(emptyMenu.itemAt(1).enabled, false)
-        emptyMenu.close()
+    function test_topNavigationOpensProtonDriveWithoutLatestCopy() {
+        const button = control("openProtonDriveButton")
+        compare(button.text, "Open Proton Drive ↗")
+        verify(button.visible)
+        verify(button.enabled)
+        mouseClick(button)
+        compare(dashboardBrowser.openedDocumentationUrl(), "https://drive.proton.me/")
         compare(recentBackupCopies.openedId, "")
-        backupSetController.currentIndex = 1
-        openMenu(0)
-        const link = control("openFolder-0")
-        compare(link.text, "Open latest copy in Proton Drive")
-        mouseClick(link)
-        compare(recentBackupCopies.openedId, "documents-id")
-        recentBackupCopies.folderResolved("/backups/documents-id/copy-id")
-        compare(protonFolderBrowser.requestedPath, "/backups/documents-id/copy-id")
-        compare(backupSetController.currentIndex, 1)
         compare(app.showRestore, false)
-        protonFolderBrowser.busy = true
-        compare(link.enabled, false)
-    }
-
-    function test_reorderedHistoryDoesNotChangeCardFolderTarget() {
-        backupSetController.recentBackupSetIds = ["photos-id", "removed-id"]
-        mouseClick(openMenu(0).itemAt(1))
-        compare(recentBackupCopies.openedId, "documents-id")
+        openMenu(0)
+        compare(findChild(app, "openFolder-0"), null)
+        control("setMenu-0").close()
     }
 
     function test_notificationsAppearTopRight_data() {
@@ -1467,9 +1607,7 @@ TestCase {
     }
 
     function test_deleteRecentCopyRequiresConfirmationAndCancelIsSafe() {
-        compare(openMenu(1).itemAt(3).enabled, false)
-        control("setMenu-1").close()
-        mouseClick(openMenu(0).itemAt(3))
+        recentBackupCopies.requestDelete("documents-id")
         const dialog = control("deleteCopyDialog")
         tryCompare(dialog, "opened", true)
         compare(recentBackupCopies.deleteRequestedId, "documents-id")
@@ -1483,7 +1621,7 @@ TestCase {
         tryCompare(dialog, "visible", false)
         compare(recentBackupCopies.deleteCancelled, true)
         compare(recentBackupCopies.deleteConfirmed, false)
-        mouseClick(openMenu(0).itemAt(3))
+        recentBackupCopies.requestDelete("documents-id")
         tryCompare(dialog, "opened", true)
         mouseClick(dialog.standardButton(Dialog.Ok))
         compare(recentBackupCopies.deleteConfirmed, true)
@@ -1500,10 +1638,10 @@ TestCase {
         compare(control("setProgressBar-0").visible, false)
     }
 
-    function test_runningRecentCopyCannotBeDeleted() {
+    function test_runningBackupCannotOpenVersionManagement() {
         backupSetController.runningSetIds = ["documents-id"]
         const menu = openMenu(0)
-        compare(menu.itemAt(3).enabled, false)
+        compare(control("backupVersions-0").enabled, false)
         menu.close()
     }
 

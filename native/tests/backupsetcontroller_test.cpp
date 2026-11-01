@@ -43,6 +43,27 @@ class BackupSetControllerTest final : public QObject
     Q_OBJECT
 
 private slots:
+    void newSetsUseNamedFoldersAndRenamesKeepHistory()
+    {
+        QTemporaryDir directory;
+        const auto path = directory.filePath("settings.json");
+        BackupEngine engine;
+        BackupSetController controller(engine, path);
+        controller.addSet();
+        controller.setCurrentName("Downloads");
+        controller.setCurrentSources({directory.path()});
+        QVERIFY(controller.save());
+        BackupConfig saved;
+        QString error;
+        QVERIFY(BackupConfigStore(path).load(&saved, &error));
+        QCOMPARE(saved.sets.last().repositoryFolder, QString("Downloads"));
+        QVERIFY(controller.currentRepositoryPath().endsWith("/sets/Downloads"));
+        controller.setCurrentName("My downloads");
+        QVERIFY(controller.save());
+        QVERIFY(BackupConfigStore(path).load(&saved, &error));
+        QCOMPARE(saved.sets.last().name, QString("My downloads"));
+        QCOMPARE(saved.sets.last().repositoryFolder, QString("Downloads"));
+    }
     void completeDraftPublishesCoherentStateAndSkipsUnchangedUpdates();
     void draftPreservesOrInvalidatesInFlightPreview_data();
     void draftPreservesOrInvalidatesInFlightPreview();
@@ -103,7 +124,7 @@ void BackupSetControllerTest::completeDraftPublishesCoherentStateAndSkipsUnchang
     QTRY_VERIFY(controller.previewAvailable());
 
     const QVariantMap draft {
-        {"name", " Updated documents "}, {"remoteRoot", " /new-backups "},
+        {"name", "Updated documents"}, {"remoteRoot", " /new-backups "},
         {"sources", QStringList {" /safe/new ", " ", "/safe/notes.txt"}},
         {"exclusions", QStringList {" cache ", "", " /safe/new/excluded "}},
         {"inclusions", QStringList {" .env ", " ", "config"}},
@@ -1254,7 +1275,7 @@ void BackupSetControllerTest::mergesSetsByIdAndPreservesOtherSets()
         {"photos", "Photos", "/my-files/backups", {"/safe/photos"}, {}},
     };
     QVERIFY(BackupConfigStore(configPath).save(original));
-    // Omitted optional fields use defaults. Matching names do not merge distinct IDs.
+    // Matching names never merge distinct IDs; reject the collision before saving.
     QFile imported(directory.filePath("import.json"));
     QVERIFY(imported.open(QIODevice::WriteOnly));
     imported.write(R"({"application":"omacustos","version":1,"sets":[
@@ -1265,10 +1286,25 @@ void BackupSetControllerTest::mergesSetsByIdAndPreservesOtherSets()
     BackupEngine engine;
     BackupSetController controller(engine, configPath);
     QSignalSpy saved(&controller, &BackupSetController::configurationSaved);
+    QSignalSpy failed(&controller, &BackupSetController::failed);
+    QVERIFY(!controller.importSets(imported.fileName(), true));
+    QVERIFY(saved.isEmpty());
+    QVERIFY(failed.last().first().toString().contains("unique"));
+    BackupConfig unchanged;
+    QVERIFY(BackupConfigStore(configPath).load(&unchanged));
+    QCOMPARE(unchanged.sets.size(), 2);
+    QCOMPARE(unchanged.sets.first().name, QString("Documents"));
+    QVERIFY(imported.open(QIODevice::ReadOnly));
+    auto contents = imported.readAll();
+    imported.close();
+    contents.replace("\"name\":\"Photos\"", "\"name\":\"New photos\"");
+    QVERIFY(imported.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    imported.write(contents);
+    imported.close();
     QVERIFY(controller.importSets(imported.fileName(), true));
     QCOMPARE(saved.count(), 1);
     QCOMPARE(controller.setIds(), (QStringList {"documents", "photos", "new-photos"}));
-    QCOMPARE(controller.setNames(), (QStringList {"Updated documents", "Photos", "Photos"}));
+    QCOMPARE(controller.setNames(), (QStringList {"Updated documents", "Photos", "New photos"}));
     BackupConfig reloaded;
     QVERIFY(BackupConfigStore(configPath).load(&reloaded));
     QCOMPARE(reloaded.protonBinary, original.protonBinary);

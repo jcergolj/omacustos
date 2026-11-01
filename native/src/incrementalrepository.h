@@ -7,7 +7,7 @@
 enum class IncrementalControl { Continue, Pause, Cancel };
 
 struct IncrementalWriteRequest {
-    QString remoteSetRoot; // Exact .../sets/<set UUID>, never a legacy copy folder.
+    QString remoteSetRoot; // Exact .../sets/<fixed folder name or legacy UUID>, never a legacy copy folder.
     QString computerId;
     QString originComputerId;
     qint64 ownershipEpoch = 1;
@@ -25,6 +25,8 @@ struct IncrementalWriteRequest {
     QStringList legacyRoots; // Additional exact private-copy namespaces discovered before provisioning.
     QString cleanupConfirmation; // SHA-256 of the exact presented proposal bytes.
     QString cleanupDismissal; // Invalidate an unapproved proposal; never grants deletion authority.
+    QString deleteSnapshotId; // Exact individual version; independent of newest-N retention.
+    QStringList deleteSnapshotIds; // Exact multi-selection; mutually exclusive with deleteSnapshotId.
     qint64 integrityByteBudget = 10LL * 1024 * 1024 * 1024;
     qint64 integrityTimeBudgetMs = 60LL * 60 * 1000;
     // Called at durable boundaries; capture/packing also poll the current control.

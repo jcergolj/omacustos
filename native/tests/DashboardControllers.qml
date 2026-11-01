@@ -17,6 +17,12 @@ QtObject {
     property QtObject incrementalMaintenance: QtObject {
         property bool busy: false
         property string previewSet: ""
+        property string deleteSet: ""
+        property string deleteSnapshot: ""
+        property var deleteSnapshots: []
+        property string versionsSet: ""
+        property string activeSetId: ""
+        property string activityText: ""
         property string takeoverSet: ""
         property bool takeoverAcknowledged: false
         property string integritySet: ""
@@ -24,12 +30,22 @@ QtObject {
         property int confirmationCount: 0
         property int dismissalCount: 0
         signal cleanupReady(string setId, string proposal)
+        signal versionsReady(string setId, var versions)
+        signal historyChanged(string setId)
         signal completed(string message)
         signal failed(string message)
-        function previewCleanup(setId) { previewSet = setId }
-        function confirmCleanup() { confirmationCount++ }
-        function cancelCleanup() { dismissalCount++ }
-        function takeover(setId, acknowledged) { takeoverSet = setId; takeoverAcknowledged = acknowledged }
+        onCleanupReady: busy = false
+        onVersionsReady: busy = false
+        onCompleted: busy = false
+        onFailed: busy = false
+        function begin(setId, text) { activeSetId = setId; activityText = text; busy = true }
+        function previewCleanup(setId) { previewSet = setId; begin(setId, "Reviewing old backups and unused data…") }
+        function previewDelete(setId, snapshotId) { deleteSet = setId; deleteSnapshot = snapshotId || ""; begin(setId, "Preparing backup deletion…") }
+        function previewDeleteVersions(setId, snapshotIds) { deleteSet = setId; deleteSnapshots = snapshotIds; begin(setId, "Preparing backup deletion…") }
+        function listVersions(setId) { versionsSet = setId; begin(setId, "Loading saved backup versions…") }
+        function confirmCleanup() { confirmationCount++; begin(activeSetId, "Deleting confirmed backups and unused data…") }
+        function cancelCleanup() { dismissalCount++; begin(activeSetId, "Dismissing removal preview…") }
+        function takeover(setId, acknowledged) { takeoverSet = setId; takeoverAcknowledged = acknowledged; begin(setId, "Moving backup responsibility to this computer…") }
         function checkIntegrity(setId) { integritySet = setId; busy = true }
     }
 

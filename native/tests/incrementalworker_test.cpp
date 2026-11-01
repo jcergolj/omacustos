@@ -116,6 +116,40 @@ class IncrementalWorkerTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void namedRepositoryBackupDiscoveryAndRestore()
+    {
+        Fixture f; QVERIFY(f.prepare());
+        f.set.repositoryFolder = "My documents";
+        QCOMPARE(IncrementalWorker::root(f.set), QString("backups/sets/My documents"));
+        IncrementalWriteRequest request; QVERIFY2(f.request(&request), qPrintable(f.error));
+        const auto saved = IncrementalWorker::run(f.set, request, f.provider);
+        QVERIFY(saved.success());
+        QVector<RemoteCopy> copies;
+        QVERIFY2(IncrementalRestore::listSnapshots(f.provider, f.set.remoteRoot, request.scan.setId, &copies, &f.error), qPrintable(f.error));
+        QCOMPARE(copies.size(), 1);
+        QCOMPARE(copies.first().setId, request.scan.setId);
+        QVERIFY2(IncrementalRestore::discover(f.provider, f.set.remoteRoot, &copies, &f.error), qPrintable(f.error));
+        QCOMPARE(copies.size(), 1);
+        RemoteCopy copy;
+        QVERIFY2(IncrementalRestore::verifyCopy(f.provider, saved.latestSnapshotPath, request.scan.setId, &copy, &f.error), qPrintable(f.error));
+        BackupEngine engine;
+        const auto restored = engine.restoreFiles({copy.entries, f.directory.filePath("restored"), saved.latestSnapshotPath}, f.provider);
+        QVERIFY2(restored.success, qPrintable(restored.error));
+        QCOMPARE(bytes(f.directory.filePath("restored/a.txt")), QByteArray("first"));
+        f.set.name = "Renamed";
+        IncrementalWriteRequest next; QVERIFY2(f.request(&next), qPrintable(f.error));
+        QCOMPARE(IncrementalWorker::run(f.set, next, f.provider).state, IncrementalWriteResult::State::Unchanged);
+        f.set.id = "different-set";
+        QVERIFY(!f.request(&next)); // Never adopt a foreign repository with the same name.
+        f.set.repositoryFolder = "my DOCUMENTS";
+        QVERIFY(!f.request(&next)); // Case-insensitive remote collision, including another computer.
+        QVERIFY(f.error.contains("already exists"));
+        f.set.repositoryFolder = "Existing folder";
+        QVERIFY(f.provider.ensureDirectory(IncrementalWorker::root(f.set), &f.error));
+        QVERIFY(!f.request(&next)); // A name is not permission to adopt an arbitrary folder.
+        QVERIFY(f.error.contains("will not be adopted"));
+    }
+
     void baselineUnchangedEditAndRestore()
     {
         Fixture f; QVERIFY(f.prepare());
@@ -326,14 +360,18 @@ private slots:
     void normalWorkerUsesIncrementalByDefault_data()
     {
         QTest::addColumn<bool>("scheduled");
-        QTest::newRow("manual") << false;
-        QTest::newRow("scheduled") << true;
+        QTest::addColumn<bool>("named");
+        QTest::newRow("manual") << false << false;
+        QTest::newRow("scheduled") << true << false;
+        QTest::newRow("named folder") << false << true;
     }
 
     void normalWorkerUsesIncrementalByDefault()
     {
         QFETCH(bool, scheduled);
+        QFETCH(bool, named);
         ProcessFixture f;
+        if (named) f.set.repositoryFolder = "My documents";
         QVERIFY(write(f.directory.filePath("source/c.txt"), "deleted"));
         QVERIFY(f.prepareProcess());
         if (scheduled) {
@@ -344,6 +382,7 @@ private slots:
         const auto first = *f.runs.find(f.set.id);
         QCOMPARE(first.incremental.value("outcome").toString(), QString("saved"));
         QVERIFY(first.remoteCopyPath.contains("/sets/"));
+        if (named) QVERIFY(first.remoteCopyPath.contains("/sets/My documents/snapshots/"));
         QVERIFY(!first.incremental.value("capacity_warning").toString().isEmpty());
         const auto transfers = bytes(f.directory.filePath("transfers.jsonl"));
         QVERIFY2(f.run(), qPrintable(f.error));
@@ -786,6 +825,74 @@ private slots:
         QCOMPARE(copiedRuns.find(f.set.id)->remoteCopyPath, saved);
         QVERIFY(!f.run()); // Former owner cannot write after the explicit handoff.
         QVERIFY(QFile::exists(f.directory.filePath("remote") + saved + "/manifest.json"));
+    }
+
+    void selectedVersionCleanupShowsRecoverableStorageAndPreservesLatest()
+    {
+        ProcessFixture f; f.set.retention = 10; QVERIFY(f.prepareProcess());
+        QStringList paths, ids;
+        QMap<QString, qint64> archiveSizes;
+        QSet<QString> retainedObjects;
+        for (int version = 0; version < 3; ++version) {
+            QVERIFY(write(f.directory.filePath("source/a.txt"), QByteArray::number(version) + " version data"));
+            QVERIFY2(f.run(), qPrintable(f.error));
+            const auto path = f.runs.find(f.set.id)->remoteCopyPath;
+            paths.append(path);
+            const auto manifest = QJsonDocument::fromJson(bytes(f.directory.filePath("remote") + path + "/manifest.json")).object();
+            ids.append(manifest.value("snapshot_id").toString());
+            for (const auto &value : manifest.value("archives").toArray()) {
+                const auto archive = value.toObject();
+                archiveSizes[archive.value("id").toString()] = archive.value("size").toInteger();
+                if (version == 2) retainedObjects.insert(archive.value("id").toString());
+            }
+        }
+        qint64 reclaimable = 0;
+        for (auto it = archiveSizes.cbegin(); it != archiveSizes.cend(); ++it)
+            if (!retainedObjects.contains(it.key())) reclaimable += it.value();
+        FixtureEnvironment environment(f);
+        IncrementalMaintenance maintenance(f.configPath);
+        QSignalSpy ready(&maintenance, &IncrementalMaintenance::cleanupReady);
+        QSignalSpy completed(&maintenance, &IncrementalMaintenance::completed);
+        QSignalSpy failed(&maintenance, &IncrementalMaintenance::failed);
+        maintenance.previewDeleteVersions(f.set.id, {ids[1], ids[0]});
+        QTRY_VERIFY_WITH_TIMEOUT(!maintenance.busy(), 60000);
+        QVERIFY2(failed.isEmpty(), failed.isEmpty() ? "" : qPrintable(failed.first().first().toString()));
+        QCOMPARE(ready.size(), 1);
+        const auto summary = ready.first().at(1).toString();
+        QVERIFY(summary.contains("Backups to delete: 2"));
+        QVERIFY(summary.contains(ids[0]));
+        QVERIFY(summary.contains(ids[1]));
+        QVERIFY(!summary.contains(ids[2]));
+        QVERIFY(summary.contains("Estimated Proton storage recovered: " + QLocale().formattedDataSize(reclaimable)));
+        QVERIFY(!summary.contains("\"identities\"")); // No raw transaction/manifest JSON in the review.
+        for (const auto &path : paths) QVERIFY(QFile::exists(f.directory.filePath("remote") + path + "/manifest.json"));
+        maintenance.cancelCleanup();
+        QTRY_VERIFY_WITH_TIMEOUT(!maintenance.busy(), 60000);
+        QCOMPARE(completed.size(), 1);
+        for (const auto &path : paths) QVERIFY(QFile::exists(f.directory.filePath("remote") + path + "/manifest.json"));
+        maintenance.previewDeleteVersions(f.set.id, {ids[0], ids[1]});
+        QTRY_VERIFY_WITH_TIMEOUT(!maintenance.busy(), 60000);
+        QCOMPARE(ready.size(), 2);
+        maintenance.confirmCleanup();
+        QTRY_VERIFY_WITH_TIMEOUT(!maintenance.busy(), 60000);
+        QVERIFY2(failed.isEmpty(), failed.isEmpty() ? "" : qPrintable(failed.first().first().toString()));
+        QCOMPARE(completed.size(), 2);
+        QVERIFY(!QFile::exists(f.directory.filePath("remote") + paths[0] + "/manifest.json"));
+        QVERIFY(!QFile::exists(f.directory.filePath("remote") + paths[1] + "/manifest.json"));
+        QVERIFY(QFile::exists(f.directory.filePath("remote") + paths[2] + "/manifest.json"));
+        QVERIFY(f.runs.load(&f.error));
+        QCOMPARE(f.runs.find(f.set.id)->remoteCopyPath, paths[2]);
+        QProcessRunner runner(f.directory.filePath("proton-fixture"));
+        ProtonProvider provider(runner);
+        RemoteCopy retained;
+        QVERIFY2(IncrementalRestore::verifyCopy(provider, paths[2], IncrementalWorker::setId(f.set), &retained, &f.error), qPrintable(f.error));
+        QCOMPARE(retained.entries.size(), 2);
+        maintenance.previewDeleteVersions(f.set.id, {ids[2]});
+        QTRY_VERIFY_WITH_TIMEOUT(!maintenance.busy(), 60000);
+        QCOMPARE(ready.size(), 3);
+        QVERIFY(ready.last().at(1).toString().contains("removes all saved backups"));
+        maintenance.cancelCleanup();
+        QTRY_VERIFY_WITH_TIMEOUT(!maintenance.busy(), 60000);
     }
 
     void cleanupControllerRequiresConfirmationAndRestoresRetainedState()

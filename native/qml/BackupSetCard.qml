@@ -16,20 +16,24 @@ Frame {
     required property var progress
     required property bool copyBusy
     property bool integrityChecking: false
+    property string maintenanceText: ""
+    readonly property bool maintaining: maintenanceText.length > 0
+    readonly property string unavailableReason: maintaining ? qsTr("Wait for this action to finish.")
+        : deleting ? qsTr("Wait for backup deletion to finish.")
+        : runActive ? qsTr("Wait for the running backup to finish.")
+        : copyBusy ? qsTr("Wait for the current backup action or restore to finish.") : ""
     signal editRequested()
     signal backupRequested()
     signal pauseRequested()
     signal resumeRequested()
     signal cancelRequested()
     signal restoreRequested()
-    signal openFolderRequested()
     signal detailsRequested()
-    signal deleteCopyRequested()
+    signal versionsRequested()
     signal removeRequested()
-    signal cleanupRequested()
     signal takeoverRequested()
     signal integrityRequested()
-    readonly property bool active: runActive || deleting
+    readonly property bool active: runActive || deleting || maintaining
     readonly property bool needsAttention: ["incomplete", "failed", "retrying", "waiting", "authentication_required"].indexOf(run.statusCode) >= 0 || !!run.cleanupNeedsAttention
     readonly property string statusText: deleting ? qsTr("Deleting latest copy…")
         : run.statusCode === "copy_deleted" ? qsTr("Latest copy deleted")
@@ -40,6 +44,31 @@ Frame {
         color: card.style.backgroundColor
         radius: 10
         border.color: card.style.lineColor
+    }
+
+    component BackupAction: MenuItem {
+        id: action
+        property string disabledReason: card.unavailableReason
+        Accessible.description: !enabled ? disabledReason : ""
+        contentItem: Column {
+            spacing: 3
+            Label {
+                width: action.availableWidth
+                text: (action.enabled ? "" : "⊘  ") + action.text
+                wrapMode: Text.WordWrap
+                color: !action.enabled ? card.style.mutedColor
+                    : action.highlighted ? action.palette.highlightedText : card.style.inkColor
+                font: action.font
+            }
+            Label {
+                width: action.availableWidth
+                visible: !action.enabled && text.length > 0
+                text: action.disabledReason
+                wrapMode: Text.WordWrap
+                color: card.style.mutedColor
+                font.pixelSize: card.style.metadataTypeSize
+            }
+        }
     }
 
     contentItem: ColumnLayout {
@@ -92,43 +121,36 @@ Frame {
                 Menu {
                     id: menu
                     objectName: "setMenu-" + card.cardIndex
+                    width: Math.min(480, card.width - 2 * card.style.cardPadding)
                     x: overflow.width - width
                     y: overflow.height
                     MenuItem {
                         text: qsTr("Edit settings")
                         onTriggered: card.editRequested()
                     }
-                    MenuItem {
-                        objectName: "openFolder-" + card.cardIndex
-                        text: qsTr("Open latest copy in Proton Drive")
-                        enabled: !!card.run.hasLatestCopy && !card.copyBusy && !card.active
-                        onTriggered: card.openFolderRequested()
-                    }
-                    MenuItem {
+                    BackupAction {
                         objectName: "viewBackupDetails-" + card.cardIndex
                         text: qsTr("View latest run details")
                         enabled: !!card.run.statusCode && card.run.statusCode !== "idle"
+                        disabledReason: qsTr("No backup has run yet.")
                         onTriggered: card.detailsRequested()
                     }
-                    MenuItem {
-                        objectName: "deleteLatestCopy-" + card.cardIndex
-                        text: qsTr("Delete latest copy")
-                        enabled: !!card.run.hasLatestCopy && !card.run.sharedSnapshot && !card.copyBusy && !card.active
-                        onTriggered: card.deleteCopyRequested()
+                    BackupAction {
+                        objectName: "backupVersions-" + card.cardIndex
+                        text: qsTr("Manage saved backups…")
+                        enabled: !card.info.readOnly && !card.active && !card.copyBusy
+                        disabledReason: card.unavailableReason || qsTr("Move backup responsibility here first.")
+                        onTriggered: card.versionsRequested()
                     }
-                    MenuItem {
-                        objectName: "reviewCleanup-" + card.cardIndex
-                        text: qsTr("Review incremental cleanup…")
-                        enabled: !card.active && !card.copyBusy
-                        onTriggered: card.cleanupRequested()
-                    }
-                    MenuItem {
+                    BackupAction {
                         objectName: "takeoverWriter-" + card.cardIndex
-                        text: qsTr("Offline writer takeover…")
+                        text: qsTr("Move backup responsibility to this computer…")
+                        visible: !!card.info.readOnly
+                        height: visible ? implicitHeight : 0
                         enabled: !card.active && !card.copyBusy
                         onTriggered: card.takeoverRequested()
                     }
-                    MenuItem {
+                    BackupAction {
                         objectName: "checkIntegrity-" + card.cardIndex
                         text: qsTr("Run full integrity check")
                         enabled: !card.active && !card.copyBusy
@@ -146,7 +168,7 @@ Frame {
 
         Label {
             objectName: "setStatus-" + card.cardIndex
-            visible: !card.runActive || card.deleting
+            visible: (!card.runActive || card.deleting) && !card.maintaining
             text: (!card.active && card.needsAttention ? "! " : !card.active && card.run.statusCode === "success" ? "✓ " : "") + card.statusText
             font.pixelSize: card.style.bodyTypeSize
             font.weight: Font.Normal
@@ -188,7 +210,7 @@ Frame {
         }
         TransferProgress {
             style: card.style
-            visible: card.active
+            visible: card.runActive || card.deleting
             statusText: card.deleting ? qsTr("Deleting backup copy…") : card.remaining
             detailText: card.runActive ? (card.progress.text || "").split("\n")[0] : ""
             fraction: card.deleting ? 0 : card.progress.fraction || 0
@@ -197,6 +219,19 @@ Frame {
             statusObjectName: "setRemainingTime-" + card.cardIndex
             detailObjectName: "setTransferProgress-" + card.cardIndex
             barObjectName: "setProgressBar-" + card.cardIndex
+            Layout.fillWidth: true
+        }
+
+        TransferProgress {
+            style: card.style
+            visible: card.maintaining
+            statusText: card.maintenanceText
+            detailText: qsTr("Working with Proton Drive. This may take a while; your original files are not changed.")
+            indeterminate: true
+            accessibleName: card.maintenanceText
+            statusObjectName: "setMaintenanceStatus-" + card.cardIndex
+            detailObjectName: "setMaintenanceDetail-" + card.cardIndex
+            barObjectName: "setMaintenanceProgress-" + card.cardIndex
             Layout.fillWidth: true
         }
 
@@ -215,7 +250,7 @@ Frame {
 
         Label {
             objectName: "setSchedule-" + card.cardIndex
-            text: (card.info.importPaused ? qsTr("Imported — paused. Correct missing sources, complete offline writer takeover, then resume. Restore is available.\n") : "")
+            text: (card.info.importPaused ? qsTr("Imported — paused. Correct missing sources, move backup responsibility to this computer, then resume. Restore is available.\n") : "")
                 + (card.info.schedule || qsTr("Manual backups"))
                 + (card.info.onlyOnAcPower ? qsTr(" · AC power only") : "")
             color: card.style.mutedColor
@@ -273,13 +308,15 @@ Frame {
                 text: qsTr("Back up now")
                 visible: !card.info.importPaused && !card.run.unfinished && card.run.statusCode !== "paused"
                 enabled: !card.active
+                disabledReason: card.unavailableReason
                 onClicked: card.backupRequested()
             }
             ActionButton {
                 style: card.style
                 objectName: "restore-" + card.cardIndex
                 text: qsTr("Restore copies…")
-                enabled: !card.deleting
+                enabled: !card.deleting && !card.maintaining
+                disabledReason: card.unavailableReason
                 ToolTip.visible: hovered
                 ToolTip.text: qsTr("Choose from available copies, including backups from another computer")
                 onClicked: card.restoreRequested()
@@ -291,6 +328,15 @@ Frame {
                 visible: card.needsAttention && !card.active
                 onClicked: card.detailsRequested()
             }
+        }
+        Label {
+            objectName: "setDisabledActionsReason-" + card.cardIndex
+            visible: card.unavailableReason.length > 0
+            text: qsTr("⊘ Some actions are unavailable. %1").arg(card.unavailableReason)
+            color: card.style.mutedColor
+            font.pixelSize: card.style.metadataTypeSize
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
         }
     }
 }

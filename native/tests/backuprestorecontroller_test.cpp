@@ -159,7 +159,7 @@ private slots:
     void historyListsCopiesWithoutCheckingTheirPayloads();
     void reopeningHistoryReusesTheListButRefreshStillChecksRemote();
     void historyListsSharedSnapshotsWithoutVisitingObjects();
-    void historyListsCandidatesWithOneCliCall();
+    void historyListsCandidatesWithoutDownloadingManifests();
     void snapshotCandidatesRequireFreshVerification_data();
     void snapshotCandidatesRequireFreshVerification();
     void discoveryFailureClearsPreviousResultsAndAllowsRetry();
@@ -858,7 +858,7 @@ void BackupRestoreControllerTest::copyLabelsUseLocalDateAndTime()
     QCOMPARE(controller.copies(), QStringList {"02/10/26 03:04:05"});
 }
 
-void BackupRestoreControllerTest::historyListsCandidatesWithOneCliCall()
+void BackupRestoreControllerTest::historyListsCandidatesWithoutDownloadingManifests()
 {
     QTemporaryDir directory {QDir::current().filePath("restore-history-XXXXXX")};
     FilesystemRunner runner;
@@ -902,8 +902,9 @@ void BackupRestoreControllerTest::historyListsCandidatesWithOneCliCall()
     controller.discover(set.remoteRoot, set.id, true, set.name, false);
     QTRY_VERIFY(!controller.busy());
     QVERIFY(failures.isEmpty());
-    // Candidate discovery is display-only: no manifests or payload checks yet.
-    QCOMPARE(runner.calls.size(), 1);
+    // One listing plus presence checks omit deleted manifests. No downloads or payload checks.
+    QCOMPARE(runner.calls.size(), 3);
+    for (const auto &call : runner.calls) QVERIFY(!call.contains("download"));
     QCOMPARE(controller.copies().size(), 2);
     QStringList expectedLabels;
     for (const auto &path : {newest, first}) {
@@ -934,8 +935,22 @@ void BackupRestoreControllerTest::historyListsCandidatesWithOneCliCall()
     QVERIFY(!controller.restoreEligible());
     controller.discover(set.remoteRoot, set.id);
     QTRY_VERIFY(!controller.busy());
-    QCOMPARE(runner.calls.size(), 1);
+    QCOMPARE(runner.calls.size(), 3);
     QCOMPARE(controller.copies().size(), 2);
+    QVERIFY(!controller.restoreEligible());
+    QVERIFY(QFile::remove(runner.remoteFile(newest + "/manifest.json")));
+    controller.invalidateHistory(set.id);
+    QTRY_VERIFY(!controller.busy());
+    QCOMPARE(controller.copies().size(), 1);
+    controller.selectCopy(0);
+    QTRY_VERIFY(!controller.busy());
+    QCOMPARE(controller.currentCopyPath(), first);
+    QVERIFY(controller.restoreEligible());
+    QVERIFY(QFile::remove(runner.remoteFile(first + "/manifest.json")));
+    controller.invalidateHistory(set.id);
+    QTRY_VERIFY(!controller.busy());
+    QVERIFY(controller.copies().isEmpty());
+    QVERIFY(controller.currentCopyPath().isEmpty());
     QVERIFY(!controller.restoreEligible());
 }
 
@@ -992,14 +1007,20 @@ void BackupRestoreControllerTest::snapshotCandidatesRequireFreshVerification()
     runner.calls.clear();
     controller.discover(set.remoteRoot, set.id, true, set.name, false);
     QTRY_VERIFY(!controller.busy());
-    QCOMPARE(runner.calls.size(), 1);
+    QCOMPARE(runner.calls.size(), 2);
+    if (damage == "missing manifest") {
+        QVERIFY(controller.copies().isEmpty());
+        QVERIFY(controller.entries().isEmpty());
+        QVERIFY(!controller.restoreEligible());
+        return;
+    }
     QCOMPARE(controller.copies().size(), 1);
     QVERIFY(controller.hasUnverifiedCopies());
     QVERIFY(controller.entries().isEmpty());
     QVERIFY(!controller.restoreEligible());
     controller.restoreSelected({0}, directory.filePath("must-not-restore"));
     QCOMPARE(failures.size(), 1);
-    QCOMPARE(runner.calls.size(), 1);
+    QCOMPARE(runner.calls.size(), 2);
     QVERIFY(!QFileInfo::exists(directory.filePath("must-not-restore")));
     failures.clear();
     controller.selectCopy(0);

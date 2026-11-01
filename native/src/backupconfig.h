@@ -19,8 +19,11 @@ struct BackupSet {
     qint64 stagingBudget = 1000 * 1000 * 1000;
     QStringList inclusions;
     bool readOnly = false; // Imports do not grant writer/takeover authority.
+    QString repositoryFolder; // Fixed at creation; empty preserves the historical UUID path.
 
     QString remoteFolder(const QString &computerName) const;
+    static bool validFolderName(const QString &name);
+    static QString nameKey(const QString &name);
 };
 
 struct BackupConfig {

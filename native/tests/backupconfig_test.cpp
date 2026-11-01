@@ -13,6 +13,38 @@ class BackupConfigTest final : public QObject
     Q_OBJECT
 
 private slots:
+    void folderNamesAreSafeAndUnique()
+    {
+        QTemporaryDir directory;
+        BackupConfigStore store(directory.filePath("settings.json"));
+        BackupConfig config;
+        BackupSet first{"one", "Downloads", "backups", {"/source"}};
+        first.repositoryFolder = "Downloads";
+        BackupSet second{"two", "downloads", "backups", {"/source"}};
+        second.repositoryFolder = "downloads";
+        config.sets = {first, second};
+        QString error;
+        QVERIFY(!store.save(config, &error));
+        QVERIFY(error.contains("unique"));
+        config.sets[1].remoteRoot = "other-backups";
+        QVERIFY2(store.save(config, &error), qPrintable(error));
+        BackupConfig loaded;
+        QVERIFY(store.load(&loaded, &error));
+        QCOMPARE(loaded.sets[0].repositoryFolder, QString("Downloads"));
+        QVERIFY(store.exportSets(config, &error));
+        QVERIFY(store.importSets(&loaded, &error));
+        QCOMPARE(loaded.sets[0].repositoryFolder, QString("Downloads"));
+        for (const auto &name : {QString("../Downloads"), QString("Downloads/Work"), QString(" Downloads"),
+                 QString("Downloads."), QString("Work:files"), QString(".."), QString("bad\nname")}) {
+            config.sets[0].name = name;
+            QVERIFY2(!store.save(config, &error), qPrintable(name));
+        }
+        config.sets[0].name = "Downloads";
+        config.sets[1].name = "Renamed";
+        config.sets[1].remoteRoot = "backups";
+        QVERIFY(!store.save(config, &error)); // Its original remote folder is still reserved.
+        QVERIFY(error.contains("unique"));
+    }
     void loadsLegacyConfigurationAndSavesModernSets_data();
     void loadsLegacyConfigurationAndSavesModernSets();
     void modernSetsOverrideLegacyFields_data();

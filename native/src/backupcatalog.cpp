@@ -226,7 +226,7 @@ bool BackupCatalog::discoverCopies(BackupProvider &provider, const QString &back
         warning(error, copyError);
     }
     std::sort(copies->begin(), copies->end(), [](const RemoteCopy &left, const RemoteCopy &right) {
-        return left.createdAt > right.createdAt;
+        return left.createdAt == right.createdAt ? left.copyId > right.copyId : left.createdAt > right.createdAt;
     });
     return true;
 }

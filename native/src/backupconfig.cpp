@@ -80,7 +80,7 @@ bool validateImport(const QJsonObject &document, QString *error)
         return false;
     }
 
-    QSet<QString> ids;
+    QSet<QString> ids, names;
     const QJsonArray sets = document.value(QStringLiteral("sets")).toArray();
     for (qsizetype index = 0; index < sets.size(); ++index) {
         const QString path = QStringLiteral("sets[%1]").arg(index);
@@ -106,6 +106,15 @@ bool validateImport(const QJsonObject &document, QString *error)
             return invalidImportField(path + QStringLiteral(".id"), QStringLiteral("duplicates another set's ID (%1)").arg(id), error);
         }
         ids.insert(id);
+        const auto name = set.value("name").toString();
+        if (!BackupSet::validFolderName(name)) {
+            return invalidImportField(path + ".name", "must be a safe folder name without surrounding spaces", error);
+        }
+        const auto nameKey = QDir::cleanPath(remote) + QChar::Null + BackupSet::nameKey(name);
+        if (names.contains(nameKey)) {
+            return invalidImportField(path + ".name", "must be unique within its remote location (ignoring case)", error);
+        }
+        names.insert(nameKey);
 
         const QJsonValue sources = set.value(QStringLiteral("source_directories"));
         if (!sources.isArray() || sources.toArray().isEmpty()) {
@@ -162,6 +171,21 @@ bool validateImport(const QJsonObject &document, QString *error)
     return true;
 }
 
+}
+
+QString BackupSet::nameKey(const QString &name)
+{
+    return name.normalized(QString::NormalizationForm_C).toCaseFolded();
+}
+
+bool BackupSet::validFolderName(const QString &name)
+{
+    if (name.isEmpty() || name != name.trimmed() || name == "." || name == ".."
+        || name.endsWith('.') || name.toUtf8().size() > 200) return false;
+    for (const auto character : name) {
+        if (character.category() == QChar::Other_Control || QStringLiteral("/\\:*?\"<>|").contains(character)) return false;
+    }
+    return true;
 }
 
 QString BackupSet::remoteFolder(const QString &computerName) const
@@ -278,6 +302,12 @@ bool BackupConfigStore::loadFile(BackupConfig *config, bool setsOnly, QString *e
                 setObject.value(QStringLiteral("name")).toString(),
                 setObject.value(QStringLiteral("remote_root")).toString(),
             };
+            const auto folder = setObject.value("repository_folder");
+            if (!folder.isUndefined() && (!folder.isString() || !BackupSet::validFolderName(folder.toString()))) {
+                if (error) *error = QStringLiteral("The backup repository folder must be a safe folder name.");
+                return false;
+            }
+            set.repositoryFolder = folder.toString();
 
             for (const QJsonValue &source : sources) {
                 set.sourceDirectories.append(source.toString());
@@ -447,7 +477,22 @@ bool BackupConfigStore::saveFile(const BackupConfig &config, bool setsOnly, QStr
 
     QJsonArray sets;
     QSet<QString> setIds;
+    QSet<QString> names, folders;
     for (const BackupSet &set : config.sets) {
+        const auto location = QDir::cleanPath(set.remoteRoot) + QChar::Null;
+        const auto key = location + BackupSet::nameKey(set.name);
+        const auto folderKey = location + BackupSet::nameKey(set.repositoryFolder.isEmpty() ? set.id : set.repositoryFolder);
+        if (!BackupSet::validFolderName(set.name)
+            || (!set.repositoryFolder.isEmpty() && !BackupSet::validFolderName(set.repositoryFolder))) {
+            if (error) *error = QStringLiteral("Use a folder-safe backup name without leading/trailing spaces, slashes or special characters (/\\:*?\"<>|).");
+            return false;
+        }
+        if (names.contains(key) || folders.contains(folderKey)) {
+            if (error) *error = QStringLiteral("Choose a unique backup name for this remote location (names are not case-sensitive).");
+            return false;
+        }
+        names.insert(key);
+        folders.insert(folderKey);
         if (set.id.trimmed().isEmpty() || set.name.trimmed().isEmpty() || set.remoteRoot.trimmed().isEmpty()
             || set.sourceDirectories.isEmpty() || !validSchedule(set.schedule) || setIds.contains(set.id)
             || set.stagingBudget <= 0) {
@@ -502,6 +547,11 @@ bool BackupConfigStore::saveFile(const BackupConfig &config, bool setsOnly, QStr
         if (setsOnly) {
             auto definition = sets.last().toObject();
             definition.remove("read_only");
+            sets.replace(sets.size() - 1, definition);
+        }
+        if (!set.repositoryFolder.isEmpty()) {
+            auto definition = sets.last().toObject();
+            definition.insert("repository_folder", set.repositoryFolder);
             sets.replace(sets.size() - 1, definition);
         }
     }

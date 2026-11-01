@@ -89,6 +89,7 @@ public:
     int currentCopyIndex() const;
     Q_INVOKABLE void discover(const QString &backupFolder, const QString &setId = QString(), bool history = false, const QString &legacyName = {}, bool refresh = true, bool includeLegacy = false);
     Q_INVOKABLE void selectCopy(int index);
+    Q_INVOKABLE void invalidateHistory(const QString &setId);
     Q_INVOKABLE void restore(int index, const QString &destinationDirectory);
     Q_INVOKABLE void restoreSelected(const QVariantList &indexes, const QString &destinationDirectory);
     Q_INVOKABLE void restoreFolder(const QString &folder, const QString &destinationDirectory);

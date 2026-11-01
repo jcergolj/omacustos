@@ -437,10 +437,34 @@ bool BackupRunStore::finishIncrementalCleanup(const QString &setId, const QStrin
 {
     return update([&](BackupRunStore &fresh, QString *) {
         auto *record = fresh.find(setId);
-        if (record && record->incremental.value("snapshot_path").toString().startsWith(remoteSetRoot + "/snapshots/")) {
+        if (record && (record->incremental.value("snapshot_path").toString().startsWith(remoteSetRoot + "/snapshots/")
+            || (record->status == "copy_deleted" && record->remoteCopyPath.isEmpty()))) {
             record->incremental["cleanup_needs_attention"] = false;
             record->incremental.remove("cleanup_proposal");
             record->incremental.remove("cleanup_confirmation");
+        }
+        return true;
+    }, error);
+}
+
+bool BackupRunStore::reconcileSnapshotHistory(const QString &setId, const QString &remoteSetRoot,
+    const QString &latestPath, const QDateTime &createdAt, QString *error)
+{
+    if (!latestPath.isEmpty() && !latestPath.startsWith(remoteSetRoot + "/snapshots/")) {
+        if (error) *error = "Latest snapshot is outside its repository.";
+        return false;
+    }
+    return update([&](BackupRunStore &fresh, QString *) {
+        auto *record = fresh.find(setId);
+        if (!record) return true;
+        if (record->remoteCopyPath.startsWith(remoteSetRoot + "/snapshots/") || record->status == "copy_deleted") {
+            if (record->remoteCopyPath != latestPath) {
+                record->remoteCopyPath = latestPath;
+                record->incremental["snapshot_path"] = latestPath;
+                record->incremental["last_saved_change"] = createdAt.toUTC().toString(Qt::ISODateWithMs);
+                record->result = {};
+                record->status = latestPath.isEmpty() ? "copy_deleted" : "success";
+            }
         }
         return true;
     }, error);

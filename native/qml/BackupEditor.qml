@@ -194,6 +194,15 @@ ScrollView {
             Layout.fillWidth: true
         }
 
+        Label {
+            text: editor.controller.currentRepositoryPath
+                ? qsTr("Backup folder: %1\nChanging the name above does not move this folder.").arg(editor.controller.currentRepositoryPath)
+                : qsTr("Use a unique name for this backup location. This name will also be its folder name in Proton Drive.")
+            font.pixelSize: editor.style.metadataTypeSize
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
+        }
+
         RowLayout {
             Layout.fillWidth: true
             spacing: editor.style.buttonSpacing

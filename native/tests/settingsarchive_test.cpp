@@ -252,7 +252,7 @@ private slots:
         incoming.sets[0].name = "Updated";
         auto sameName = original.sets.first(); sameName.id = "another-id";
         incoming.sets.append(sameName);
-        auto unrelated = original.sets.first(); unrelated.id = "unrelated";
+        auto unrelated = original.sets.first(); unrelated.id = "unrelated"; unrelated.name = "Unrelated";
         original.sets.append(unrelated);
         QString error;
         const auto path = local.filePath("settings.json"), file = local.filePath("import.json");

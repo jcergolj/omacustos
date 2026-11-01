@@ -222,8 +222,33 @@ limits and handling damaged history.
 
 ## 7. Manage history and free space
 
-Use **card ⋯ → Review incremental cleanup…** when prompted or when reviewing old
-history. Review the exact proposed deletions before confirming.
+Open **card ⋯ → Manage saved backups…**. This is the single place to delete saved
+backups or review suggested cleanup.
+
+### Delete selected backups
+
+1. Compare backup dates and total file sizes, then tick one or more backups.
+2. Press **Review deletion…** to see exactly which backups will disappear and
+   **estimated Proton storage recovered**.
+3. Press **Delete permanently** to confirm, or **Cancel** to remove nothing.
+
+The review warns if you select all saved backups. Original files on your computer
+are not changed. File size is **not** recovered storage: versions can share data,
+and partly used archives stay whole. The recovery estimate counts only unused
+stored archives once; small metadata and Proton quota accounting can differ.
+
+### Accidentally backed up a large file?
+
+Exclude it from the set and create a new backup without it. Then select the older
+backups containing it in **Manage saved backups…**, review the storage estimate,
+and confirm deletion. If Proton Drive is already full, you may need to delete an
+older backup first; keep a safe local copy of your files.
+
+### Suggested cleanup
+
+Inside **Manage saved backups…**, press **Review suggested cleanup…** to review
+older backups outside your retention policy and unused data. It uses the same
+confirmation step; schedules never approve deletion for you.
 
 ```text
 Retention policy → Cleanup proposal → Your confirmation → Delete approved scope
@@ -241,8 +266,8 @@ Retention policy → Cleanup proposal → Your confirmation → Delete approved 
 
 | Action | Effect |
 | --- | --- |
-| **Open latest copy in Proton Drive** | Opens the latest recorded copy in your browser. Use OmaCustos to restore files. |
-| **Delete latest copy** | Legacy private-copy folders only; confirms the exact copy before moving it to Trash. Not used for shared incremental snapshots. |
+| **Open Proton Drive ↗** (top navigation) | Opens Proton Drive in your browser. Use OmaCustos to restore files. |
+| **Manage saved backups…** | Select backups by date and file size, then review estimated recovered storage before confirming permanent deletion. Suggested cleanup is available in the same screen. |
 | **Delete backup set** | Removes local settings and its schedule. Remote backup data remains. Export settings first if you may need the set again. |
 
 ## 8. Other controls and settings

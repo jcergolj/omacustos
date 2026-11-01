@@ -150,7 +150,7 @@ QString IncrementalWorker::setId(const BackupSet &set)
 
 QString IncrementalWorker::root(const BackupSet &set)
 {
-    return QDir::cleanPath(set.remoteRoot) + "/sets/" + setId(set);
+    return QDir::cleanPath(set.remoteRoot) + "/sets/" + (set.repositoryFolder.isEmpty() ? setId(set) : set.repositoryFolder);
 }
 
 bool IncrementalWorker::request(const BackupSet &set, const QString &stateDirectory,

@@ -143,6 +143,7 @@ omacustos_add_test(settingsarchive-test tests/settingsarchive_test.cpp omacustos
 target_link_libraries(backupsetcontroller-test PRIVATE Qt6::Qml)
 omacustos_add_test(protonfolderbrowser-test tests/protonfolderbrowser_test.cpp omacustos-controllers)
 omacustos_add_test(recentbackupcopies-test tests/recentbackupcopies_test.cpp omacustos-controllers)
+omacustos_add_test(incrementalmaintenancecontroller-test tests/incrementalmaintenancecontroller_test.cpp omacustos-controllers)
 
 qt_add_executable(dashboard-test tests/dashboard_test.cpp)
 target_link_libraries(dashboard-test PRIVATE Qt6::QuickTest Qt6::QuickControls2 Qt6::QuickDialogs2)
@@ -212,6 +213,7 @@ omacustos_add_test(incrementalrepository-test tests/incrementalrepository_test.c
 qt_add_executable(incrementalworker-test tests/incrementalworker_test.cpp)
 target_link_libraries(incrementalworker-test PRIVATE omacustos-controllers Qt6::Test)
 add_test(NAME incrementalworker-test COMMAND incrementalworker-test
+    namedRepositoryBackupDiscoveryAndRestore
     baselineUnchangedEditAndRestore incompleteScanDoesNotPublish
     skippedLinksAndSpecialNodesDoNotInvalidateRegularFiles copiedImportedAndLostStateRequireTakeover
     copiedAndUnboundConfigurationIsReadOnly explicitEnrollmentOfVerifiedEmptySet
@@ -229,6 +231,9 @@ add_test(NAME incrementalownership-test COMMAND incrementalworker-test
     settingsLossAndCopiedConfigurationNeedControllerTakeover takeoverPreservesConcurrentConfiguration)
 add_test(NAME incrementalmaintenance-test COMMAND incrementalworker-test
     cleanupControllerRequiresConfirmationAndRestoresRetainedState integrityActivityClearsAfterFailure)
+add_test(NAME incrementalversion-deletion-test COMMAND incrementalworker-test
+    selectedVersionCleanupShowsRecoverableStorageAndPreservesLatest)
+set_tests_properties(incrementalversion-deletion-test PROPERTIES TIMEOUT 180)
 add_test(NAME incrementalcleanup-recovery-test COMMAND incrementalworker-test
     protectedWriterAndInterruptedAuthorizedControllerCleanupRecover)
 target_compile_definitions(incrementalworker-test PRIVATE

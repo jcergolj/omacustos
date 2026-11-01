@@ -1,5 +1,6 @@
 #include "incrementalrepository.h"
 #include "incrementalmanifest.h"
+#include "incrementalrestore.h"
 #include "localprovider.h"
 #include "backuparchive.h"
 #include "protonprovider.h"
@@ -187,6 +188,238 @@ QString errors(const IncrementalWriteResult &result)
 class IncrementalRepositoryTest : public QObject {
     Q_OBJECT
 private slots:
+    void deleteSelectedVersions_data()
+    {
+        QTest::addColumn<bool>("all");
+        QTest::addColumn<bool>("interrupted");
+        QTest::newRow("two versions sharing an accidental file") << false << false;
+        QTest::newRow("all versions") << true << false;
+        QTest::newRow("resume authorized multi-selection") << false << true;
+    }
+
+    void deleteSelectedVersions()
+    {
+        QFETCH(bool, all);
+        QFETCH(bool, interrupted);
+        Fixture f;
+        f.request.archiveTargetBytes = 1; // Keep independently reclaimable files in separate archives.
+        QString error, confirmation;
+        QJsonObject proposal;
+        QVERIFY(f.source("shared", "retained data"));
+        QVERIFY(f.source("accidental", "accidentally included large file"));
+        QVERIFY(f.initialize(&error));
+        QVERIFY(IncrementalRepository::execute(f.request, f.provider).success());
+        const auto first = f.request.snapshotId;
+        f.next();
+        QVERIFY(f.source("new", "another retained file"));
+        QVERIFY(IncrementalRepository::execute(f.request, f.provider).success());
+        const auto second = f.request.snapshotId;
+        f.next();
+        f.request.scan.sources.removeAt(1); // Exclude the accidental file, then save a new baseline.
+        QVERIFY(IncrementalRepository::execute(f.request, f.provider).success());
+        const auto latest = f.request.snapshotId;
+        const auto retainedManifest = f.snapshot(latest);
+        QSet<QString> retainedObjects;
+        for (const auto &value : retainedManifest.value("archives").toArray())
+            retainedObjects.insert(value.toObject().value("id").toString() + ".tar.gz");
+        f.request.deleteSnapshotIds = {first, second};
+        if (all) f.request.deleteSnapshotIds.append(latest);
+        QVERIFY(!f.cleanup(&proposal, &confirmation, &error));
+        QCOMPARE(error, QString("Review the exact cleanup proposal and confirm its SHA-256 before deletion."));
+        QCOMPARE(proposal.value("snapshots").toArray().size(), all ? 3 : 2);
+        QCOMPARE(proposal.value("objects").toArray().size(), all ? 3 : 1);
+        QCOMPARE(f.provider.destructiveCalls, 0);
+        for (const auto &value : proposal.value("objects").toArray()) {
+            const auto archive = value.toObject();
+            if (!all) QVERIFY(!retainedObjects.contains(archive.value("id").toString() + ".tar.gz"));
+            QCOMPARE(archive.value("size").toInteger(), QFileInfo(f.cloud(archive.value("remote").toString())).size());
+        }
+        f.request.cleanupConfirmation = QString(64, '0');
+        QVERIFY(!f.cleanup(&proposal, &confirmation, &error));
+        QCOMPARE(f.provider.destructiveCalls, 0);
+        f.provider.allowDeletion = true;
+        f.request.cleanupConfirmation = confirmation;
+        if (interrupted) {
+            f.request.checkpoint = [](const QString &phase) {
+                return phase == "cleanup-after-snapshot-deleted" ? IncrementalControl::Pause : IncrementalControl::Continue;
+            };
+            QVERIFY(!f.cleanup(&proposal, &confirmation, &error));
+            QVERIFY2(error.contains("interrupted"), qPrintable(error));
+            f.request.checkpoint = {};
+            f.request.deleteSnapshotIds.clear();
+            f.request.cleanupConfirmation.clear();
+            QVERIFY2(IncrementalRepository::recoverCleanup(f.request, f.provider, &error), qPrintable(error));
+        } else QVERIFY2(f.cleanup(&proposal, &confirmation, &error), qPrintable(error));
+        QVERIFY(f.snapshot(first).isEmpty());
+        QVERIFY(f.snapshot(second).isEmpty());
+        if (all) {
+            QVERIFY(f.snapshot(latest).isEmpty());
+            QVERIFY(f.objectNames().isEmpty());
+        } else {
+            QCOMPARE(f.snapshot(latest), retainedManifest);
+            RemoteCopy copy;
+            QVERIFY2(IncrementalRestore::verifyCopy(f.provider, f.request.remoteSetRoot + "/snapshots/" + latest,
+                f.request.scan.setId, &copy, &error), qPrintable(error));
+            QCOMPARE(copy.entries.size(), 2);
+            QCOMPARE(f.objectNames().size(), retainedObjects.size());
+        }
+    }
+
+    void invalidMultiSelectionDoesNotDelete_data()
+    {
+        QTest::addColumn<QString>("invalid");
+        for (const auto &scenario : {"missing", "duplicate", "invalid", "conflicting"})
+            QTest::newRow(scenario) << QString(scenario);
+    }
+
+    void invalidMultiSelectionDoesNotDelete()
+    {
+        QFETCH(QString, invalid);
+        Fixture f;
+        QString error, confirmation;
+        QJsonObject proposal;
+        QVERIFY(f.source("a", "bytes"));
+        QVERIFY(f.initialize(&error));
+        QVERIFY(IncrementalRepository::execute(f.request, f.provider).success());
+        f.request.deleteSnapshotIds = {f.request.snapshotId};
+        if (invalid == "missing") f.request.deleteSnapshotIds.append(uuid());
+        if (invalid == "duplicate") f.request.deleteSnapshotIds.append(f.request.snapshotId);
+        if (invalid == "invalid") f.request.deleteSnapshotIds.append("../unsafe");
+        if (invalid == "conflicting") f.request.deleteSnapshotId = f.request.snapshotId;
+        f.provider.allowDeletion = true;
+        QVERIFY(!f.cleanup(&proposal, &confirmation, &error));
+        QVERIFY(proposal.isEmpty());
+        QCOMPARE(f.provider.destructiveCalls, 0);
+        QVERIFY(!f.snapshot(f.request.snapshotId).isEmpty());
+    }
+
+    void multiSelectionChangedHistoryNeedsFreshConfirmation()
+    {
+        Fixture f;
+        QString error, confirmation;
+        QJsonObject proposal;
+        QVERIFY(f.source("a", "bytes"));
+        QVERIFY(f.initialize(&error));
+        QVERIFY(IncrementalRepository::execute(f.request, f.provider).success());
+        f.request.deleteSnapshotIds = {f.request.snapshotId};
+        QVERIFY(!f.cleanup(&proposal, &confirmation, &error));
+        auto manifest = f.snapshot(f.request.snapshotId);
+        manifest["created_at"] = f.request.scan.checkedAt.addSecs(1).toString(Qt::ISODateWithMs);
+        QVERIFY(damage(f.cloud("snapshots/" + f.request.snapshotId + "/manifest.json"), QJsonDocument(manifest).toJson()));
+        f.provider.allowDeletion = true;
+        f.request.cleanupConfirmation = confirmation;
+        QVERIFY(!f.cleanup(&proposal, &confirmation, &error));
+        QVERIFY2(error.contains("fresh"), qPrintable(error));
+        QCOMPARE(f.provider.destructiveCalls, 0);
+    }
+
+    void deleteIndividualVersion_data()
+    {
+        QTest::addColumn<bool>("only");
+        QTest::addColumn<QString>("interruption");
+        for (bool only : {false, true})
+            for (const auto &phase : {QString(), QString("cleanup-authorized"), QString("cleanup-after-snapshot-trashed"),
+                QString("cleanup-after-snapshot-deleted"), QString("cleanup-after-object-trashed"), QString("cleanup-after-object-deleted")})
+                QTest::newRow(qPrintable(QString(only ? "only-" : "latest-") + phase)) << only << phase;
+    }
+
+    void deleteIndividualVersion()
+    {
+        QFETCH(bool, only);
+        QFETCH(QString, interruption);
+        Fixture f;
+        QString error, confirmation;
+        QJsonObject proposal;
+        QVERIFY(f.source("shared", "shared bytes"));
+        QVERIFY(f.initialize(&error));
+        const auto first = IncrementalRepository::execute(f.request, f.provider);
+        QVERIFY2(first.success(), qPrintable(errors(first)));
+        const auto previous = f.request;
+        const auto shared = f.objectNames().first();
+        if (!only) {
+            f.next();
+            QVERIFY(f.source("unique", "latest only bytes"));
+            const auto second = IncrementalRepository::execute(f.request, f.provider);
+            QVERIFY2(second.success(), qPrintable(errors(second)));
+        }
+        const auto deleted = f.request;
+        f.request.deleteSnapshotId = deleted.snapshotId;
+        QVERIFY(!f.cleanup(&proposal, &confirmation, &error));
+        QCOMPARE(proposal.value("selected_snapshot").toString(), deleted.snapshotId);
+        QCOMPARE(proposal.value("snapshots").toArray().size(), 1);
+        QCOMPARE(proposal.value("objects").toArray().size(), 1);
+        QCOMPARE(f.provider.destructiveCalls, 0);
+        f.request.cleanupConfirmation = QString(64, '0');
+        QVERIFY(!f.cleanup(&proposal, &confirmation, &error));
+        QCOMPARE(f.provider.destructiveCalls, 0);
+        f.provider.allowDeletion = true;
+        f.request.cleanupConfirmation = confirmation;
+        if (!interruption.isEmpty()) {
+            bool interrupted = false;
+            f.request.checkpoint = [&](const QString &phase) {
+                if (phase == interruption) { interrupted = true; return IncrementalControl::Pause; }
+                return IncrementalControl::Continue;
+            };
+            QVERIFY(!f.cleanup(&proposal, &confirmation, &error));
+            QVERIFY2(interrupted, qPrintable(error));
+            f.request.checkpoint = {};
+            f.request.cleanupConfirmation.clear();
+            // Same restart path used by the normal worker, without a selected ID.
+            f.request.deleteSnapshotId.clear();
+            QVERIFY2(IncrementalRepository::recoverCleanup(f.request, f.provider, &error), qPrintable(error));
+        } else QVERIFY2(f.cleanup(&proposal, &confirmation, &error), qPrintable(error));
+        QVERIFY(f.snapshot(deleted.snapshotId).isEmpty());
+        if (!only) {
+            QVERIFY(!f.snapshot(previous.snapshotId).isEmpty());
+            QVERIFY(QFileInfo::exists(f.cloud("objects/" + shared)));
+            RemoteCopy restored;
+            QVERIFY2(IncrementalRestore::verifyCopy(f.provider, previous.remoteSetRoot + "/snapshots/" + previous.snapshotId,
+                previous.scan.setId, &restored, &error), qPrintable(error));
+            QCOMPARE(restored.entries.size(), 1);
+        } else QVERIFY(f.objectNames().isEmpty());
+        const auto replayed = IncrementalRepository::execute(deleted, f.provider);
+        QVERIFY2(replayed.success(), qPrintable(errors(replayed)));
+        QVERIFY(f.snapshot(deleted.snapshotId).isEmpty());
+        f.next();
+        f.request.deleteSnapshotId.clear();
+        f.request.cleanupConfirmation.clear();
+        const auto next = IncrementalRepository::execute(f.request, f.provider);
+        QVERIFY2(next.success(), qPrintable(errors(next)));
+        QCOMPARE(next.state, IncrementalWriteResult::State::Saved);
+        QVERIFY(!f.snapshot(f.request.snapshotId).isEmpty());
+    }
+
+    void individualDeletionChangedScopeNeedsFreshConfirmation()
+    {
+        Fixture f;
+        QString error, confirmation;
+        QJsonObject proposal;
+        QVERIFY(f.source("a", "bytes"));
+        QVERIFY(f.initialize(&error));
+        QVERIFY(IncrementalRepository::execute(f.request, f.provider).success());
+        f.request.deleteSnapshotId = f.request.snapshotId;
+        QVERIFY(!f.cleanup(&proposal, &confirmation, &error));
+        const QString originalConfirmation = confirmation;
+        // Model externally changed history between preview and confirmation.
+        auto manifest = f.snapshot(f.request.snapshotId);
+        manifest["created_at"] = f.request.scan.checkedAt.addSecs(1).toString(Qt::ISODateWithMs);
+        QVERIFY(damage(f.cloud("snapshots/" + f.request.snapshotId + "/manifest.json"), QJsonDocument(manifest).toJson()));
+        f.provider.allowDeletion = true;
+        f.request.cleanupConfirmation = originalConfirmation;
+        QVERIFY(!f.cleanup(&proposal, &confirmation, &error));
+        QVERIFY2(error.contains("fresh"), qPrintable(error));
+        QCOMPARE(f.provider.destructiveCalls, 0);
+        // Restore consistent history, then a fresh proposal has a new immutable ID/hash.
+        manifest["created_at"] = f.request.scan.checkedAt.toString(Qt::ISODateWithMs);
+        QVERIFY(damage(f.cloud("snapshots/" + f.request.snapshotId + "/manifest.json"), QJsonDocument(manifest).toJson()));
+        f.request.cleanupConfirmation.clear();
+        QVERIFY(!f.cleanup(&proposal, &confirmation, &error));
+        QVERIFY(confirmation != originalConfirmation);
+        f.request.cleanupConfirmation = originalConfirmation;
+        QVERIFY(!f.cleanup(&proposal, &confirmation, &error));
+        QCOMPARE(f.provider.destructiveCalls, 0);
+    }
+
     void fullIntegrityDetectsHistoricalSameSizeDamage_data()
     {
         QTest::addColumn<bool>("checksums");
@@ -997,7 +1230,8 @@ private slots:
         QVERIFY(damage(fixture.cloud("snapshots/" + fixture.request.snapshotId + "/manifest.json"), QJsonDocument(retained).toJson()));
         fixture.provider.allowDeletion = true;
         QVERIFY(!fixture.cleanup(&proposal, &confirmation, &error));
-        QVERIFY2(error.contains("still referenced"), qPrintable(error));
+        QVERIFY2(error.contains("fresh exact deletion proposal"), qPrintable(error));
+        QCOMPARE(fixture.provider.destructiveCalls, 0);
         QVERIFY(QFileInfo::exists(fixture.cloud("objects/" + oldObject)));
         for (const auto &call : fixture.provider.deletions) QVERIFY(!call.endsWith("objects/" + oldObject));
     }

@@ -1,4 +1,5 @@
 #include "incrementalrestore.h"
+#include "backupconfig.h"
 #include "incrementalmanifest.h"
 #include "remotemetadatacache.h"
 
@@ -10,6 +11,7 @@
 #include <QJsonObject>
 #include <QTemporaryDir>
 #include <algorithm>
+#include <limits>
 
 namespace {
 bool fail(QString *error, const QString &message)
@@ -55,7 +57,8 @@ bool validateAnchor(const QJsonObject &object, const QString &setId, QString *er
     const auto keys = object.keys();
     if (QSet<QString>(keys.cbegin(), keys.cend()) != expected || object.value("version") != 1
         || object.value("application") != "omacustos" || object.value("coordination") != "manual-offline-v1"
-        || object.value("set_id") != setId || !IncrementalManifest::validId(object.value("origin_computer_id").toString())
+        || !IncrementalManifest::validId(object.value("set_id").toString())
+        || (!setId.isEmpty() && object.value("set_id") != setId) || !IncrementalManifest::validId(object.value("origin_computer_id").toString())
         || !IncrementalManifest::validId(object.value("owner_computer_id").toString())
         || !epoch.isDouble() || epoch.toDouble() < 1 || epoch.toDouble() > 9007199254740991.0
         || epoch.toDouble() != double(epoch.toInteger())) return fail(error, "Invalid repository identity or ownership record.");
@@ -74,8 +77,8 @@ bool IncrementalRestore::snapshotLocation(const QString &root, QString *setRoot,
     if (root != QDir::cleanPath(root) || root.contains('\\') || root.contains(QChar::Null)
         || parts.contains("..") || parts.size() < 4 || parts.at(parts.size() - 4) != "sets"
         || parts.at(parts.size() - 2) != "snapshots"
-        || !IncrementalManifest::validId(parts.at(parts.size() - 3)) || !IncrementalManifest::validId(parts.last())) return false;
-    *setId = parts.at(parts.size() - 3);
+        || !BackupSet::validFolderName(parts.at(parts.size() - 3)) || !IncrementalManifest::validId(parts.last())) return false;
+    *setId = IncrementalManifest::validId(parts.at(parts.size() - 3)) ? parts.at(parts.size() - 3) : QString();
     *snapshotId = parts.last();
     *setRoot = root.left(root.size() - snapshotId->size() - QString("/snapshots/").size());
     return true;
@@ -86,8 +89,10 @@ static bool loadCopy(BackupProvider &provider, const QString &root, const QStrin
     const QJsonObject *knownControl = nullptr)
 {
     QString setRoot, setId, snapshotId;
-    if (!copy || !IncrementalRestore::snapshotLocation(root, &setRoot, &setId, &snapshotId)
-        || (!expectedSetId.isEmpty() && setId != expectedSetId)) return fail(error, "Invalid selected shared snapshot location.");
+    if (!copy || !IncrementalRestore::snapshotLocation(root, &setRoot, &setId, &snapshotId))
+        return fail(error, "Invalid selected shared snapshot location.");
+    // Folder labels (even UUID-shaped labels) are not repository identity.
+    setId = expectedSetId;
     QJsonObject control, manifest;
     if (cancelled && cancelled()) return false;
     if (verifyPayloads && !knownControl && provider.supportsBatchDownload()) {
@@ -102,7 +107,9 @@ static bool loadCopy(BackupProvider &provider, const QString &root, const QStrin
         if (cancelled && cancelled()) return false;
         if (!read(provider, root + "/manifest.json", &manifest, error)) return false;
     }
-    if (!IncrementalManifest::validate(QJsonDocument(manifest).toJson(), setId, snapshotId, error)) return false;
+    setId = control.value("set_id").toString();
+    if ((!expectedSetId.isEmpty() && setId != expectedSetId)
+        || !IncrementalManifest::validate(QJsonDocument(manifest).toJson(), setId, snapshotId, error)) return false;
     if (manifest.value("origin_computer_id") != control.value("origin_computer_id")
         || manifest.value("ownership_epoch").toInteger() > control.value("ownership_epoch").toInteger()
         || (manifest.value("ownership_epoch") == control.value("ownership_epoch")
@@ -111,6 +118,15 @@ static bool loadCopy(BackupProvider &provider, const QString &root, const QStrin
     *copy = {root, root + "/manifest.json", control.value("origin_computer_id").toString(), setId, setId,
         snapshotId, "complete", QDateTime::fromString(manifest.value("created_at").toString(), Qt::ISODateWithMs), {}, {}, {}};
     copy->manifestVersion = 4;
+    copy->fileSize = 0;
+    for (const auto &value : manifest.value("entries").toArray()) {
+        const auto bytes = value.toObject().value("size").toInteger();
+        if (bytes < 0 || bytes > std::numeric_limits<qint64>::max() - copy->fileSize) {
+            copy->fileSize = -1;
+            break;
+        }
+        copy->fileSize += bytes;
+    }
     if (cancelled && cancelled()) return false;
     if (!verifyPayloads) return true;
     RemoteMetadataCache directoryMetadata(provider);
@@ -172,7 +188,30 @@ static bool snapshotFolders(BackupProvider &provider, const QString &remoteRoot,
         || !IncrementalManifest::validId(setId)) return fail(error, "An exact remote root and shared set ID are required.");
     if (cancelled && cancelled()) return false;
     *setRoot = QDir(remoteRoot).filePath("sets/" + setId);
-    if (!children(provider, *setRoot + "/snapshots", snapshots, error)) return false;
+    // Keep the historical one-listing browse path. Only discover named folders
+    // after confirming that the UUID namespace really is absent, not on I/O errors.
+    if (!children(provider, *setRoot + "/snapshots", snapshots, error)) {
+        const auto presence = provider.lookup(*setRoot, error);
+        if (presence != RemoteLookup::Missing) return false;
+        if (error) error->clear();
+        QVector<RemoteItem> repositories;
+        if (!children(provider, QDir(remoteRoot).filePath("sets"), &repositories, error)) return false;
+        QString match;
+        for (const auto &repository : repositories) {
+            if (cancelled && cancelled()) return false;
+            if (!repository.directory || !BackupSet::validFolderName(repository.name))
+                return fail(error, "Unexpected repository namespace entry.");
+            QJsonObject control;
+            if (!anchor(provider, repository.path, {}, &control, error)) return false;
+            if (control.value("set_id") == setId) {
+                if (!match.isEmpty()) return fail(error, "Multiple repository folders claim the same backup identity.");
+                match = repository.path;
+            }
+        }
+        if (match.isEmpty()) return fail(error, "The selected backup repository was not found.");
+        *setRoot = match;
+        if (!children(provider, *setRoot + "/snapshots", snapshots, error)) return false;
+    }
     for (const auto &snapshot : *snapshots) {
         if (!snapshot.directory || !IncrementalManifest::validId(snapshot.name))
             return fail(error, "Unexpected snapshot namespace entry.");
@@ -191,6 +230,10 @@ bool IncrementalRestore::listSnapshotCandidates(BackupProvider &provider, const 
     if (!snapshotFolders(provider, remoteRoot, setId, &setRoot, &snapshots, error, cancelled)) return false;
     for (const auto &snapshot : snapshots) {
         if (cancelled && cancelled()) { copies->clear(); return false; }
+        // Cleanup removes manifests, not shared namespaces. A proven absent
+        // manifest is not a saved version; unknown presence stays unverified.
+        QString presenceError;
+        if (provider.lookup(snapshot.path + "/manifest.json", &presenceError) == RemoteLookup::Missing) continue;
         copies->append({snapshot.path, snapshot.path + "/manifest.json", {}, setId, setId,
             snapshot.name, "not verified", snapshot.modified, {}, {}, {}});
     }
@@ -215,6 +258,9 @@ bool IncrementalRestore::listSnapshots(BackupProvider &provider, const QString &
     QVector<RemoteCopy> listed;
     for (const auto &snapshot : snapshots) {
         if (cancelled && cancelled()) return false;
+        const auto presence = provider.lookup(snapshot.path + "/manifest.json", error);
+        if (presence == RemoteLookup::Missing) continue;
+        if (presence == RemoteLookup::Unknown) return false;
         RemoteCopy copy;
         QString problem;
         if (loadCopy(provider, snapshot.path, setId, &copy, &problem, cancelled, false, &control))
@@ -245,10 +291,11 @@ bool IncrementalRestore::discover(BackupProvider &provider, const QString &remot
     QVector<RemoteItem> repositories;
     if (!children(provider, sets, &repositories, error)) return false;
     for (const auto &repository : repositories) {
-        if (!repository.directory || !IncrementalManifest::validId(repository.name))
+        if (!repository.directory || !BackupSet::validFolderName(repository.name))
             return fail(error, "Unexpected repository namespace entry.");
         QJsonObject control;
-        if (!anchor(provider, repository.path, repository.name, &control, error)) return false;
+        if (!anchor(provider, repository.path, {}, &control, error)) return false;
+        const auto repositoryId = control.value("set_id").toString();
         QVector<RemoteItem> snapshots;
         const QString root = repository.path + "/snapshots";
         const auto presence = provider.lookup(root, error);
@@ -262,8 +309,8 @@ bool IncrementalRestore::discover(BackupProvider &provider, const QString &remot
             if (presence == RemoteLookup::Unknown) return false;
             RemoteCopy copy;
             QString problem;
-            if (!verifyCopy(provider, snapshot.path, repository.name, &copy, &problem)) {
-                copy = {snapshot.path, snapshot.path + "/manifest.json", {}, repository.name, repository.name,
+            if (!verifyCopy(provider, snapshot.path, repositoryId, &copy, &problem)) {
+                copy = {snapshot.path, snapshot.path + "/manifest.json", {}, repositoryId, repositoryId,
                     snapshot.name, "damaged", {}, {}, {}, {problem}};
             }
             copies->append(copy);

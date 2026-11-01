@@ -1,4 +1,5 @@
 #include "incrementalrepository.h"
+#include "backupconfig.h"
 #include "incrementalmanifest.h"
 #include "backuparchive.h"
 #include "backupstaging.h"
@@ -81,9 +82,8 @@ bool validRequest(const IncrementalWriteRequest &request, QString *error)
         || request.remoteSetRoot != QDir::cleanPath(request.remoteSetRoot)
         || request.remoteSetRoot.split('/').contains("..") || request.remoteSetRoot.contains('\\')
         || request.remoteSetRoot.contains(QChar::Null)
-        || !request.remoteSetRoot.endsWith("sets/" + request.scan.setId)
-        || (request.remoteSetRoot != "sets/" + request.scan.setId
-            && !request.remoteSetRoot.endsWith("/sets/" + request.scan.setId))
+        || QFileInfo(request.remoteSetRoot).dir().dirName() != "sets"
+        || !BackupSet::validFolderName(QFileInfo(request.remoteSetRoot).fileName())
         || request.stagingBudget <= 0 || request.stagingBudget > 9007199254740991LL
          || request.archiveTargetBytes <= 0 || request.archiveTargetBytes > 9007199254740991LL || request.batchFileLimit <= 0 || request.retention < 0
          || request.integrityByteBudget <= 0 || request.integrityTimeBudgetMs <= 0) {
@@ -371,12 +371,21 @@ bool validCleanupProposal(const QJsonObject &proposal, const IncrementalWriteReq
     const auto owner = proposal.value("anchor").toObject();
     originalOwner.computerId = owner.value("owner_computer_id").toString();
     originalOwner.ownershipEpoch = owner.value("ownership_epoch").toInteger(0);
-    if (proposal.size() != 11 || proposal.value("version") != QJsonValue(1)
+    const bool individual = proposal.contains("selected_snapshot");
+    const bool multiple = proposal.contains("selected_snapshots");
+    if ((individual && multiple) || proposal.size() != (individual || multiple ? 12 : 11) || proposal.value("version") != QJsonValue(1)
         || !IncrementalManifest::validId(originalOwner.computerId) || originalOwner.ownershipEpoch < 1
         || originalOwner.ownershipEpoch > request.ownershipEpoch || proposal.value("anchor") != anchor(originalOwner)
         || (originalOwner.ownershipEpoch == request.ownershipEpoch && originalOwner.computerId != request.computerId)
         || !IncrementalManifest::validId(proposal.value("id").toString())
-        || proposal.value("retention").toInt(0) < 1 || !proposal.value("snapshots").isArray()
+        || (individual ? (proposal.value("retention") != QJsonValue(0)
+            || !IncrementalManifest::validId(proposal.value("selected_snapshot").toString())
+            || proposal.value("snapshots").toArray().size() != 1 || !proposal.value("legacy").toArray().isEmpty()
+            || proposal.value("snapshots").toArray().first().toObject().value("snapshot_id") != proposal.value("selected_snapshot"))
+            : multiple ? (proposal.value("retention") != QJsonValue(0)
+                || !proposal.value("selected_snapshots").isArray() || proposal.value("selected_snapshots").toArray().isEmpty()
+                || !proposal.value("legacy").toArray().isEmpty())
+            : proposal.value("retention").toInt(0) < 1) || !proposal.value("snapshots").isArray()
         || !proposal.value("objects").isArray() || !proposal.value("legacy").isArray()
         || !proposal.value("generation").isString() || !proposal.value("identities").isObject()
         || !proposal.value("estimated_live_member_bytes").isDouble() || !proposal.value("estimated_obsolete_member_bytes").isDouble()) {
@@ -389,6 +398,17 @@ bool validCleanupProposal(const QJsonObject &proposal, const IncrementalWriteReq
         if (ids.contains(id) || !IncrementalManifest::validate(json(manifest), request.scan.setId, id, error)
             || manifest.value("origin_computer_id") != request.originComputerId) return false;
         ids.insert(id);
+    }
+    if (multiple) {
+        QSet<QString> selected;
+        for (const auto &value : proposal.value("selected_snapshots").toArray()) {
+            const auto id = value.toString();
+            if (!IncrementalManifest::validId(id) || selected.contains(id)) {
+                *error = "Invalid selected backup versions."; return false;
+            }
+            selected.insert(id);
+        }
+        if (selected != ids) { *error = "Selected backup versions do not match the deletion scope."; return false; }
     }
     ids.clear();
     for (const auto &value : proposal.value("objects").toArray()) {
@@ -531,6 +551,30 @@ bool IncrementalRepository::initialize(const IncrementalWriteRequest &request, B
     if (!store.open()) { *error = store.error; return false; }
     provider.beginBackupOperation();
     const auto end = qScopeGuard([&] { provider.endBackupOperation(); });
+    if (QFileInfo(request.remoteSetRoot).fileName() != request.scan.setId) {
+        const auto parent = QFileInfo(request.remoteSetRoot).path();
+        if (!provider.ensureDirectory(parent, &store.error)) { *error = store.error; return false; }
+        QVector<RemoteItem> siblings;
+        if (!provider.listComplete(parent, &siblings, &store.error)) { *error = store.error; return false; }
+        for (const auto &sibling : siblings) {
+            if (sibling.path != parent + '/' + sibling.name || !BackupSet::validFolderName(sibling.name)) {
+                *error = "Unsafe repository folder listing.";
+                return false;
+            }
+            if (BackupSet::nameKey(sibling.name) == BackupSet::nameKey(QFileInfo(request.remoteSetRoot).fileName())
+                && sibling.path != request.remoteSetRoot) {
+                *error = "A backup folder with this name already exists in this remote location. Choose a different name.";
+                return false;
+            }
+            if (sibling.path == request.remoteSetRoot) {
+                const auto anchorPresence = provider.lookup(request.remoteSetRoot + "/repository.json", &store.error);
+                if (anchorPresence != RemoteLookup::Found) {
+                    *error = store.error.isEmpty() ? "A folder with this backup name already exists without a repository identity. Choose a different name; it will not be adopted." : store.error;
+                    return false;
+                }
+            }
+        }
+    }
     if (!provider.ensureDirectory(request.remoteSetRoot, &store.error)) { *error = store.error; return false; }
     QStringList existing;
     if (!store.children({}, &existing)) { *error = store.error; return false; }
@@ -1753,10 +1797,24 @@ bool IncrementalRepository::cleanup(const IncrementalWriteRequest &request, Back
     bool saved = false;
     if (!terminalOperations(store, provider, request, history, &saved, active.isEmpty() ? &inventory.archives : nullptr)) return failed();
     if (active.isEmpty()) {
-        if (request.retention < 1 || !saved || !inventory.snapshots.contains(request.snapshotId)) {
+        QStringList selectedIds = request.deleteSnapshotIds;
+        if (!request.deleteSnapshotId.isEmpty()) {
+            if (!selectedIds.isEmpty()) { *error = "Conflicting backup deletion selections."; return false; }
+            selectedIds.append(request.deleteSnapshotId);
+        }
+        const bool individual = !selectedIds.isEmpty();
+        QSet<QString> selected;
+        for (const auto &id : selectedIds) {
+            if (!IncrementalManifest::validId(id) || !inventory.snapshots.contains(id) || selected.contains(id)) {
+                *error = "A selected backup is missing, invalid, or duplicated. Reload saved backups."; return false;
+            }
+            selected.insert(id);
+        }
+        if (!individual
+            && (request.retention < 1 || !saved || !inventory.snapshots.contains(request.snapshotId))) {
             *error = "Cleanup requires a durably successful saved publication and positive retention."; return false;
         }
-        if (!legacyInventory(store, provider, request, &inventory.legacy)) return failed();
+        if (!individual && !legacyInventory(store, provider, request, &inventory.legacy)) return failed();
         QStringList objectsPresent;
         if (!store.children("objects", &objectsPresent)) return failed();
         QSet<QString> present;
@@ -1788,7 +1846,7 @@ bool IncrementalRepository::cleanup(const IncrementalWriteRequest &request, Back
         QSet<QString> retainedObjects;
         QSet<QString> retainedMembers;
         for (qsizetype i = 0; i < states.size(); ++i) {
-            if (i >= request.retention) {
+            if (individual ? selected.contains(states[i].identity) : i >= request.retention) {
                 if (!states[i].snapshot.isEmpty()) expired.append(states[i].snapshot);
                 else legacy.append(states[i].legacy);
             } else {
@@ -1801,8 +1859,12 @@ bool IncrementalRepository::cleanup(const IncrementalWriteRequest &request, Back
             }
         }
         QJsonArray objects;
+        QSet<QString> selectedObjects;
+        for (const auto &id : selectedIds)
+            for (const auto &value : inventory.snapshots.value(id).value("archives").toArray())
+                selectedObjects.insert(value.toObject().value("id").toString());
         for (auto it = inventory.archives.cbegin(); it != inventory.archives.cend(); ++it) {
-            if (retainedObjects.contains(it.key())) continue;
+            if (retainedObjects.contains(it.key()) || (individual && !selectedObjects.contains(it.key()))) continue;
             const auto found = store.lookup(it.value().value("remote").toString());
             if (found == RemoteLookup::Unknown) return failed();
             if (found == RemoteLookup::Found) objects.append(it.value());
@@ -1831,6 +1893,14 @@ bool IncrementalRepository::cleanup(const IncrementalWriteRequest &request, Back
         proposal = {{"version", 1}, {"id", active}, {"anchor", anchor(request)}, {"retention", request.retention},
             {"generation", digest(json(generation))}, {"snapshots", expired}, {"objects", objects}, {"legacy", legacy},
             {"identities", identities}, {"estimated_live_member_bytes", liveBytes}, {"estimated_obsolete_member_bytes", obsoleteBytes}};
+        if (individual) {
+            proposal["retention"] = 0;
+            if (!request.deleteSnapshotId.isEmpty()) proposal["selected_snapshot"] = request.deleteSnapshotId;
+            else {
+                selectedIds.sort();
+                proposal["selected_snapshots"] = QJsonArray::fromStringList(selectedIds);
+            }
+        }
         if (!validCleanupProposal(proposal, request, &store.error)
             || !store.local("cleanup-" + active + ".json", proposal)
             || !store.put("maintenance/" + active + "/proposal.json", proposal)) return failed();
@@ -1851,6 +1921,14 @@ bool IncrementalRepository::cleanup(const IncrementalWriteRequest &request, Back
         return true;
     }
     if (authorized == RemoteLookup::Missing) {
+        QJsonObject generation;
+        for (auto it = inventory.snapshots.cbegin(); it != inventory.snapshots.cend(); ++it) generation[it.key()] = digest(json(it.value()));
+        if (proposal.value("generation") != digest(json(generation))) {
+            // Invalidate this preview, without granting any deletion authority.
+            if (!store.put(root + "/dismissed.json", receipt)) return failed();
+            *error = "Saved versions changed. Review a fresh exact deletion proposal.";
+            return false;
+        }
         if (request.cleanupConfirmation != hash) {
             *error = "Review the exact cleanup proposal and confirm its SHA-256 before deletion."; return false;
         }

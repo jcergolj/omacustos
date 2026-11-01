@@ -6,6 +6,7 @@
 class IncrementalRestore
 {
 public:
+    // Syntactic location only. setId is empty for named folders; verify metadata for identity.
     static bool snapshotLocation(const QString &snapshotRoot, QString *setRoot, QString *setId, QString *snapshotId);
     static bool describeCopy(BackupProvider &provider, const QString &snapshotRoot, const QString &expectedSetId,
         RemoteCopy *copy, QString *error, const std::function<bool()> &cancelled = {});

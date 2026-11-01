@@ -157,11 +157,6 @@ ApplicationWindow {
         })
     }
 
-    function openRecentBackupFolder(index) {
-        const setId = backupSetController.recentBackupSetIds[index]
-        recentBackupCopies.openCopy(setId)
-    }
-
     function requestRemoveSet(index) {
         removeSetDialog.setIndex = index
         removeSetDialog.setId = backupSetController.setIds[index]
@@ -192,12 +187,24 @@ ApplicationWindow {
             incrementalCleanupDialog.proposal = proposal
             incrementalCleanupDialog.open()
         }
+        function onVersionsReady(setId, versions) {
+            backupVersionsDialog.setId = setId
+            backupVersionsDialog.versions = versions
+            backupVersionsDialog.selectedIds = []
+            backupVersionsDialog.open()
+        }
+        function onHistoryChanged(setId) {
+            if (restoreController.invalidateHistory) restoreController.invalidateHistory(setId)
+        }
         function onCompleted(message) {
             root.setStatus(message)
             if (backupSetController.refreshWriteAuthority) backupSetController.refreshWriteAuthority()
             backupSetController.refreshRunState()
         }
-        function onFailed(message) { root.setStatus(message) }
+        function onFailed(message) {
+            root.setStatus(message)
+            backupSetController.refreshRunState()
+        }
     }
 
     ActionDialog {
@@ -206,20 +213,129 @@ ApplicationWindow {
         property string proposal: ""
         style: uiStyle
         anchors.centerIn: parent
-        title: qsTr("Confirm exact cleanup proposal")
+        title: qsTr("Review deletion")
         width: Math.min(root.width - 2 * root.contentPadding, 700)
         height: Math.min(root.height - 2 * root.contentPadding, 500)
         modal: true
         standardButtons: Dialog.Ok | Dialog.Cancel
-        onAccepted: incrementalMaintenance.confirmCleanup()
+        onOpened: standardButton(Dialog.Ok).text = qsTr("Delete permanently")
+        onAccepted: {
+            if (restoreController.restoring) incrementalMaintenance.cancelCleanup()
+            else incrementalMaintenance.confirmCleanup()
+        }
         onRejected: incrementalMaintenance.cancelCleanup()
         ScrollView {
             anchors.fill: parent
             TextArea {
+                objectName: "backupDeletionSummary"
                 readOnly: true
                 wrapMode: TextEdit.Wrap
-                text: qsTr("Only the exact listed snapshots, legacy copies, and unreferenced objects may be deleted. A changed proposal requires another review.\n\n") + incrementalCleanupDialog.proposal
+                text: incrementalCleanupDialog.proposal + qsTr("\n\nDeletion is permanent. Your original files won’t be affected. Nothing is removed until you confirm. If saved backups change, you must review a fresh proposal.")
                 textFormat: TextEdit.PlainText
+            }
+        }
+    }
+
+    ActionDialog {
+        id: backupVersionsDialog
+        objectName: "backupVersionsDialog"
+        property string setId: ""
+        property var versions: []
+        property var selectedIds: []
+        readonly property bool canManage: typeof incrementalMaintenance !== "undefined" && !incrementalMaintenance.busy
+            && !restoreController.restoring && backupSetController.runningSetIds.indexOf(setId) < 0
+            && !(backupSetController.setSummaries[setId] || {}).readOnly
+        style: uiStyle
+        anchors.centerIn: parent
+        title: qsTr("Manage saved backups")
+        width: Math.min(root.width - 2 * root.contentPadding, 700)
+        height: Math.min(root.height - 2 * root.contentPadding, 500)
+        modal: true
+        standardButtons: Dialog.Close
+        footer: ColumnLayout {
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.leftMargin: backupVersionsDialog.padding
+                Layout.rightMargin: backupVersionsDialog.padding
+                spacing: uiStyle.buttonSpacing
+                ActionButton {
+                    style: uiStyle
+                    objectName: "reviewSelectedBackupDeletionButton"
+                    text: qsTr("Review deletion… (%1 selected)").arg(backupVersionsDialog.selectedIds.length)
+                    Layout.fillWidth: true
+                    enabled: backupVersionsDialog.canManage && backupVersionsDialog.selectedIds.length > 0
+                    onClicked: {
+                        backupVersionsDialog.close()
+                        incrementalMaintenance.previewDeleteVersions(backupVersionsDialog.setId, backupVersionsDialog.selectedIds)
+                    }
+                }
+                ActionButton {
+                    style: uiStyle
+                    objectName: "reviewBackupCleanupButton"
+                    text: qsTr("Review suggested cleanup…")
+                    Layout.fillWidth: true
+                    enabled: backupVersionsDialog.canManage
+                    onClicked: {
+                        backupVersionsDialog.close()
+                        incrementalMaintenance.previewCleanup(backupVersionsDialog.setId)
+                    }
+                }
+            }
+            DialogButtonBox {
+                Layout.fillWidth: true
+                standardButtons: Dialog.Close
+                delegate: ActionButton { style: uiStyle }
+                onRejected: backupVersionsDialog.reject()
+            }
+        }
+        ScrollView {
+            objectName: "backupVersionsScrollView"
+            anchors.fill: parent
+            ColumnLayout {
+                width: parent.width
+                Label {
+                    text: qsTr("Select backups to delete, then review how much storage can be recovered. File size is not space freed by deletion: backups can share stored data.")
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                }
+                Label {
+                    objectName: "largeFileBackupGuidance"
+                    text: qsTr("Accidentally backed up a large file? Exclude it from the backup set and create a new backup first. Then delete older backups containing it. If Proton Drive is full, you may need to delete an older backup first; keep a safe local copy of your files.")
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                }
+                Label {
+                    objectName: "noSavedBackupsLabel"
+                    visible: backupVersionsDialog.versions.length === 0
+                    text: qsTr("No saved backups found. You can still review unused data for cleanup.")
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                }
+                Repeater {
+                    objectName: "backupVersionRows"
+                    model: backupVersionsDialog.versions
+                    delegate: RowLayout {
+                        required property var modelData
+                        CheckBox {
+                            objectName: "selectBackupVersion-" + modelData.id
+                            enabled: backupVersionsDialog.canManage
+                            checked: backupVersionsDialog.selectedIds.indexOf(modelData.id) >= 0
+                            Accessible.name: qsTr("Select backup %1, %2").arg(modelData.date).arg(modelData.id)
+                            onToggled: {
+                                if (checked) backupVersionsDialog.selectedIds = backupVersionsDialog.selectedIds.concat([modelData.id])
+                                else backupVersionsDialog.selectedIds = backupVersionsDialog.selectedIds.filter(function(id) { return id !== modelData.id })
+                            }
+                        }
+                        Label {
+                            objectName: "backupVersionSummary-" + modelData.id
+                            text: modelData.date + "\n" + modelData.id + "\n"
+                                + (modelData.fileSize ? qsTr("File size: %1").arg(modelData.fileSize) : qsTr("File size unavailable"))
+                            Layout.fillWidth: true
+                            wrapMode: Text.Wrap
+                            textFormat: Text.PlainText
+                        }
+                    }
+                }
             }
         }
     }
@@ -230,7 +346,7 @@ ApplicationWindow {
         property string setId: ""
         style: uiStyle
         anchors.centerIn: parent
-        title: qsTr("Offline writer takeover")
+        title: qsTr("Move backup responsibility to this computer")
         width: Math.min(root.width - 2 * root.contentPadding, 540)
         modal: true
         standardButtons: Dialog.Ok | Dialog.Cancel
@@ -238,7 +354,7 @@ ApplicationWindow {
         Label {
             width: parent.width
             wrapMode: Text.WordWrap
-            text: qsTr("Confirm ONLY after permanently disabling every old writer: stop its processes, schedules and retries, and disable its installation/access. A verified-empty set will be enrolled; existing history requires an OFFLINE handoff, not an online lease or server-side fencing. Other computers remain read-only. No backup is started by this action.")
+            text: qsTr("Use this when replacing the computer that creates backups. This does not restore files or start a backup. Confirm ONLY after permanently disabling the old computer’s backup processes, schedules and retries, and its installation/access. Existing history requires an offline handoff; other computers remain read-only.")
         }
     }
 
@@ -776,6 +892,19 @@ ApplicationWindow {
             }
 
             ActionButton {
+                style: uiStyle
+                objectName: "openProtonDriveButton"
+                text: qsTr("Open Proton Drive ↗")
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("Open Proton Drive in your browser")
+                onClicked: {
+                    if (!Qt.openUrlExternally("https://drive.proton.me/")) {
+                        root.setStatus(qsTr("Unable to open Proton Drive in your browser."))
+                    }
+                }
+            }
+
+            ActionButton {
                 id: backupSetsMenuButton
                 style: uiStyle
                 objectName: "backupSetsMenuButton"
@@ -958,13 +1087,9 @@ ApplicationWindow {
                 onEditSetRequested: function(index) { root.editSet(index) }
                 onRemoveSetRequested: function(index) { root.requestRemoveSet(index) }
                 onRestoreRequested: function(setId) { root.restoreBackupSet(setId) }
-                onOpenFolderRequested: function(setId) { recentBackupCopies.openCopy(setId) }
                 onDetailsRequested: function(setId) {
                     backupDetailsDialog.setId = setId
                     backupDetailsDialog.open()
-                }
-                onCleanupRequested: function(setId) {
-                    if (typeof incrementalMaintenance !== "undefined") incrementalMaintenance.previewCleanup(setId)
                 }
                 onTakeoverRequested: function(setId) {
                     writerTakeoverDialog.setId = setId

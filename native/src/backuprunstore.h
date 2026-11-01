@@ -68,6 +68,8 @@ public:
     bool requestControl(const QString &setId, const QString &action, QString *error = nullptr);
     bool rememberStagingRoot(const BackupRunRecord &attempt, const QString &root, QString *error = nullptr);
     bool finishIncrementalCleanup(const QString &setId, const QString &remoteSetRoot, QString *error = nullptr);
+    bool reconcileSnapshotHistory(const QString &setId, const QString &remoteSetRoot,
+        const QString &latestPath, const QDateTime &createdAt, QString *error = nullptr);
     bool finishIntegrityCheck(const QString &setId, const QString &remoteSetRoot, const QJsonObject &report, QString *error = nullptr);
 
     void ensureSet(const QString &setId);

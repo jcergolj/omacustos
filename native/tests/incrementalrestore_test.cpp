@@ -119,12 +119,23 @@ private slots:
         RemoteCopy copy;
         QVERIFY2(IncrementalRestore::verifyCopy(provider, f.snapshot(), f.request.scan.setId, &copy, &error), qPrintable(error));
         QCOMPARE(copy.entries.size(), available);
+        QCOMPARE(copy.fileSize, 14);
         QCOMPARE(copy.unavailableItems.size(), 3 - available);
         QCOMPARE(runner.calls.size(), calls);
         QCOMPARE(runner.calls.first().mid(7, 2), (QStringList {f.request.remoteSetRoot + "/repository.json", f.snapshot() + "/manifest.json"}));
         for (const auto &call : runner.calls) {
             QVERIFY(call.value(1) == "download" || call.value(1) == "list" || call.value(1) == "info");
             if (call.value(1) == "download") QVERIFY(call.at(call.size() - 2).endsWith(".json"));
+        }
+        runner.calls.clear();
+        RemoteCopy described;
+        QVERIFY2(IncrementalRestore::describeCopy(provider, f.snapshot(), f.request.scan.setId, &described, &error), qPrintable(error));
+        QCOMPARE(described.fileSize, 14);
+        QVERIFY(described.entries.isEmpty());
+        QCOMPARE(runner.calls.size(), 2);
+        for (const auto &call : runner.calls) {
+            QCOMPARE(call.value(1), QString("download"));
+            QVERIFY(call.at(call.size() - 2).endsWith(".json"));
         }
         runner.calls.clear();
         RemoteCopy cancelled;
@@ -178,10 +189,10 @@ private slots:
         QCOMPARE(copies.size(), 1);
         QCOMPARE(copies.first().rootPath, f.snapshot());
         QVERIFY(copies.first().entries.isEmpty());
-        QVERIFY(!f.error.isEmpty()); // An unpublished/missing manifest is not a restore point.
+        QVERIFY(f.error.isEmpty()); // A proven unpublished/deleted manifest is not a restore point or an error.
         QVector<RemoteCopy> candidates;
         QVERIFY(IncrementalRestore::listSnapshotCandidates(f.provider, "backup", f.request.scan.setId, &candidates, &f.error));
-        QCOMPARE(candidates.size(), 2); // Display-only folders may include an unpublished point.
+        QCOMPARE(candidates.size(), 1); // Proven unpublished/deleted folders are not saved versions.
         for (const auto &candidate : candidates) {
             QCOMPARE(candidate.status, QString("not verified"));
             QVERIFY(candidate.entries.isEmpty());

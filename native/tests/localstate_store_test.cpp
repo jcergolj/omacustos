@@ -56,6 +56,32 @@ class LocalStateStoreTest final : public QObject
     Q_OBJECT
 
 private slots:
+    void deletingLatestSnapshotRepointsOrClearsLocalLinks()
+    {
+        QTemporaryDir home;
+        BackupRunStore runs(home.filePath("runs.json"));
+        runs.ensureSet("documents");
+        auto *record = runs.find("documents");
+        record->status = "success";
+        record->remoteCopyPath = "/backup/sets/documents/snapshots/latest";
+        record->incremental = {{"snapshot_path", record->remoteCopyPath}, {"outcome", "saved"}};
+        record->result.manifestVerified = true;
+        QVERIFY(runs.save());
+        QString error;
+        const auto created = QDateTime::currentDateTimeUtc();
+        QVERIFY(runs.reconcileSnapshotHistory("documents", "/backup/sets/documents",
+            "/backup/sets/documents/snapshots/older", created, &error));
+        QVERIFY(runs.load());
+        QCOMPARE(runs.find("documents")->remoteCopyPath, "/backup/sets/documents/snapshots/older");
+        QCOMPARE(runs.find("documents")->incremental.value("snapshot_path").toString(), runs.find("documents")->remoteCopyPath);
+        QVERIFY(!runs.find("documents")->result.manifestVerified);
+        QVERIFY(runs.reconcileSnapshotHistory("documents", "/backup/sets/documents", {}, {}, &error));
+        QVERIFY(runs.load());
+        QVERIFY(runs.find("documents")->remoteCopyPath.isEmpty());
+        QVERIFY(runs.find("documents")->incremental.value("snapshot_path").toString().isEmpty());
+        QCOMPARE(runs.find("documents")->status, "copy_deleted");
+    }
+
     void failuresRetainTheEntireSnapshot_data()
     {
         QTest::addColumn<bool>("cleanup");

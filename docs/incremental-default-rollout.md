@@ -73,8 +73,9 @@ retention planning. A shared snapshot cannot be deleted with the old whole-copy
 delete action.
 
 Scheduled backups do not authorize their own cleanup. When retention needs work,
-the UI reports **cleanup needs attention**. Choose **Review incremental cleanup…**
-and review the exact proposed snapshot, legacy-folder, and unreferenced-object
+the UI reports **cleanup needs attention**. Choose **Manage saved backups… →
+Review suggested cleanup…** and review the proposed backups and storage estimate.
+The immutable proposal binds exact snapshot, legacy-folder, and unreferenced-object
 identities. Confirmation authorizes only that proposal. A changed scope requires
 a fresh review.
 

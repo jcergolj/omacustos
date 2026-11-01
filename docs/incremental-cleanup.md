@@ -1,10 +1,35 @@
-# Reference-aware retention (#60)
+# Reference-aware cleanup and storage recovery
 
-> Historical component delivery record. Normal worker/UI integration now requires
-> individual exact-proposal confirmation; see [the #62 report](incremental-default-rollout.md).
+## Desktop workflow
 
-The advanced incremental executor supports opt-in cleanup. The normal worker is
-still not switched to v4. All operations use the approved manual-offline,
+Open **card ⋯ → Manage saved backups…**. Select one or more backups by date and
+file size, then press **Review deletion…**. The review lists the exact backups to
+delete and estimated Proton storage recovered. **Delete permanently** confirms
+that scope; **Cancel** deletes nothing. Selecting all saved backups shows a warning.
+Your original local files are not affected.
+
+The estimate sums compressed archive sizes only when no remaining version needs
+those archives. Shared archives are counted once. Partly used archives are never
+compacted or counted as recoverable; logical file size does not predict recovered
+storage. Small metadata and provider quota accounting can differ. If a proposal
+contains legacy folders whose stored sizes are unknown, the estimate is unavailable
+rather than a misleading partial total.
+
+**Review suggested cleanup…**, inside the same screen, proposes retention-based
+removal and unused data instead of a manual selection. It requires the same exact
+confirmation. Failed, incomplete, or scheduled backups never authorize deletion.
+
+For an accidentally included large file, exclude it and save a new backup first,
+then delete older versions containing it. If Proton Drive is already full, you may
+need to delete an older version first; keep a safe local copy of your files.
+
+See [Manage history and free space](../README.md#7-manage-history-and-free-space)
+for the everyday workflow and [the rollout record](incremental-default-rollout.md)
+for normal worker integration.
+
+## Protocol and executor
+
+The incremental executor and normal worker use v4 snapshots. All operations use the approved manual-offline,
 single-owning-computer model, the shared state directory's non-expiring set UUID
 lock, and fresh owner/epoch checks. This is not remote fencing.
 
@@ -24,10 +49,17 @@ name/UID/parent-validated ancestor listing; download errors, unreadable listings
 UID aliases and identity mismatches are never treated as absence. Required
 repository inventories and exact deletion targets retain their strict checks.
 
-Only a verified, durably completed **saved** publication can start a proposal.
+Only a verified, durably completed **saved** publication can start a retention proposal.
 Unchanged checks publish no snapshot and consume no slot. Failed uploads, quota
 errors, and incomplete backups cannot start retention. No history is removed to
-make upload space.
+make upload space automatically. An explicit user selection can delete saved
+versions independently of newest-N retention, including the last version.
+
+Multi-selection proposals bind `selected_snapshots` to the exact set of archived
+snapshot manifests. Older `selected_snapshot` proposals remain supported. Invalid,
+duplicate, missing, or conflicting selected IDs fail closed. The union of references
+from every unselected version protects shared data. Previewed storage is derived
+from the proposal's exact object descriptors; it does not broaden deletion authority.
 
 The saved result includes `cleanup_proposal`, its `cleanup_confirmation` SHA-256,
 and `cleanup_needs_attention`. Review the entire proposal before copying that hash
@@ -42,8 +74,9 @@ build/omacustos-incremental --request request.json \
 a fresh confirmation; this implementation deliberately requires exact confirmation
 for **every** proposal rather than granting an open-ended deletion policy. Once
 authorization is persisted, retry needs no new confirmation for the same bytes.
-Never pass a proposal from another set/root/owner. A pending proposal blocks all
-writers, even before confirmation; finish/reconcile it before continuing backups.
+Never pass a proposal from another set/root/owner. An unapproved preview grants no
+deletion authority and does not block scheduled backups. Changed history requires
+a fresh review. Already-authorized cleanup is recovered before later writes.
 Offline takeover refuses unfinished cleanup. Completed proposals survive handoff
 as validated historical records, not reusable deletion authority.
 
@@ -116,6 +149,15 @@ live archives retain obsolete members, and a completely obsolete archive is the
 smallest reclamation unit. Only currently present, identified archives are counted.
 
 ## Coverage
+
+Desktop selection coverage includes selecting/deselecting multiple versions,
+resetting selection when history reloads, explicit confirmation/cancellation,
+readable date/ID and storage summaries, and controls locked during a restore.
+Repository/controller regressions cover shared-file exclusion, union-based archive
+reclamation, all-version deletion warnings, invalid selections, stale confirmation,
+and restart recovery of an authorized multi-selection. The process-level
+`incrementalversion-deletion-test` verifies storage estimates, cancellation, exact
+selected-version removal, and verification of the retained latest backup.
 
 `incrementalrepository-test` covers mixed legacy/v4 history, empty snapshots,
 overlapping member references, unchanged checks, source/upload quota failures,

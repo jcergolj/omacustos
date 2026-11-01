@@ -22,6 +22,7 @@ class BackupSetController final : public QObject
     Q_PROPERTY(QString currentId READ currentId NOTIFY currentSetChanged)
     Q_PROPERTY(int currentIndex READ currentIndex WRITE setCurrentIndex NOTIFY currentIndexChanged)
     Q_PROPERTY(QString currentName READ currentName WRITE setCurrentName NOTIFY currentSetChanged)
+    Q_PROPERTY(QString currentRepositoryPath READ currentRepositoryPath NOTIFY currentSetChanged)
     Q_PROPERTY(QString currentRemoteRoot READ currentRemoteRoot WRITE setCurrentRemoteRoot NOTIFY currentSetChanged)
     Q_PROPERTY(QStringList currentSources READ currentSources WRITE setCurrentSources NOTIFY currentSetChanged)
     Q_PROPERTY(QStringList currentExclusions READ currentExclusions WRITE setCurrentExclusions NOTIFY currentSetChanged)
@@ -69,6 +70,7 @@ public:
     int currentIndex() const;
     void setCurrentIndex(int index);
     QString currentName() const;
+    QString currentRepositoryPath() const;
     void setCurrentName(const QString &name);
     QString currentRemoteRoot() const;
     void setCurrentRemoteRoot(const QString &remoteRoot);

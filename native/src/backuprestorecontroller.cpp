@@ -394,6 +394,17 @@ void BackupRestoreController::discover(const QString &backupFolder, const QStrin
     if (!browseInFlight) startBrowse();
 }
 
+void BackupRestoreController::invalidateHistory(const QString &setId)
+{
+    snapshots.clear();
+    if (expectedSetId != setId || restoring) return;
+    remoteCopies.clear();
+    manifestEntries.clear();
+    selectedCopyIndex = -1;
+    hasCopyListing = false;
+    discover(activeBackupFolder, expectedSetId, historyContext, historyLegacyName, true, includeLegacyHistory);
+}
+
 void BackupRestoreController::selectCopy(int index)
 {
     if (restoring) return;

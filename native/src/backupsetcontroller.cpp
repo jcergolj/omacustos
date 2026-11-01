@@ -214,6 +214,12 @@ QString BackupSetController::currentName() const
     return set == nullptr ? QString() : set->name;
 }
 
+QString BackupSetController::currentRepositoryPath() const
+{
+    const auto *set = currentSet();
+    return !set || unsavedSetIds.contains(set->id) ? QString() : IncrementalWorker::root(*set);
+}
+
 void BackupSetController::setCurrentName(const QString &name)
 {
     if (BackupSet *set = currentSet()) {
@@ -833,15 +839,23 @@ bool BackupSetController::save()
         emit failed(error.isEmpty() ? tr("Enter a positive staging budget.") : error);
         return false;
     }
-    if (!store.save(config, &error)) {
+    // Freeze the remote folder on the first save, not when the draft is created.
+    // Later display-name edits must not disconnect existing history or authority.
+    BackupConfig updated = config;
+    for (auto &candidate : updated.sets) {
+        if (unsavedSetIds.contains(candidate.id)) candidate.repositoryFolder = candidate.name;
+    }
+    if (!store.save(updated, &error)) {
         emit failed(error);
 
         return false;
     }
 
+    config = updated;
     savedSets = config.sets;
     unsavedSetIds.clear();
     emit statusChanged(QStringLiteral("Backup saved."));
+    emit currentSetChanged();
     emit configurationSaved();
     return true;
 }

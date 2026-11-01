@@ -15,9 +15,7 @@ ColumnLayout {
     signal editSetRequested(int index)
     signal removeSetRequested(int index)
     signal restoreRequested(string setId)
-    signal openFolderRequested(string setId)
     signal detailsRequested(string setId)
-    signal cleanupRequested(string setId)
     signal takeoverRequested(string setId)
     signal integrityRequested(string setId)
     readonly property int attentionCount: controller.setIds.filter(function (id) {
@@ -90,9 +88,12 @@ ColumnLayout {
             deleting: dashboard.copies.deletingSetId === setId
             integrityChecking: typeof incrementalMaintenance !== "undefined"
                 && incrementalMaintenance.busy && incrementalMaintenance.integritySetId === setId
+            maintenanceText: typeof incrementalMaintenance !== "undefined" && incrementalMaintenance.busy
+                && incrementalMaintenance.activeSetId === setId ? incrementalMaintenance.activityText : ""
             remaining: dashboard.controller.remainingTimes[setId] || qsTr("Estimating time remaining…")
             progress: dashboard.controller.transferProgress[setId] || ({})
             copyBusy: dashboard.copies.busy || dashboard.folderBrowser.busy
+                || dashboard.restoreState.restoring
                 || (typeof incrementalMaintenance !== "undefined" && incrementalMaintenance.busy)
             onEditRequested: dashboard.editSetRequested(index)
             onBackupRequested: dashboard.launcher.startBackup(setId)
@@ -103,10 +104,10 @@ ColumnLayout {
             }
             onCancelRequested: dashboard.launcher.cancelBackup(setId)
             onRestoreRequested: dashboard.restoreRequested(setId)
-            onOpenFolderRequested: dashboard.openFolderRequested(setId)
             onDetailsRequested: dashboard.detailsRequested(setId)
-            onDeleteCopyRequested: dashboard.copies.requestDelete(setId)
-            onCleanupRequested: dashboard.cleanupRequested(setId)
+            onVersionsRequested: {
+                if (typeof incrementalMaintenance !== "undefined") incrementalMaintenance.listVersions(setId)
+            }
             onTakeoverRequested: dashboard.takeoverRequested(setId)
             onIntegrityRequested: dashboard.integrityRequested(setId)
             onRemoveRequested: dashboard.removeSetRequested(index)

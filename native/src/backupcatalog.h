@@ -21,6 +21,7 @@ struct RemoteCopy {
     QStringList unavailableItems;
     QStringList failedItems;
     int manifestVersion = 0;
+    qint64 fileSize = -1; // Logical file bytes from snapshot metadata; -1 when unknown.
 
     bool complete() const
     {
