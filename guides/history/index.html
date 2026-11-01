@@ -460,6 +460,24 @@
         
       
       
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7. Manage history and free space
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
       <a href="./" class="md-nav__link md-nav__link--active">
         
   
@@ -476,6 +494,58 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#delete-selected-backups" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Delete selected backups
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#accidentally-backed-up-a-large-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Accidentally backed up a large file?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#suggested-cleanup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Suggested cleanup
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
       
     </li>
   
@@ -1037,6 +1107,47 @@
     
   
   
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#delete-selected-backups" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Delete selected backups
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#accidentally-backed-up-a-large-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Accidentally backed up a large file?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#suggested-cleanup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Suggested cleanup
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
 </nav>
                   </div>
                 </div>
@@ -1053,8 +1164,28 @@
 
 
 <h1 id="7-manage-history-and-free-space">7. Manage history and free space<a class="headerlink" href="#7-manage-history-and-free-space" title="Permanent link">&para;</a></h1>
-<p>Use <strong>card ⋯ → Review incremental cleanup…</strong> when prompted or when reviewing old
-history. Review the exact proposed deletions before confirming.</p>
+<p>Open <strong>card ⋯ → Manage saved backups…</strong>. This is the single place to delete saved
+backups or review suggested cleanup.</p>
+<h3 id="delete-selected-backups">Delete selected backups<a class="headerlink" href="#delete-selected-backups" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Compare backup dates and total file sizes, then tick one or more backups.</li>
+<li>Press <strong>Review deletion…</strong> to see exactly which backups will disappear and
+   <strong>estimated Proton storage recovered</strong>.</li>
+<li>Press <strong>Delete permanently</strong> to confirm, or <strong>Cancel</strong> to remove nothing.</li>
+</ol>
+<p>The review warns if you select all saved backups. Original files on your computer
+are not changed. File size is <strong>not</strong> recovered storage: versions can share data,
+and partly used archives stay whole. The recovery estimate counts only unused
+stored archives once; small metadata and Proton quota accounting can differ.</p>
+<h3 id="accidentally-backed-up-a-large-file">Accidentally backed up a large file?<a class="headerlink" href="#accidentally-backed-up-a-large-file" title="Permanent link">&para;</a></h3>
+<p>Exclude it from the set and create a new backup without it. Then select the older
+backups containing it in <strong>Manage saved backups…</strong>, review the storage estimate,
+and confirm deletion. If Proton Drive is already full, you may need to delete an
+older backup first; keep a safe local copy of your files.</p>
+<h3 id="suggested-cleanup">Suggested cleanup<a class="headerlink" href="#suggested-cleanup" title="Permanent link">&para;</a></h3>
+<p>Inside <strong>Manage saved backups…</strong>, press <strong>Review suggested cleanup…</strong> to review
+older backups outside your retention policy and unused data. It uses the same
+confirmation step; schedules never approve deletion for you.</p>
 <div class="highlight"><pre><span></span><code>Retention policy → Cleanup proposal → Your confirmation → Delete approved scope
                                       ↑
                           No confirmation = no deletion
@@ -1077,12 +1208,12 @@ history. Review the exact proposed deletions before confirming.</p>
 </thead>
 <tbody>
 <tr>
-<td><strong>Open latest copy in Proton Drive</strong></td>
-<td>Opens the latest recorded copy in your browser. Use OmaCustos to restore files.</td>
+<td><strong>Open Proton Drive ↗</strong> (top navigation)</td>
+<td>Opens Proton Drive in your browser. Use OmaCustos to restore files.</td>
 </tr>
 <tr>
-<td><strong>Delete latest copy</strong></td>
-<td>Legacy private-copy folders only; confirms the exact copy before moving it to Trash. Not used for shared incremental snapshots.</td>
+<td><strong>Manage saved backups…</strong></td>
+<td>Select backups by date and file size, then review estimated recovered storage before confirming permanent deletion. Suggested cleanup is available in the same screen.</td>
 </tr>
 <tr>
 <td><strong>Delete backup set</strong></td>

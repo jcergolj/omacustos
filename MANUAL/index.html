@@ -1922,13 +1922,40 @@ opens the copy picker so you can choose the latest or an older available copy.
 See <a href="./#restore">Restore</a> for file selection and destination options.
 “Retention: keep 3 successful copies” is the configured policy, not a live count
 of copies in Proton Drive. Deleting the latest copy keeps the set's card and access
-to older copies. <strong>⋯ → Open latest copy in Proton Drive</strong> and <strong>Delete latest copy</strong>
-refer specifically to the most recently recorded copy.</p>
+to older copies. <strong>Open Proton Drive ↗</strong> in the top navigation opens
+Proton Drive in your browser; use <strong>Restore copies…</strong> to recover backed-up files.</p>
 <p>Incremental results distinguish <strong>New saved state</strong> from <strong>Successful check; no
 saved change</strong>. Run details show the last successful check, last saved change,
 integrity status, capacity warning, and affected damaged history. A successful
 daily reuse check is not a claim that every old archive was downloaded today.
-Shared snapshots use <strong>Review incremental cleanup…</strong>, not whole-copy deletion.</p>
+<strong>Manage saved backups…</strong> lists dated incremental versions with their total file
+size. Select one or more versions and press <strong>Review deletion…</strong>. The review lists
+the exact backups to delete and estimated Proton storage recovered. File size
+is not space freed by deletion: versions can share stored data. The estimate counts
+stored archives that no remaining backup needs, once each. Partly used archives
+stay whole; small metadata and Proton quota accounting may differ. Legacy cleanup
+can show an unavailable estimate rather than a misleading partial total.
+Shared archives remain while any saved version references them. Your
+original files are not affected. After deleting the latest version, the newest
+remaining version becomes the baseline. After deleting the last, the next backup
+creates a fresh baseline. In the same screen, <strong>Review suggested cleanup…</strong>
+previews bulk retention and unused data; nothing is removed until exact-scope confirmation.
+The review warns if you select all saved backups. <strong>Delete permanently</strong> confirms
+the exact reviewed scope; <strong>Cancel</strong> removes nothing.</p>
+<p>If you accidentally backed up a large file:</p>
+<ol>
+<li>Exclude it from the backup set and create a new backup without it.</li>
+<li>Open <strong>Manage saved backups…</strong> and select older backups containing the file.</li>
+<li>Review the estimated recovered storage, then confirm deletion.</li>
+</ol>
+<p>If Proton Drive is already full, you may need to delete an older backup before
+creating the new one. Keep a safe local copy of your files. Deleting one old
+backup may recover no archive storage if other backups still need the same data.</p>
+<p>Long-running management actions show an animated progress bar and an explanation
+on the affected backup card. Disabled buttons have a grey striped surface, dimmed
+text, and an unavailable badge; disabled
+backup-menu actions explain why they cannot run. Feedback clears when the action
+finishes or fails, with the result shown in a notification.</p>
 <p>Historical results additionally distinguish <strong>Successful</strong>, <strong>Incomplete</strong> (some verified files, with
 failures), and <strong>Failed</strong> (no verified restorable copy). Completed copies show the
 verified-file count and failed-item count. Press <strong>View issues</strong> or open
@@ -1993,7 +2020,7 @@ are no longer listed in the normal restore chooser. Legacy format readers remain
 in the application internals. An unfinished older attempt resumes its original format and exact
 namespace; its cleanup is deferred to a fresh baseline and exact mixed-format
 review. Settings from before ownership binding, imports, and copied settings are
-read-only until <strong>Offline writer takeover…</strong>. Confirm only after the previous
+read-only until <strong>Move backup responsibility to this computer…</strong>. Confirm only after the previous
 writer's processes, schedules, retries and access are permanently disabled.
 This enrolls a verified-empty set or explicitly takes over existing ownership;
 it is not a server lease, and starts no backup itself.</p>
@@ -2092,7 +2119,7 @@ incremental snapshots and older full-copy backups from other computers without
 local run history or an initial backup attempt.</p>
 <p>To resume backing up, correct missing sources using <strong>Edit settings</strong>, permanently
 disable the old writer (including its login timer and any ability to restart),
-then perform <strong>Offline writer takeover…</strong> for each set. Takeover is an offline
+then perform <strong>Move backup responsibility to this computer…</strong> for each set. This is an offline
 ownership agreement, not a server-enforced fence. It does not resume schedules:
 press <strong>Resume</strong> separately for each set. Resumption requires valid source paths
 and completed handoff. Interrupted operations, integrity work or cleanup records
@@ -2235,11 +2262,22 @@ new replacement uploads do not repair those snapshots.</p>
 an animated activity bar, without a percentage or time estimate. A notification
 reports completion or errors. The check does not create a new backup.</p>
 <h2 id="manage-copies">Manage copies<a class="headerlink" href="#manage-copies" title="Permanent link">&para;</a></h2>
+<p>New backup sets use their name as their Proton Drive folder, for example
+<code>sets/Downloads</code>. Names must be unique within a remote backup location (ignoring
+case) and safe as folder names: no slashes, control characters or <code>\:*?"&lt;&gt;|</code>,
+leading/trailing spaces, trailing dots, or names over 200 UTF-8 bytes.
+Existing sets keep their UUID folders. The editor shows the saved backup folder;
+changing the display name does not move it. Exported settings preserve this folder
+so importing them on another computer still finds the same history. A remote
+folder belonging to another backup is never merged or overwritten by name.</p>
 <ul>
-<li><strong>⋯ → Open latest copy in Proton Drive</strong> opens the latest recorded copy in your browser.</li>
-<li><strong>⋯ → Delete latest copy</strong> confirms the exact copy before moving it to Proton Drive Trash.</li>
-<li>That whole-copy action is for legacy private folders only. Shared snapshots and
-  unreferenced whole archives use <strong>⋯ → Review incremental cleanup…</strong>.</li>
+<li><strong>Open Proton Drive ↗</strong> in the top navigation opens Proton Drive in your browser.</li>
+<li><strong>⋯ → Manage saved backups… → Review deletion…</strong> reviews selected versions and
+  estimated recovered storage before permanent deletion, even for the last backup.
+  Data used by remaining versions is preserved.</li>
+<li><strong>⋯ → Manage saved backups… → Review suggested cleanup…</strong> previews bulk retention and unused data.</li>
+<li><strong>⋯ → Move backup responsibility to this computer…</strong> appears for read-only sets.
+  It replaces the backup-writing computer; it does not restore files or start a backup.</li>
 <li><strong>⋯ → Delete backup set</strong> removes its configuration and schedule; remote copies remain.</li>
 </ul>
 <h2 id="daily-operation">Daily operation<a class="headerlink" href="#daily-operation" title="Permanent link">&para;</a></h2>

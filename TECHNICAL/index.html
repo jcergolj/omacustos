@@ -1481,6 +1481,12 @@ the selection owner. Restore opens in a dedicated scrollable screen, like the
 backup editor; closing it preserves its state, and completion resets the panel
 and returns to the dashboard. The top-right three-dot menu contains backup-set
 import and export actions.
+Repository maintenance publishes its active set and action text before starting
+background work. The dashboard reuses <code>TransferProgress</code> for indeterminate
+maintenance feedback, separately from backup and integrity progress. Completion,
+preview readiness, and failure all end busy feedback. Disabled buttons expose an
+unavailable badge, and card menu items expose the reason visually and through
+their accessibility descriptions.
 These components receive controllers and <code>UiStyle</code> explicitly. <code>FormCard</code> gives
 backup and restore forms the same surface, padding, and typography.
 <code>TransferProgress</code> shares the status, file-count text, and progress bar between
@@ -1565,12 +1571,34 @@ Thus requests queued during management execute after it finishes, including
 manual-only backups with no timer. A competing worker still exits immediately
 when another worker holds exclusion.</p>
 <h2 id="remote-layout">Remote Layout<a class="headerlink" href="#remote-layout" title="Permanent link">&para;</a></h2>
+<p>Individual incremental-version deletion uses the same durable maintenance
+transaction as retention. Proposals with <code>selected_snapshot</code> bind exactly one
+manifest and its newly unreferenced objects (<code>retention: 0</code>); they never authorize
+whole-folder deletion of shared payloads. Before authorization, a changed manifest
+inventory invalidates the preview and requires fresh confirmation. Authorized
+transactions retain their exact scope across interruption and local journal loss.
+The writer derives its latest baseline from remaining manifests, or starts a fresh
+baseline if none remain. Maintenance reconciles local latest/open links even after
+partial deletion; restore browsing omits proven absent manifests and invalidates
+cached history after deletion attempts.
+Candidate browsing checks manifest presence without downloading manifest bodies
+or payloads. This adds a metadata lookup per candidate to distinguish empty
+unpublished/deleted namespaces from saved versions. Unknown presence remains an
+unverified candidate and never grants restore eligibility.</p>
 <p>Fresh normal-worker runs now use the <a href="../docs/incremental-repository/">v4 repository contract</a>,
 <a href="../docs/incremental-planner/">planner</a>, <a href="../docs/incremental-execution/">executor</a>,
 and <a href="../docs/incremental-cleanup/">reference-aware cleanup</a>. The integration and
 release evidence are documented in <a href="../docs/incremental-default-rollout/">default incremental rollout</a>.
-Each set owns <code>sets/&lt;set UUID&gt;/repository.json</code>, immutable <code>objects/</code>, complete
+Each set owns <code>sets/&lt;fixed folder&gt;/repository.json</code>, immutable <code>objects/</code>, complete
 <code>snapshots/&lt;snapshot UUID&gt;/manifest.json</code>, and recovery/maintenance records.
+New UI-created sets persist their initial name as <code>repository_folder</code>; definitions
+without that field retain the historical UUID folder. Display-name edits do not
+change this path. Repository and manifest <code>set_id</code> values remain UUID identities,
+never inferred from a readable folder label. Imports/exports preserve the folder.
+Names are case-folded and Unicode-normalized for local uniqueness; provisioning
+checks complete remote sibling listings for collisions and verifies existing
+repository ownership. This is not an atomic multi-computer name reservation:
+the manual-offline single-writer requirement still applies.
 Daily reuse checks are deliberately lighter than scheduled full integrity checks;
 they can miss same-size corruption. Shared-object deletion always requires an
 individually confirmed exact scope. Manual-offline single ownership is not a
@@ -1797,7 +1825,28 @@ worker. For restores, launch the app with the variable, for example
 per transfer. Empty, invalid, nonpositive, or values above 2147483 seconds use the
 24-hour default.</p>
 <h3 id="browser-links-and-copy-management">Browser Links And Copy Management<a class="headerlink" href="#browser-links-and-copy-management" title="Permanent link">&para;</a></h3>
-<p>Recent-backup browser links open the copy recorded for that run in
+<p>The top-navigation <strong>Open Proton Drive ↗</strong> action opens <code>https://drive.proton.me/</code>
+directly, independently of backup state or CLI authentication. Backup cards use
+<strong>Restore copies…</strong> for recovery and no longer expose a latest-copy browser action.
+They also omit latest-copy deletion: the single <strong>Manage saved backups…</strong> entry
+lists versions for single or multi-selection deletion and offers <strong>Review suggested cleanup…</strong>
+for bulk retention and unused data. Version file sizes are summed from the already-loaded manifest,
+without inspecting or downloading payload archives; they are logical file sizes,
+not estimates of reclaimable storage.</p>
+<p><strong>Review deletion…</strong> passes exact snapshot IDs to the reference-aware cleanup
+transaction. Multi-selection proposals persist a validated <code>selected_snapshots</code>
+array matching their archived snapshot manifests exactly; older <code>selected_snapshot</code>
+proposals remain valid. Duplicate, missing, invalid, or conflicting IDs fail closed.
+The same generation digest, stable deletion identities, confirmation hash, and
+durable authorization/recovery records apply to the entire selection. Unselected
+versions and their shared archives remain protected.</p>
+<p>The review presents dates/IDs and sums the compressed <code>size</code> of each unique archive
+in the immutable deletion proposal, not logical file bytes or obsolete members of
+partly used archives. It is an estimate of recovered storage, excluding small
+metadata and provider quota-accounting differences. Legacy folder sizes are not
+inferred: mixed/legacy proposals report the estimate as unavailable. No estimate
+grants deletion authority; confirmation still authorizes only the exact proposal.</p>
+<p>The retained recent-backup browser-link infrastructure resolves the copy recorded for a run in
 the signed-in Proton Drive web app. Browsing a recorded copy uses its locally saved
 path directly, without downloading its manifest or acquiring worker/run-state locks.
 The worker prepares and caches the private browser URL for manifest-verified copies

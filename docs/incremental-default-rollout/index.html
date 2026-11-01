@@ -1248,8 +1248,9 @@ computer/set-name namespaces are associated with the configured set before
 retention planning. A shared snapshot cannot be deleted with the old whole-copy
 delete action.</p>
 <p>Scheduled backups do not authorize their own cleanup. When retention needs work,
-the UI reports <strong>cleanup needs attention</strong>. Choose <strong>Review incremental cleanup…</strong>
-and review the exact proposed snapshot, legacy-folder, and unreferenced-object
+the UI reports <strong>cleanup needs attention</strong>. Choose <strong>Manage saved backups… →
+Review suggested cleanup…</strong> and review the proposed backups and storage estimate.
+The immutable proposal binds exact snapshot, legacy-folder, and unreferenced-object
 identities. Confirmation authorizes only that proposal. A changed scope requires
 a fresh review.</p>
 <p>Cancelling a preview writes a dismissal, not deletion authority. A crashed/closed
