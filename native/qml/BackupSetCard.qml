@@ -35,6 +35,31 @@ Frame {
     signal integrityRequested()
     readonly property bool active: runActive || deleting || maintaining
     readonly property bool needsAttention: ["incomplete", "failed", "retrying", "waiting", "authentication_required"].indexOf(run.statusCode) >= 0 || !!run.cleanupNeedsAttention
+    readonly property string attentionReason: {
+        let reason = ""
+        switch (run.statusCode) {
+        case "incomplete":
+            reason = qsTr("The latest backup is incomplete. Open View issues to see which files or checks failed.")
+            break
+        case "failed":
+            reason = qsTr("The latest backup failed. Open View issues to see what went wrong before trying again.")
+            break
+        case "retrying":
+            reason = qsTr("A backup attempt failed. OmaCustos will retry automatically; open View issues for the cause.")
+            break
+        case "waiting":
+            reason = qsTr("The backup is waiting for a required condition. See the reason below; OmaCustos will check again automatically.")
+            break
+        case "authentication_required":
+            reason = qsTr("Proton Drive sign-in is required. Sign in to Proton to let backups continue.")
+            break
+        }
+        if (run.cleanupNeedsAttention) {
+            const cleanup = qsTr("Cleanup of old backup data needs attention. Open Actions (⋯) → Manage saved backups… to review cleanup.")
+            reason = reason.length > 0 ? reason + "\n" + cleanup : cleanup
+        }
+        return reason
+    }
     readonly property string statusText: deleting ? qsTr("Deleting latest copy…")
         : run.statusCode === "copy_deleted" ? qsTr("Latest copy deleted")
         : !run.statusCode || run.statusCode === "idle" ? qsTr("No backup yet") : run.status
@@ -172,6 +197,14 @@ Frame {
             text: (!card.active && card.needsAttention ? "! " : !card.active && card.run.statusCode === "success" ? "✓ " : "") + card.statusText
             font.pixelSize: card.style.bodyTypeSize
             font.weight: Font.Normal
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
+        }
+        Label {
+            objectName: "setAttentionReason-" + card.cardIndex
+            visible: !card.active && card.needsAttention
+            text: card.attentionReason
+            textFormat: Text.PlainText
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
         }

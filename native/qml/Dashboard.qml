@@ -20,7 +20,7 @@ ColumnLayout {
     signal integrityRequested(string setId)
     readonly property int attentionCount: controller.setIds.filter(function (id) {
         const status = (controller.runSummaries[id] || {}).statusCode
-        return ["failed", "incomplete", "retrying", "authentication_required"].indexOf(status) >= 0
+        return ["failed", "incomplete", "retrying", "waiting", "authentication_required"].indexOf(status) >= 0
             || !!(controller.runSummaries[id] || {}).cleanupNeedsAttention
     }).length
     spacing: 12

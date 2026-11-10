@@ -682,6 +682,41 @@ TestCase {
         compare(bar.visible, false)
     }
 
+    function test_attentionReason_data() {
+        return [
+            { tag: "incomplete", status: "incomplete", cleanup: false, explanation: "latest backup is incomplete" },
+            { tag: "failed", status: "failed", cleanup: false, explanation: "latest backup failed" },
+            { tag: "retrying", status: "retrying", cleanup: false, explanation: "retry automatically" },
+            { tag: "waiting", status: "waiting", cleanup: false, explanation: "waiting for a required condition" },
+            { tag: "authentication", status: "authentication_required", cleanup: false, explanation: "Sign in to Proton" },
+            { tag: "cleanup", status: "success", cleanup: true, explanation: "Manage saved backups…" },
+            { tag: "failed-and-cleanup", status: "failed", cleanup: true, explanation: "latest backup failed" }
+        ]
+    }
+
+    function test_attentionReason(data) {
+        backupSetController.runDetails = {
+            "documents-id": { status: data.status, statusCode: data.status,
+                cleanupNeedsAttention: data.cleanup, error: "Specific cause <details>" }
+        }
+        const reason = control("setAttentionReason-0")
+        tryCompare(reason, "visible", true)
+        verify(reason.text.indexOf(data.explanation) >= 0)
+        compare(reason.textFormat, Text.PlainText)
+        if (data.cleanup) verify(reason.text.indexOf("Cleanup of old backup data") >= 0)
+        compare(control("setWaitingReason-0").text, "Specific cause <details>")
+        compare(control("backupAttentionSummary").text, "1 backup set needs attention")
+        verify(control("backupAttentionSummary").visible)
+        verify(control("viewIssues-0").visible)
+
+        backupSetController.runningSetIds = ["documents-id"]
+        tryCompare(reason, "visible", false)
+        backupSetController.runningSetIds = []
+        backupSetController.runDetails = { "documents-id": { status: "Successful", statusCode: "success" } }
+        tryCompare(reason, "visible", false)
+        compare(control("backupAttentionSummary").visible, false)
+    }
+
     function test_incompleteResultDetailsShowPathsAndReasonsAndAllowRestore() {
         backupSetController.recentBackups = ["Photos\nNo backup run yet", "Documents\nIncomplete"]
         backupSetController.runDetails = {
