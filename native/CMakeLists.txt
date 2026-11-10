@@ -214,6 +214,7 @@ qt_add_executable(incrementalworker-test tests/incrementalworker_test.cpp)
 target_link_libraries(incrementalworker-test PRIVATE omacustos-controllers Qt6::Test)
 add_test(NAME incrementalworker-test COMMAND incrementalworker-test
     namedRepositoryBackupDiscoveryAndRestore
+    discoversRepositoriesFromAnotherComputer
     baselineUnchangedEditAndRestore incompleteScanDoesNotPublish
     skippedLinksAndSpecialNodesDoNotInvalidateRegularFiles copiedImportedAndLostStateRequireTakeover
     copiedAndUnboundConfigurationIsReadOnly explicitEnrollmentOfVerifiedEmptySet

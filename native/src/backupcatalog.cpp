@@ -65,13 +65,9 @@ bool visit(BackupProvider &provider, const QString &path, const QString &rootPat
         warning(error, copyError);
         return !(cancelled && cancelled());
     }
-    const bool repository = QFileInfo(QFileInfo(path).path()).fileName() == "sets"
-        && IncrementalManifest::validId(QFileInfo(path).fileName())
-        && std::any_of(items.cbegin(), items.cend(), [&](const auto &item) {
+    const bool repository = std::any_of(items.cbegin(), items.cend(), [&](const auto &item) {
             return !item.directory && item.path == path + "/repository.json";
         });
-    if (!verifyPayloads && repository && !expectedSharedSetId.isEmpty()
-        && QFileInfo(path).fileName() != expectedSharedSetId) return true;
     for (const RemoteItem &item : items) {
         if (cancelled && cancelled()) return false;
         if (!inside(item.path, rootPath)) {
@@ -79,7 +75,7 @@ bool visit(BackupProvider &provider, const QString &path, const QString &rootPat
             continue;
         }
         if (item.directory) {
-            if (legacyOnly && item.path == rootPath + "/sets") continue;
+            if (legacyOnly && (repository || item.path == rootPath + "/sets")) continue;
             // Only snapshots contain copies in a shared repository. Objects and
             // writer bookkeeping can be large and do not belong in the chooser.
             if (!verifyPayloads && repository && item.name != "snapshots") continue;

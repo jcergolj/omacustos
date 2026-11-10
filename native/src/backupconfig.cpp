@@ -481,7 +481,7 @@ bool BackupConfigStore::saveFile(const BackupConfig &config, bool setsOnly, QStr
     for (const BackupSet &set : config.sets) {
         const auto location = QDir::cleanPath(set.remoteRoot) + QChar::Null;
         const auto key = location + BackupSet::nameKey(set.name);
-        const auto folderKey = location + BackupSet::nameKey(set.repositoryFolder.isEmpty() ? set.id : set.repositoryFolder);
+        const auto folderKey = location + BackupSet::nameKey(set.repositoryFolder.isEmpty() ? set.name : set.repositoryFolder);
         if (!BackupSet::validFolderName(set.name)
             || (!set.repositoryFolder.isEmpty() && !BackupSet::validFolderName(set.repositoryFolder))) {
             if (error) *error = QStringLiteral("Use a folder-safe backup name without leading/trailing spaces, slashes or special characters (/\\:*?\"<>|).");

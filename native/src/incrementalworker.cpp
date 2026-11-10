@@ -150,7 +150,8 @@ QString IncrementalWorker::setId(const BackupSet &set)
 
 QString IncrementalWorker::root(const BackupSet &set)
 {
-    return QDir::cleanPath(set.remoteRoot) + "/sets/" + (set.repositoryFolder.isEmpty() ? setId(set) : set.repositoryFolder);
+    const auto computerRoot = QFileInfo(set.remoteFolder(QSysInfo::machineHostName())).path();
+    return computerRoot + '/' + (set.repositoryFolder.isEmpty() ? set.name : set.repositoryFolder);
 }
 
 bool IncrementalWorker::request(const BackupSet &set, const QString &stateDirectory,
@@ -177,7 +178,8 @@ bool IncrementalWorker::request(const BackupSet &set, const QString &stateDirect
         const auto computer = uuid();
         state = {{"version", 1}, {"remote_root", root(set)}, {"installation", fingerprint(stateDirectory)},
             {"computer_id", computer}, {"origin_computer_id", computer}, {"ownership_epoch", 1},
-            {"legacy_root", set.remoteFolder(QSysInfo::machineHostName())}};
+            {"legacy_root", set.remoteFolder(QSysInfo::machineHostName()) == root(set)
+                ? QString() : set.remoteFolder(QSysInfo::machineHostName())}};
         // Persist intent BEFORE touching the provider, so a lost initialization
         // response retries the same owner instead of provisioning a new one.
         if (!save(path, state, error)) return false;

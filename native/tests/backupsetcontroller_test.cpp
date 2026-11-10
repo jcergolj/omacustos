@@ -43,6 +43,22 @@ class BackupSetControllerTest final : public QObject
     Q_OBJECT
 
 private slots:
+    void existingSetsUseComputerAndNameWithoutRecreation()
+    {
+        QTemporaryDir directory;
+        const auto path = directory.filePath("settings.json");
+        BackupConfig config;
+        config.sets = {{"old-id", "My documents", "/my-files/backups", {directory.path()}, {}}};
+        QString error;
+        QVERIFY(BackupConfigStore(path).save(config, &error));
+        BackupEngine engine;
+        BackupSetController controller(engine, path);
+        const auto computerRoot = QFileInfo(config.sets.first().remoteFolder(QSysInfo::machineHostName())).path();
+        QCOMPARE(controller.currentRepositoryPath(), computerRoot + "/My documents");
+        QVERIFY(controller.save());
+        QVERIFY(BackupConfigStore(path).load(&config, &error));
+        QCOMPARE(config.sets.first().repositoryFolder, QString("My documents"));
+    }
     void newSetsUseNamedFoldersAndRenamesKeepHistory()
     {
         QTemporaryDir directory;
@@ -57,12 +73,14 @@ private slots:
         QString error;
         QVERIFY(BackupConfigStore(path).load(&saved, &error));
         QCOMPARE(saved.sets.last().repositoryFolder, QString("Downloads"));
-        QVERIFY(controller.currentRepositoryPath().endsWith("/sets/Downloads"));
+        const auto repositoryPath = saved.sets.last().remoteFolder(QSysInfo::machineHostName());
+        QCOMPARE(controller.currentRepositoryPath(), repositoryPath);
         controller.setCurrentName("My downloads");
         QVERIFY(controller.save());
         QVERIFY(BackupConfigStore(path).load(&saved, &error));
         QCOMPARE(saved.sets.last().name, QString("My downloads"));
         QCOMPARE(saved.sets.last().repositoryFolder, QString("Downloads"));
+        QCOMPARE(controller.currentRepositoryPath(), repositoryPath);
     }
     void completeDraftPublishesCoherentStateAndSkipsUnchangedUpdates();
     void draftPreservesOrInvalidatesInFlightPreview_data();

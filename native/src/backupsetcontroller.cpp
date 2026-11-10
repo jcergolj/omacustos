@@ -843,7 +843,7 @@ bool BackupSetController::save()
     // Later display-name edits must not disconnect existing history or authority.
     BackupConfig updated = config;
     for (auto &candidate : updated.sets) {
-        if (unsavedSetIds.contains(candidate.id)) candidate.repositoryFolder = candidate.name;
+        if (candidate.repositoryFolder.isEmpty() || unsavedSetIds.contains(candidate.id)) candidate.repositoryFolder = candidate.name;
     }
     if (!store.save(updated, &error)) {
         emit failed(error);

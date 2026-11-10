@@ -460,12 +460,15 @@ void BackupRestoreController::startBrowse()
         if (request.listing) {
             if (request.history) {
                 BackupSet identity; identity.id = request.setId;
+                identity.name = request.legacyName;
+                identity.remoteRoot = request.folder;
                 const auto sharedId = IncrementalWorker::setId(identity);
                 result.success = request.setId.isEmpty()
                     ? BackupCatalog::listHistory(*workerProvider, request.folder, &result.copies, &result.error,
                         [cancelled] { return cancelled->load(); })
                     : IncrementalRestore::listSnapshotCandidates(*workerProvider, request.folder, sharedId,
-                        &result.copies, &result.error, [cancelled] { return cancelled->load(); });
+                        &result.copies, &result.error, [cancelled] { return cancelled->load(); },
+                        BackupSet::validFolderName(identity.name) ? IncrementalWorker::root(identity) : QString());
                 if (!request.setId.isEmpty() && request.includeLegacy) {
                     QVector<RemoteCopy> legacy;
                     QString legacyError;

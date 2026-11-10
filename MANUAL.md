@@ -533,11 +533,14 @@ reports completion or errors. The check does not create a new backup.
 
 ## Manage copies
 
-New backup sets use their name as their Proton Drive folder, for example
-`sets/Downloads`. Names must be unique within a remote backup location (ignoring
+Backup sets are stored under the computer name, for example
+`/my-files/backups/my-computer/Downloads`. Existing configurations without a saved
+folder name also use their backup-set name, starting a fresh repository in this
+layout rather than continuing the old UUID repository.
+Names must be unique within a remote backup location (ignoring
 case) and safe as folder names: no slashes, control characters or `\:*?"<>|`,
 leading/trailing spaces, trailing dots, or names over 200 UTF-8 bytes.
-Existing sets keep their UUID folders. The editor shows the saved backup folder;
+The editor shows the saved backup folder;
 changing the display name does not move it. Exported settings preserve this folder
 so importing them on another computer still finds the same history. A remote
 folder belonging to another backup is never merged or overwritten by name.

@@ -82,7 +82,7 @@ bool validRequest(const IncrementalWriteRequest &request, QString *error)
         || request.remoteSetRoot != QDir::cleanPath(request.remoteSetRoot)
         || request.remoteSetRoot.split('/').contains("..") || request.remoteSetRoot.contains('\\')
         || request.remoteSetRoot.contains(QChar::Null)
-        || QFileInfo(request.remoteSetRoot).dir().dirName() != "sets"
+        || !BackupSet::validFolderName(QFileInfo(request.remoteSetRoot).dir().dirName())
         || !BackupSet::validFolderName(QFileInfo(request.remoteSetRoot).fileName())
         || request.stagingBudget <= 0 || request.stagingBudget > 9007199254740991LL
          || request.archiveTargetBytes <= 0 || request.archiveTargetBytes > 9007199254740991LL || request.batchFileLimit <= 0 || request.retention < 0

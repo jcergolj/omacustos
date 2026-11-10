@@ -18,6 +18,7 @@
 #include <QProcess>
 #include <QProcessEnvironment>
 #include <QTemporaryDir>
+#include <QSysInfo>
 #include <QUuid>
 #include <QtTest>
 #include <sys/stat.h>
@@ -120,7 +121,8 @@ private slots:
     {
         Fixture f; QVERIFY(f.prepare());
         f.set.repositoryFolder = "My documents";
-        QCOMPARE(IncrementalWorker::root(f.set), QString("backups/sets/My documents"));
+        const auto computerRoot = QFileInfo(f.set.remoteFolder(QSysInfo::machineHostName())).path();
+        QCOMPARE(IncrementalWorker::root(f.set), computerRoot + "/My documents");
         IncrementalWriteRequest request; QVERIFY2(f.request(&request), qPrintable(f.error));
         const auto saved = IncrementalWorker::run(f.set, request, f.provider);
         QVERIFY(saved.success());
@@ -153,10 +155,14 @@ private slots:
     void baselineUnchangedEditAndRestore()
     {
         Fixture f; QVERIFY(f.prepare());
+        QCOMPARE(IncrementalWorker::root(f.set), f.set.remoteFolder(QSysInfo::machineHostName()));
         IncrementalWriteRequest first; QVERIFY2(f.request(&first), qPrintable(f.error));
+        QVERIFY(first.legacyRoot.isEmpty());
         QString warning;
         const auto saved = IncrementalWorker::run(f.set, first, f.provider, {}, [&](const auto &message) { warning = message; });
         QVERIFY2(saved.success(), saved.issues.isEmpty() ? "save failed" : qPrintable(saved.issues.first().reason));
+        QVERIFY(QFile::exists(f.directory.filePath("remote/") + IncrementalWorker::root(f.set) + "/repository.json"));
+        QVERIFY(!QFile::exists(f.directory.filePath("remote/backups/sets")));
         QVERIFY(warning.contains("PLUS"));
         QVERIFY(warning.contains("not a quota guarantee"));
         QCOMPARE(saved.savedFiles, 2);
@@ -181,6 +187,28 @@ private slots:
             QCOMPARE(bytes(destination + "/a.txt"), snapshot == saved.latestSnapshotPath ? QByteArray("first") : QByteArray("changed"));
             QCOMPARE(bytes(destination + (snapshot == saved.latestSnapshotPath ? "/b.txt" : "/renamed.txt")), QByteArray("unchanged"));
         }
+    }
+
+    void discoversRepositoriesFromAnotherComputer()
+    {
+        Fixture f; QVERIFY(f.prepare());
+        f.set.name = "My documents";
+        IncrementalWriteRequest request; QVERIFY2(f.request(&request), qPrintable(f.error));
+        QVERIFY(IncrementalWorker::run(f.set, request, f.provider).success());
+        const auto computerRoot = QFileInfo(request.remoteSetRoot).path();
+        QVERIFY(QDir().rename(f.directory.filePath("remote/") + computerRoot,
+            f.directory.filePath("remote/backups/another-computer")));
+        QVector<RemoteCopy> copies;
+        QVERIFY2(IncrementalRestore::listSnapshots(f.provider, f.set.remoteRoot, request.scan.setId,
+            &copies, &f.error), qPrintable(f.error));
+        QCOMPARE(copies.size(), 1);
+        QVERIFY(copies.first().rootPath.startsWith("backups/another-computer/My documents/snapshots/"));
+        QVERIFY2(IncrementalRestore::listSnapshotCandidates(f.provider, f.set.remoteRoot, request.scan.setId,
+            &copies, &f.error, {}, IncrementalWorker::root(f.set)), qPrintable(f.error));
+        QCOMPARE(copies.size(), 1);
+        QVERIFY2(IncrementalRestore::discover(f.provider, f.set.remoteRoot, &copies, &f.error), qPrintable(f.error));
+        QCOMPARE(copies.size(), 1);
+        QCOMPARE(copies.first().entries.size(), 2);
     }
 
     void incompleteScanDoesNotPublish()
@@ -381,8 +409,9 @@ private slots:
         QVERIFY2(f.run(!scheduled), qPrintable(f.error));
         const auto first = *f.runs.find(f.set.id);
         QCOMPARE(first.incremental.value("outcome").toString(), QString("saved"));
-        QVERIFY(first.remoteCopyPath.contains("/sets/"));
-        if (named) QVERIFY(first.remoteCopyPath.contains("/sets/My documents/snapshots/"));
+        QVERIFY(first.remoteCopyPath.startsWith(IncrementalWorker::root(f.set) + "/snapshots/"));
+        QVERIFY(!first.remoteCopyPath.contains("/sets/"));
+        if (named) QVERIFY(first.remoteCopyPath.contains("/My documents/snapshots/"));
         QVERIFY(!first.incremental.value("capacity_warning").toString().isEmpty());
         const auto transfers = bytes(f.directory.filePath("transfers.jsonl"));
         QVERIFY2(f.run(), qPrintable(f.error));
@@ -494,8 +523,14 @@ private slots:
         QCOMPARE(info.version, 3);
         QVERIFY(QFile::exists(f.directory.filePath("remote") + oldest + "/manifest.json"));
         QVERIFY(f.runs.find(f.set.id)->incremental.value("cleanup_needs_attention").toBool());
+        // Legacy full copies already occupy the desired folder. Do not silently
+        // adopt that folder as an incremental repository; select a fresh name.
+        f.set.repositoryFolder = "Fresh documents";
+        BackupConfig config; QVERIFY(BackupConfigStore(f.configPath).load(&config, &f.error));
+        config.sets = {f.set};
+        QVERIFY(BackupConfigStore(f.configPath).save(config, &f.error));
         QVERIFY2(f.run(), qPrintable(f.error));
-        QVERIFY(f.runs.find(f.set.id)->remoteCopyPath.contains("/sets/"));
+        QVERIFY(f.runs.find(f.set.id)->remoteCopyPath.startsWith(IncrementalWorker::root(f.set) + "/snapshots/"));
         QVERIFY(QFile::exists(f.directory.filePath("remote") + oldest + "/manifest.json"));
         QVERIFY(QFile::exists(f.directory.filePath("remote") + unfinished + "/manifest.json"));
     }

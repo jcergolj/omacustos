@@ -7,7 +7,7 @@
 enum class IncrementalControl { Continue, Pause, Cancel };
 
 struct IncrementalWriteRequest {
-    QString remoteSetRoot; // Exact .../sets/<fixed folder name or legacy UUID>, never a legacy copy folder.
+    QString remoteSetRoot; // Exact .../<computer>/<backup set folder> repository root.
     QString computerId;
     QString originComputerId;
     qint64 ownershipEpoch = 1;

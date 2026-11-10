@@ -69,13 +69,40 @@ bool anchor(BackupProvider &provider, const QString &root, const QString &setId,
 {
     return read(provider, root + "/repository.json", object, error) && validateAnchor(*object, setId, error);
 }
+
+// Repositories live under a computer name. Also recognize the previous sets/
+// namespace when browsing a destination that still contains older backups.
+bool repositoryFolders(BackupProvider &provider, const QString &remoteRoot,
+    QVector<RemoteItem> *repositories, QString *error, const std::function<bool()> &cancelled = {})
+{
+    QVector<RemoteItem> computers;
+    if (!children(provider, remoteRoot, &computers, error)) return false;
+    for (const auto &computer : computers) {
+        if (cancelled && cancelled()) return false;
+        if (!computer.directory) continue;
+        QVector<RemoteItem> folders;
+        if (!children(provider, computer.path, &folders, error)) return false;
+        for (const auto &folder : folders) {
+            if (cancelled && cancelled()) return false;
+            if (!folder.directory || !BackupSet::validFolderName(folder.name)) {
+                if (computer.name == "sets") return fail(error, "Unexpected repository namespace entry.");
+                continue;
+            }
+            const auto presence = provider.lookup(folder.path + "/repository.json", error);
+            if (presence == RemoteLookup::Unknown) return false;
+            if (presence == RemoteLookup::Found) repositories->append(folder);
+            else if (computer.name == "sets") return fail(error, "Missing repository identity.");
+        }
+    }
+    return true;
+}
 }
 
 bool IncrementalRestore::snapshotLocation(const QString &root, QString *setRoot, QString *setId, QString *snapshotId)
 {
     const auto parts = root.split('/');
     if (root != QDir::cleanPath(root) || root.contains('\\') || root.contains(QChar::Null)
-        || parts.contains("..") || parts.size() < 4 || parts.at(parts.size() - 4) != "sets"
+        || parts.contains("..") || parts.size() < 4 || !BackupSet::validFolderName(parts.at(parts.size() - 4))
         || parts.at(parts.size() - 2) != "snapshots"
         || !BackupSet::validFolderName(parts.at(parts.size() - 3)) || !IncrementalManifest::validId(parts.last())) return false;
     *setId = IncrementalManifest::validId(parts.at(parts.size() - 3)) ? parts.at(parts.size() - 3) : QString();
@@ -181,21 +208,41 @@ bool IncrementalRestore::describeCopy(BackupProvider &provider, const QString &r
 }
 
 static bool snapshotFolders(BackupProvider &provider, const QString &remoteRoot, const QString &setId,
-    QString *setRoot, QVector<RemoteItem> *snapshots, QString *error, const std::function<bool()> &cancelled)
+    QString *setRoot, QVector<RemoteItem> *snapshots, QString *error, const std::function<bool()> &cancelled,
+    const QString &preferredRoot = {})
 {
     if (remoteRoot.trimmed().isEmpty() || remoteRoot != QDir::cleanPath(remoteRoot)
         || remoteRoot.split('/').contains("..") || remoteRoot.contains('\\') || remoteRoot.contains(QChar::Null)
         || !IncrementalManifest::validId(setId)) return fail(error, "An exact remote root and shared set ID are required.");
     if (cancelled && cancelled()) return false;
+    if (!preferredRoot.isEmpty()) {
+        if (preferredRoot != QDir::cleanPath(preferredRoot) || !preferredRoot.startsWith(remoteRoot + '/')
+            || preferredRoot.split('/').contains("..") || preferredRoot.contains('\\') || preferredRoot.contains(QChar::Null))
+            return fail(error, "Invalid preferred repository root.");
+        QString preferredError;
+        if (children(provider, preferredRoot + "/snapshots", snapshots, &preferredError)) {
+            for (const auto &snapshot : *snapshots)
+                if (!snapshot.directory || !IncrementalManifest::validId(snapshot.name))
+                    return fail(error, "Unexpected snapshot namespace entry.");
+            *setRoot = preferredRoot;
+            return true;
+        }
+        const auto computerPresence = provider.lookup(QFileInfo(preferredRoot).path(), &preferredError);
+        if (computerPresence == RemoteLookup::Unknown
+            || (computerPresence == RemoteLookup::Found && provider.lookup(preferredRoot, &preferredError) != RemoteLookup::Missing))
+            return fail(error, preferredError);
+    }
     *setRoot = QDir(remoteRoot).filePath("sets/" + setId);
     // Keep the historical one-listing browse path. Only discover named folders
     // after confirming that the UUID namespace really is absent, not on I/O errors.
     if (!children(provider, *setRoot + "/snapshots", snapshots, error)) {
-        const auto presence = provider.lookup(*setRoot, error);
+        const auto oldNamespace = provider.lookup(QDir(remoteRoot).filePath("sets"), error);
+        if (oldNamespace == RemoteLookup::Unknown) return false;
+        const auto presence = oldNamespace == RemoteLookup::Missing ? RemoteLookup::Missing : provider.lookup(*setRoot, error);
         if (presence != RemoteLookup::Missing) return false;
         if (error) error->clear();
         QVector<RemoteItem> repositories;
-        if (!children(provider, QDir(remoteRoot).filePath("sets"), &repositories, error)) return false;
+        if (!repositoryFolders(provider, remoteRoot, &repositories, error, cancelled)) return false;
         QString match;
         for (const auto &repository : repositories) {
             if (cancelled && cancelled()) return false;
@@ -221,13 +268,13 @@ static bool snapshotFolders(BackupProvider &provider, const QString &remoteRoot,
 }
 
 bool IncrementalRestore::listSnapshotCandidates(BackupProvider &provider, const QString &remoteRoot, const QString &setId,
-    QVector<RemoteCopy> *copies, QString *error, const std::function<bool()> &cancelled)
+    QVector<RemoteCopy> *copies, QString *error, const std::function<bool()> &cancelled, const QString &preferredRoot)
 {
     if (!copies) return fail(error, "A destination for snapshot candidates is required.");
     copies->clear();
     QString setRoot;
     QVector<RemoteItem> snapshots;
-    if (!snapshotFolders(provider, remoteRoot, setId, &setRoot, &snapshots, error, cancelled)) return false;
+    if (!snapshotFolders(provider, remoteRoot, setId, &setRoot, &snapshots, error, cancelled, preferredRoot)) return false;
     for (const auto &snapshot : snapshots) {
         if (cancelled && cancelled()) { copies->clear(); return false; }
         // Cleanup removes manifests, not shared namespaces. A proven absent
@@ -287,9 +334,8 @@ bool IncrementalRestore::discover(BackupProvider &provider, const QString &remot
         || remoteRoot.split('/').contains("..") || remoteRoot.contains('\\') || remoteRoot.contains(QChar::Null))
         return fail(error, "An exact remote discovery root is required.");
     copies->clear();
-    const QString sets = QDir(remoteRoot).filePath("sets");
     QVector<RemoteItem> repositories;
-    if (!children(provider, sets, &repositories, error)) return false;
+    if (!repositoryFolders(provider, remoteRoot, &repositories, error)) return false;
     for (const auto &repository : repositories) {
         if (!repository.directory || !BackupSet::validFolderName(repository.name))
             return fail(error, "Unexpected repository namespace entry.");
