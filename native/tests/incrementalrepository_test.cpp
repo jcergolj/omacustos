@@ -188,6 +188,135 @@ QString errors(const IncrementalWriteResult &result)
 class IncrementalRepositoryTest : public QObject {
     Q_OBJECT
 private slots:
+    void automaticRetentionPreservesSharedArchives_data()
+    {
+        QTest::addColumn<int>("ageSeconds");
+        QTest::addColumn<bool>("expires");
+        QTest::newRow("younger than 72 hours") << 72 * 3600 - 1 << false;
+        QTest::newRow("exactly 72 hours") << 72 * 3600 << false;
+        QTest::newRow("older than 72 hours") << 72 * 3600 + 1 << true;
+    }
+
+    void automaticRetentionPreservesSharedArchives()
+    {
+        QFETCH(int, ageSeconds);
+        QFETCH(bool, expires);
+        Fixture f;
+        QString error;
+        QVERIFY(f.source("shared", "unchanged contents"));
+        QVERIFY(f.source("changed", "old contents"));
+        QVERIFY(f.initialize(&error));
+        QVERIFY(IncrementalRepository::execute(f.request, f.provider).success());
+        const auto old = f.request.snapshotId;
+        const auto oldTime = f.request.scan.checkedAt;
+        const auto sharedArchives = f.objectNames();
+        f.next();
+        f.request.scan.checkedAt = oldTime.addSecs(ageSeconds);
+        f.request.retention = 1; // Count must not evict recent states.
+        f.request.automaticRetention = true;
+        f.provider.allowDeletion = true;
+        QVERIFY(f.source("changed", "new contents"));
+        const auto saved = IncrementalRepository::execute(f.request, f.provider);
+        QVERIFY2(saved.success(), qPrintable(errors(saved)));
+        QVERIFY2(!saved.cleanupNeedsAttention, qPrintable(errors(saved)));
+        QCOMPARE(f.snapshot(old).isEmpty(), expires);
+        for (const auto &archive : sharedArchives) QVERIFY(f.objectNames().contains(archive));
+        RemoteCopy copy;
+        QVERIFY2(IncrementalRestore::verifyCopy(f.provider, saved.latestSnapshotPath, f.request.scan.setId, &copy, &error), qPrintable(error));
+        QCOMPARE(copy.entries.size(), 2);
+        BackupEngine engine;
+        const auto restored = engine.restoreFiles({copy.entries, f.directory.filePath("restored"), saved.latestSnapshotPath}, f.provider);
+        QVERIFY2(restored.success, qPrintable(restored.error));
+        QFile shared(f.directory.filePath("restored/shared"));
+        QVERIFY(shared.open(QIODevice::ReadOnly));
+        QCOMPARE(shared.readAll(), QByteArray("unchanged contents"));
+        QFile changed(f.directory.filePath("restored/changed"));
+        QVERIFY(changed.open(QIODevice::ReadOnly));
+        QCOMPARE(changed.readAll(), QByteArray("new contents"));
+    }
+
+    void automaticRetentionOnUnchangedCheckKeepsNewestAndRemovesUnusedData()
+    {
+        Fixture f;
+        QString error;
+        QVERIFY(f.source("a", "old contents"));
+        QVERIFY(f.initialize(&error));
+        QVERIFY(IncrementalRepository::execute(f.request, f.provider).success());
+        const auto old = f.request.snapshotId;
+        const auto oldObjects = f.objectNames();
+        f.next();
+        QVERIFY(f.source("a", "new contents"));
+        const auto saved = IncrementalRepository::execute(f.request, f.provider);
+        QVERIFY(saved.success());
+        const auto newest = f.request.snapshotId;
+        f.next();
+        f.request.scan.checkedAt = f.request.scan.checkedAt.addDays(4);
+        f.request.automaticRetention = true;
+        f.provider.allowDeletion = true;
+        const auto checked = IncrementalRepository::execute(f.request, f.provider);
+        QCOMPARE(checked.state, IncrementalWriteResult::State::Unchanged);
+        QVERIFY2(!checked.cleanupNeedsAttention, qPrintable(errors(checked)));
+        QVERIFY(f.snapshot(old).isEmpty());
+        QVERIFY(!f.snapshot(newest).isEmpty());
+        for (const auto &archive : oldObjects) QVERIFY(!f.objectNames().contains(archive));
+        RemoteCopy copy;
+        QVERIFY2(IncrementalRestore::verifyCopy(f.provider, saved.latestSnapshotPath, f.request.scan.setId, &copy, &error), qPrintable(error));
+        QCOMPARE(copy.entries.size(), 1);
+        f.next();
+        const auto repeated = IncrementalRepository::execute(f.request, f.provider);
+        QVERIFY2(repeated.success(), qPrintable(errors(repeated)));
+        QVERIFY2(!repeated.cleanupNeedsAttention, qPrintable(errors(repeated)));
+    }
+
+    void automaticRetentionFailureAndRecovery()
+    {
+        Fixture f;
+        QString error;
+        QVERIFY(f.source("a", "old"));
+        QVERIFY(f.initialize(&error));
+        QVERIFY(IncrementalRepository::execute(f.request, f.provider).success());
+        const auto old = f.request.snapshotId;
+        f.next();
+        f.request.scan.checkedAt = f.request.scan.checkedAt.addDays(4);
+        f.request.automaticRetention = true;
+        f.provider.allowDeletion = true;
+        QVERIFY(f.source("a", "new"));
+        f.provider.failUpload = ".tar.gz";
+        QVERIFY(!IncrementalRepository::execute(f.request, f.provider).success());
+        QCOMPARE(f.provider.destructiveCalls, 0);
+        QVERIFY(!f.snapshot(old).isEmpty());
+        f.provider.failUpload.clear();
+        f.request.checkpoint = [](const QString &phase) {
+            return phase == "cleanup-authorized" ? IncrementalControl::Pause : IncrementalControl::Continue;
+        };
+        const auto saved = IncrementalRepository::execute(f.request, f.provider);
+        QVERIFY2(saved.success(), qPrintable(errors(saved)));
+        QVERIFY(saved.cleanupNeedsAttention);
+        QCOMPARE(f.provider.destructiveCalls, 0);
+        f.request.checkpoint = {};
+        QVERIFY2(IncrementalRepository::recoverCleanup(f.request, f.provider, &error), qPrintable(error));
+        QVERIFY(f.snapshot(old).isEmpty());
+        QVERIFY(!f.snapshot(f.request.snapshotId).isEmpty());
+    }
+
+    void automaticRetentionIncludesLegacyHistory()
+    {
+        Fixture f;
+        QString error;
+        QVERIFY(f.source("a", "contents"));
+        QVERIFY(f.initialize(&error));
+        QVERIFY(f.legacy("expired", 72 * 3600 + 1));
+        QVERIFY(f.legacy("recent", 3600));
+        f.request.automaticRetention = true;
+        f.provider.allowDeletion = true;
+        const auto saved = IncrementalRepository::execute(f.request, f.provider);
+        QVERIFY2(saved.success(), qPrintable(errors(saved)));
+        QVERIFY2(!saved.cleanupNeedsAttention, qPrintable(errors(saved)));
+        QVERIFY(!QFile::exists(f.directory.filePath("cloud/legacy/Documents/expired/manifest.json")));
+        QVERIFY(QFile::exists(f.directory.filePath("cloud/legacy/Documents/recent/manifest.json")));
+        QVERIFY(!f.snapshot(f.request.snapshotId).isEmpty());
+    }
+
     void deleteSelectedVersions_data()
     {
         QTest::addColumn<bool>("all");

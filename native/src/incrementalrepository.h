@@ -20,6 +20,7 @@ struct IncrementalWriteRequest {
     qint64 archiveTargetBytes = 1000 * 1000 * 1000;
     int batchFileLimit = 1000;
     int retention = 0; // Zero disables cleanup; positive values keep newest N saved states.
+    bool automaticRetention = false; // Expire states older than 72 hours, preserving the newest.
     QString legacyRoot; // Optional exact legacy set folder; never a shared repository.
     QString legacySetId; // Historical non-UUID config ID; exact manifests still enter the proposal.
     QStringList legacyRoots; // Additional exact private-copy namespaces discovered before provisioning.

@@ -301,8 +301,7 @@ Frame {
         }
         Label {
             objectName: "setCopyPolicy-" + card.cardIndex
-            text: card.info.retention === 1 ? qsTr("Retention: keep 1 successful copy. Restore lets you choose an available copy.")
-                : qsTr("Retention: keep %1 successful copies. Restore lets you choose an available copy.").arg(card.info.retention || 3)
+            text: qsTr("Automatic cleanup: delete copies older than 72 hours; always keep the newest copy and its required data.")
             font.pixelSize: card.style.metadataTypeSize
             color: card.style.mutedColor
             wrapMode: Text.WordWrap

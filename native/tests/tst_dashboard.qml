@@ -227,7 +227,7 @@ TestCase {
         verify(second.y >= first.y + first.height + sets.spacing)
         compare(control("setSchedule-0").text, "Daily at 02:00")
         compare(control("setSources-0").text, "3 sources")
-        verify(control("setCopyPolicy-0").text.indexOf("keep 3 successful copies") >= 0)
+        verify(control("setCopyPolicy-0").text.indexOf("older than 72 hours") >= 0)
         sets.positionViewAtBeginning()
         waitForRendering(app.contentItem)
         if (dashboardScreenshotPath.length > 0) {

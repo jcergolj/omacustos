@@ -257,6 +257,7 @@ IncrementalWriteResult IncrementalWorker::run(const BackupSet &set, IncrementalW
     request.checkpoint = control;
     request.cleanupConfirmation.clear();
     request.cleanupDismissal.clear();
+    request.automaticRetention = true;
     QString cleanupError;
     if (!IncrementalRepository::recoverCleanup(request, provider, &cleanupError)) {
         IncrementalWriteResult failed;
@@ -345,17 +346,6 @@ IncrementalWriteResult IncrementalWorker::run(const BackupSet &set, IncrementalW
         if (warning) warning(capacity);
     }
     auto result = IncrementalRepository::execute(request, provider);
-    if (!result.cleanupProposal.isEmpty() && !result.cleanupConfirmation.isEmpty()) {
-        // Scheduled runs may present attention, never grant deletion authority.
-        // Retire their unapproved preview so a deferred human review does not
-        // prevent subsequent backups. The UI obtains a fresh exact proposal.
-        auto dismissal = request;
-        dismissal.cleanupDismissal = result.cleanupConfirmation;
-        QString error, digest;
-        QJsonObject proposal;
-        if (!IncrementalRepository::cleanup(dismissal, provider, &proposal, &digest, &error))
-            result.issues.append({request.remoteSetRoot, "cleanup", "Unapproved cleanup preview needs reconciliation: " + error});
-    }
     result.capacityWarning = capacity;
     return result;
 }

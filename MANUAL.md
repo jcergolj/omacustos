@@ -557,11 +557,15 @@ folder belonging to another backup is never merged or overwritten by name.
 ## Daily operation
 
 - Use **Preview** before a first backup or after changing sources and exclusions.
-- The default retention proposal keeps the newest three saved states across
-  supported formats. Unchanged checks do not count as saved states.
+- After successful manual or scheduled backups, including unchanged checks,
+  copies older than 72 hours are deleted automatically across supported formats.
+  The newest copy is always kept, even if older than three days. Shared archives
+  needed by any retained incremental snapshot are never deleted.
+- Cleanup runs with successful backups, not on a separate timer. Integrity or
+  ownership problems can block deletion.
 - Failed or incomplete runs do not remove older successful copies.
-- Every cleanup proposal requires individual exact-scope confirmation. Scheduled
-  runs never authorize their own deletion. A changed scope requires a new review;
+- Additional manual cleanup uses the configured copy count (three by default)
+  and requires individual exact-scope confirmation. A changed scope requires a new review;
   cancelling or losing a preview does not grant authority. Already-authorized
   interrupted cleanup resumes only that durable scope.
 - To stop scheduling without uninstalling:

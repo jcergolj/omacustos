@@ -373,7 +373,10 @@ bool validCleanupProposal(const QJsonObject &proposal, const IncrementalWriteReq
     originalOwner.ownershipEpoch = owner.value("ownership_epoch").toInteger(0);
     const bool individual = proposal.contains("selected_snapshot");
     const bool multiple = proposal.contains("selected_snapshots");
-    if ((individual && multiple) || proposal.size() != (individual || multiple ? 12 : 11) || proposal.value("version") != QJsonValue(1)
+    const bool aged = proposal.contains("retention_hours");
+    if ((individual && multiple) || (aged && (individual || multiple || proposal.value("retention_hours") != QJsonValue(72)
+            || proposal.value("retention") != QJsonValue(1)))
+        || proposal.size() != (individual || multiple || aged ? 12 : 11) || proposal.value("version") != QJsonValue(1)
         || !IncrementalManifest::validId(originalOwner.computerId) || originalOwner.ownershipEpoch < 1
         || originalOwner.ownershipEpoch > request.ownershipEpoch || proposal.value("anchor") != anchor(originalOwner)
         || (originalOwner.ownershipEpoch == request.ownershipEpoch && originalOwner.computerId != request.computerId)
@@ -1656,8 +1659,10 @@ bool terminalOperations(Store &store, BackupProvider &provider, const Incrementa
             if (!store.get(root + "/complete.json", &terminal)
                 || !validCompletion(terminal, id, identity.value("snapshot_id").toString(), &store.error)
                 || !completionMatchesHistory(terminal, history, &store.error)) return false;
-            if (id == request.operationId && terminal.value("state") == "saved"
-                && terminal.value("snapshot_id") == request.snapshotId) *successfulPublication = true;
+            if (id == request.operationId
+                && ((terminal.value("state") == "saved" && terminal.value("snapshot_id") == request.snapshotId)
+                    || (request.automaticRetention && terminal.value("state") == "unchanged"
+                        && history.contains(terminal.value("snapshot_id").toString())))) *successfulPublication = true;
         } else if (!store.get(root + "/cancelled.json", &terminal)
             || terminal != QJsonObject{{"version", 1}, {"operation_id", id}, {"state", "cancelled"}}) {
             store.error = "Invalid cancellation record."; return false;
@@ -1787,6 +1792,7 @@ bool IncrementalRepository::cleanup(const IncrementalWriteRequest &request, Back
     auto history = retired;
     for (auto it = inventory.snapshots.cbegin(); it != inventory.snapshots.cend(); ++it) history.insert(it.key(), it.value());
     QJsonObject proposal;
+    bool automaticProposal = false;
     if (!active.isEmpty()) {
         if (!store.get("maintenance/" + active + "/proposal.json", &proposal)) return failed();
         for (const auto &value : proposal.value("snapshots").toArray()) {
@@ -1811,8 +1817,9 @@ bool IncrementalRepository::cleanup(const IncrementalWriteRequest &request, Back
             selected.insert(id);
         }
         if (!individual
-            && (request.retention < 1 || !saved || !inventory.snapshots.contains(request.snapshotId))) {
-            *error = "Cleanup requires a durably successful saved publication and positive retention."; return false;
+            && ((!request.automaticRetention && request.retention < 1) || !saved
+                || (!request.automaticRetention && !inventory.snapshots.contains(request.snapshotId)))) {
+            *error = "Cleanup requires a durably successful backup and an enabled retention policy."; return false;
         }
         if (!individual && !legacyInventory(store, provider, request, &inventory.legacy)) return failed();
         QStringList objectsPresent;
@@ -1845,8 +1852,12 @@ bool IncrementalRepository::cleanup(const IncrementalWriteRequest &request, Back
         QJsonArray expired, legacy;
         QSet<QString> retainedObjects;
         QSet<QString> retainedMembers;
+        const auto cutoff = request.scan.checkedAt.toUTC().addSecs(-72 * 60 * 60);
         for (qsizetype i = 0; i < states.size(); ++i) {
-            if (individual ? selected.contains(states[i].identity) : i >= request.retention) {
+            const bool expiredByPolicy = request.automaticRetention
+                ? i > 0 && QDateTime::fromString(states[i].time, Qt::ISODateWithMs) < cutoff
+                : i >= request.retention;
+            if (individual ? selected.contains(states[i].identity) : expiredByPolicy) {
                 if (!states[i].snapshot.isEmpty()) expired.append(states[i].snapshot);
                 else legacy.append(states[i].legacy);
             } else {
@@ -1901,6 +1912,11 @@ bool IncrementalRepository::cleanup(const IncrementalWriteRequest &request, Back
                 proposal["selected_snapshots"] = QJsonArray::fromStringList(selectedIds);
             }
         }
+        if (request.automaticRetention && !individual) {
+            proposal["retention"] = 1;
+            proposal["retention_hours"] = 72;
+            automaticProposal = true;
+        }
         if (!validCleanupProposal(proposal, request, &store.error)
             || !store.local("cleanup-" + active + ".json", proposal)
             || !store.put("maintenance/" + active + "/proposal.json", proposal)) return failed();
@@ -1929,7 +1945,9 @@ bool IncrementalRepository::cleanup(const IncrementalWriteRequest &request, Back
             *error = "Saved versions changed. Review a fresh exact deletion proposal.";
             return false;
         }
-        if (request.cleanupConfirmation != hash) {
+        // Only a fresh scope computed above can use the automatic age policy.
+        // Existing unapproved previews still require exact confirmation.
+        if (!automaticProposal && request.cleanupConfirmation != hash) {
             *error = "Review the exact cleanup proposal and confirm its SHA-256 before deletion."; return false;
         }
         if (!store.local("cleanup-" + active + ".json", proposal) || !store.put(root + "/authorized.json", receipt)) return failed();
@@ -2068,11 +2086,15 @@ IncrementalWriteResult IncrementalRepository::execute(const IncrementalWriteRequ
         result.cleanupNeedsAttention = true;
         result.issues.append({request.remoteSetRoot, "integrity", "Full integrity maintenance is incomplete; cleanup is blocked. " + integrity.value("error").toString()});
     }
-    if (result.state == IncrementalWriteResult::State::Saved && request.retention > 0) {
+    if ((result.state == IncrementalWriteResult::State::Saved && request.retention > 0)
+        || (result.success() && request.automaticRetention)) {
         QString error;
         if (!cleanup(request, provider, &result.cleanupProposal, &result.cleanupConfirmation, &error)) {
             result.cleanupNeedsAttention = true;
             result.issues.append({request.remoteSetRoot, "cleanup", "Backup saved; cleanup needs attention: " + error});
+        } else if (request.automaticRetention) {
+            result.cleanupProposal = {};
+            result.cleanupConfirmation.clear();
         }
     }
     return result;

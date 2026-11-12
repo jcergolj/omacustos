@@ -85,9 +85,10 @@ Example: Projects
 | Files added or changed | New contents; unchanged data is reused. Changed files upload whole. |
 | Nothing changed | **Successful check; no saved change** — no new restore point. |
 
-The default location is `/my-files/backups` in Proton Drive. The default history
-policy keeps the latest **three saved states**, but extra history is not removed
-until you [approve cleanup](#7-manage-history-and-free-space).
+The default location is `/my-files/backups` in Proton Drive. After each successful
+manual or scheduled backup (including unchanged checks), copies older than **72
+hours** are deleted automatically. The **newest copy is always kept**, even when
+older than three days. Archives needed by any retained incremental copy are kept.
 
 ## 3. Restore your files
 
@@ -222,8 +223,9 @@ limits and handling damaged history.
 
 ## 7. Manage history and free space
 
-Open **card ⋯ → Manage saved backups…**. This is the single place to delete saved
-backups or review suggested cleanup.
+Copies older than 72 hours are cleaned up after successful backup runs, preserving
+the newest copy. Cleanup does not run independently when no backup runs occur.
+Open **card ⋯ → Manage saved backups…** for additional manual deletion or cleanup.
 
 ### Delete selected backups
 
@@ -247,11 +249,11 @@ older backup first; keep a safe local copy of your files.
 ### Suggested cleanup
 
 Inside **Manage saved backups…**, press **Review suggested cleanup…** to review
-older backups outside your retention policy and unused data. It uses the same
-confirmation step; schedules never approve deletion for you.
+older backups outside the manual copy-count policy and unused data. This optional
+manual cleanup still requires confirmation; automatic 72-hour cleanup does not.
 
 ```text
-Retention policy → Cleanup proposal → Your confirmation → Delete approved scope
+Manual cleanup → Cleanup proposal → Your confirmation → Delete approved scope
                                       ↑
                           No confirmation = no deletion
 ```
@@ -259,7 +261,8 @@ Retention policy → Cleanup proposal → Your confirmation → Delete approved 
 - Saved states share archives. **Do not manually delete individual archives** in
   Proton Drive: more than one restore point may need them.
 - Failed or incomplete runs do not evict older successful copies.
-- Scheduled runs never approve cleanup themselves. Changed proposals need a new review.
+- Automatic cleanup preserves the newest copy and all shared data referenced by retained copies.
+- Manual deletion proposals require confirmation. Changed manual proposals need a new review.
 - Unfinished integrity coverage or damaged/unknown health can block cleanup.
 - Deleting some old states may not free much space: partly used archives are kept
   whole, not compacted.

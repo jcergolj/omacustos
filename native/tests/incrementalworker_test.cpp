@@ -346,7 +346,7 @@ private slots:
             const auto saved = IncrementalWorker::run(f.set, next, f.provider);
             latest = next;
             QVERIFY2(saved.success(), saved.issues.isEmpty() ? "save failed" : qPrintable(saved.issues.first().reason));
-            QVERIFY(saved.cleanupNeedsAttention);
+            QVERIFY(!saved.cleanupNeedsAttention); // Recent copies survive regardless of count.
         }
         QVERIFY(QFile::exists(f.directory.filePath("remote/") + original.latestSnapshotPath + "/manifest.json"));
         QJsonObject proposal;
@@ -358,6 +358,15 @@ private slots:
         const auto recovered = IncrementalWorker::run(f.set, restarted, f.provider);
         QVERIFY2(recovered.success(), recovered.issues.isEmpty() ? "recovery failed" : qPrintable(recovered.issues.first().reason));
         QVERIFY(QFile::exists(f.directory.filePath("remote/") + original.latestSnapshotPath + "/manifest.json"));
+        IncrementalWriteRequest aged; QVERIFY2(f.request(&aged), qPrintable(f.error));
+        aged.scan.checkedAt = aged.scan.checkedAt.addDays(4);
+        const auto checked = IncrementalWorker::run(f.set, aged, f.provider);
+        QCOMPARE(checked.state, IncrementalWriteResult::State::Unchanged);
+        QVERIFY(!checked.cleanupNeedsAttention);
+        QVERIFY(!QFile::exists(f.directory.filePath("remote/") + original.latestSnapshotPath + "/manifest.json"));
+        RemoteCopy retained;
+        QVERIFY2(IncrementalRestore::verifyCopy(f.provider, recovered.latestSnapshotPath, aged.scan.setId, &retained, &f.error), qPrintable(f.error));
+        QCOMPARE(retained.entries.size(), 2);
     }
 
     void authorizedCleanupRecoversWithoutExpandingScope()
@@ -632,7 +641,7 @@ private slots:
         Fixture f; QVERIFY(f.prepare()); f.set.retention = 1;
         QVERIFY(write(f.directory.filePath("source/nested/manifest.json"), "ordinary source document, not backup metadata"));
         const QString oldParent = version == 1 ? "backups/old-computer/Documents" : "backups/old-computer/Old-name";
-        const auto oldId = "20261019T100000000-old";
+        const auto oldId = QDateTime::currentDateTimeUtc().addDays(-1).toString("yyyyMMdd'T'HHmmsszzz") + "-old";
         const auto oldRoot = QString(oldParent) + '/' + oldId;
         BackupOptions options; options.freshCopy = true; options.boundedArchives = version == 3;
         options.stagingDirectory = f.set.stagingDirectory;
@@ -652,7 +661,7 @@ private slots:
         const auto saved = IncrementalWorker::run(f.set, request, f.provider);
         QVERIFY2(saved.success(), saved.issues.isEmpty() ? "save failed" : qPrintable(saved.issues.first().reason));
         QCOMPARE(saved.savedFiles, 3);
-        QVERIFY(saved.cleanupNeedsAttention);
+        QVERIFY(!saved.cleanupNeedsAttention); // One-day-old legacy copies are retained automatically.
         QVERIFY(QFile::exists(f.directory.filePath("remote/") + oldRoot + "/manifest.json"));
         BackupRestoreController browser(engine, &f.provider);
         browser.discover(f.set.remoteRoot, f.set.id, true, "Documents");

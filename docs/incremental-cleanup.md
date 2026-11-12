@@ -17,7 +17,14 @@ rather than a misleading partial total.
 
 **Review suggested cleanup…**, inside the same screen, proposes retention-based
 removal and unused data instead of a manual selection. It requires the same exact
-confirmation. Failed, incomplete, or scheduled backups never authorize deletion.
+confirmation. Failed or incomplete backups never authorize deletion.
+
+Normal manual and scheduled backup runs automatically expire copies older than
+72 hours after a successful save or unchanged check. They always preserve the
+newest saved copy, even if it is older than 72 hours, and the union of archives
+referenced by every retained snapshot. A partially live archive is kept whole.
+This policy applies to all writable sets; it does not run on a separate timer.
+Integrity, ownership and unfinished-operation checks still block unsafe cleanup.
 
 For an accidentally included large file, exclude it and save a new backup first,
 then delete older versions containing it. If Proton Drive is already full, you may
@@ -49,7 +56,8 @@ name/UID/parent-validated ancestor listing; download errors, unreadable listings
 UID aliases and identity mismatches are never treated as absence. Required
 repository inventories and exact deletion targets retain their strict checks.
 
-Only a verified, durably completed **saved** publication can start a retention proposal.
+Manual newest-N retention requires a verified, durably completed **saved** publication.
+Normal-worker age retention also accepts a durably completed unchanged check.
 Unchanged checks publish no snapshot and consume no slot. Failed uploads, quota
 errors, and incomplete backups cannot start retention. No history is removed to
 make upload space automatically. An explicit user selection can delete saved
@@ -70,9 +78,11 @@ build/omacustos-incremental --request request.json \
   --acknowledge-single-writer --cleanup
 ```
 
-`--cleanup` plans/retries cleanup without rerunning the writer. A fresh scope needs
-a fresh confirmation; this implementation deliberately requires exact confirmation
-for **every** proposal rather than granting an open-ended deletion policy. Once
+`--cleanup` plans/retries cleanup without rerunning the writer. Manual scopes need
+fresh exact confirmation. Normal-worker age cleanup instead authorizes only the
+freshly computed scope, recorded with `retention_hours: 72` and `retention: 1` (the
+minimum preserved copy). It never auto-approves an existing unapproved proposal.
+Once
 authorization is persisted, retry needs no new confirmation for the same bytes.
 Never pass a proposal from another set/root/owner. An unapproved preview grants no
 deletion authority and does not block scheduled backups. Changed history requires

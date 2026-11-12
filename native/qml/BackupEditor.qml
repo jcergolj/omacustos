@@ -565,9 +565,15 @@ ScrollView {
                     Layout.fillWidth: true
                 }
 
+                Label {
+                    text: qsTr("After successful backups, copies older than 72 hours are deleted automatically. The newest copy and all data needed by retained copies are kept.")
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
+
                 RowLayout {
                     Label {
-                        text: qsTr("Successful copies to keep")
+                        text: qsTr("Manual suggested cleanup: copies to keep")
                         font.pixelSize: editor.style.bodyTypeSize
                     }
 
